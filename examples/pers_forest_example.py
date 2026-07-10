@@ -1,156 +1,137 @@
-# %% 
-import pandas as pd
-import numpy as np
+"""Runnable quickstart for the persforest package.
+
+For a guided walkthrough, use the notebooks in examples/tutorials/.
+This script is intentionally compact: it builds one forest, shows the main
+plots, extracts cycle representatives, and computes measurement landscapes.
+"""
+
 import matplotlib.pyplot as plt
-import gudhi as gd
+import numpy as np
 
-# %%
-# Import PersistenceForest class
-# PersistenceForest contains methods for plotting barcodes, cycle representatives, and measurement landscapes.
-# This is the central class of the persforest package.
 from persforest import PersistenceForest
-
-
-# %%
-#generate example point cloud
-rng = np.random.default_rng(35)
-num_points=300
-points = rng.uniform(low=0.0, high=2*np.pi, size=num_points)
-points = np.sqrt(np.abs(np.cos(1.5*points))+.1)[:,None] * np.column_stack((np.cos(points), np.sin(points))) + rng.normal(scale=0.05, size=(num_points,2))
-
-plt.figure(figsize=(6,6))
-plt.scatter( points[:,0], points[:,1], s = 3)
-plt.axis('equal')
-
-# %%
-# Compute PersistenceForest object from point cloud
-pers_forest = PersistenceForest(points)
-
-# %%
-# Plot barcode in codimension 1 with bars colored according to the forest structure
-pers_forest.plot_barcode(min_bar_length=0.01, coloring = "forest")
-
-# %%
-# Plot point cloud and active cycles at different filtration values
-pers_forest.plot_at_filtration(0.2)
-pers_forest.plot_at_filtration(0.6)
-pers_forest.plot_at_filtration(0.7)
-
-
-# %%
-#This cell showcases cycle representative extraction and plotting
-
-# Plot barcode and cycle representatives at relative position 0.1 in the barcode with arbitrarily colored bars
-pers_forest.plot_barcode(coloring="bars", sort = "birth", min_bar_length=0.01)
-pers_forest.plot_barcode_cycle_reps(relative_position=0.1, min_bar_length=0.05, figsize=(6,6), coloring="bars", linewidth_cycle=2)
-
-# extract cycle representatives at relative position 0.1
-# List[SignedChain], each SignedChain represents a cycle in the forest
-cycle_reps = pers_forest.barcode_cycle_reps(relative_position=0.1, min_bar_length=0.05)
-
-#transform cycle representatives from chain to list of vertex coordinates
-#forgets edge information, only keeps vertex coordinates
-cycle_reps_vertex_coords = [cycle.vertex_coordinates(point_cloud=pers_forest.point_cloud) for cycle in cycle_reps]
-
-print('Example of vertex cycle representatives coordinates')
-print(cycle_reps_vertex_coords)  #print first cycle representative as array of coordinates
-
-# %%
-# showcase of measurement landscape functionalities
-
-#import cycle functionals which map a (signed) cycle representative to a real number
-from persforest.cycle_rep_vectorisations import signed_chain_edge_length, constant_one_functional,signed_chain_excess_curvature
-
-#compute measurement landscapes
-# By default (cache=True), landscapes are saved on the PersistenceForest object with the given label.
-# Landscapes can be plotted from the PersistenceForest object with the chosen label.
-pers_forest.compute_measurement_landscapes(
-    cycle_func=signed_chain_edge_length,
-    max_k=6,
-    num_grid_points=1000,
-    label="length",
-    cache=True,
-    cache_functionals=True,
+from persforest.cycle_rep_vectorisations import (
+    signed_chain_edge_length,
+    signed_chain_excess_curvature,
 )
 
-pers_forest.compute_measurement_landscapes(
-    cycle_func=constant_one_functional,
-    max_k=6,
-    num_grid_points=1000,
-    label="1",
-)
 
-pers_forest.compute_measurement_landscapes(
-    cycle_func=signed_chain_excess_curvature,
-    max_k=6,
-    num_grid_points=1000,
-    label="excess curvature",
-)
+def sample_noisy_star(
+    points_per_edge: int = 14,
+    inner_radius: float = 0.48,
+    outer_radius: float = 1.2,
+    noise: float = 0.02,
+    seed: int = 11,
+) -> np.ndarray:
+    """Sample points around a noisy star-shaped loop."""
+    rng = np.random.default_rng(seed)
+    angles = np.linspace(np.pi / 2, np.pi / 2 + 2.0 * np.pi, 10, endpoint=False)
+    radii = np.where(np.arange(10) % 2 == 0, outer_radius, inner_radius)
+    vertices = np.column_stack((radii * np.cos(angles), radii * np.sin(angles)))
 
-# Plot the different landscape families
-pers_forest.plot_measurement_landscapes(label='length', title = "Length Persistence Landscapes")
-pers_forest.plot_measurement_landscapes(label="1", title = "Regular Persistence Landscapes")
-pers_forest.plot_measurement_landscapes(label="excess curvature", title = "Excess Curvature Persistence Landscapes")
+    edge_points = []
+    for start, end in zip(vertices, np.roll(vertices, -1, axis=0)):
+        t = np.linspace(0.0, 1.0, points_per_edge, endpoint=False)[:, None]
+        edge_points.append((1.0 - t) * start + t * end)
 
-# %%
-print(pers_forest.landscape_families['length'])
-print(pers_forest.barcode_functionals['length'])
-
-# %%
-from persforest.cycle_rep_vectorisations import signed_chain_excess_connected_components, signed_chain_area, signed_chain_connected_components, signed_chain_connected_components, signed_chain_excess_connected_components
-
-# New point cloud example
-double_edge_cloud = np.loadtxt("../point_cloud_csvs/signed_chain_example.csv",  delimiter=",", skiprows=1) * 100
-double_edge_forest = PersistenceForest( point_cloud=double_edge_cloud )
-
-double_edge_forest.plot_at_filtration(15,style_2d={"show_orientation_arrows": True})
+    points = np.vstack(edge_points)
+    return points + rng.normal(scale=noise, size=points.shape)
 
 
-# %%
-# Showcase of signed vs unsigned chains
-double_edge_forest.compute_measurement_landscapes(
-    cycle_func=signed_chain_connected_components,
-    max_k=6,
-    num_grid_points=1000,
-    label="signed components",
-)
+def main() -> None:
+    points = sample_noisy_star()
+    forest = PersistenceForest(points)
 
-double_edge_forest.compute_measurement_landscapes(
-    cycle_func=signed_chain_excess_connected_components,
-    max_k=6,
-    num_grid_points=1000,
-    label="signed excess components",)
+    print(f"Built a {forest.dim}D PersistenceForest with {len(forest.barcode)} bars.")
 
-double_edge_forest.compute_measurement_landscapes(
-    cycle_func=signed_chain_connected_components,
-    max_k=6,
-    num_grid_points=1000,
-    label="unsigned components",
-    signed=False)    #signed is True by default, set signed=False for unsigned versions
+    fig, ax = plt.subplots(figsize=(4, 4))
+    ax.scatter(points[:, 0], points[:, 1], s=9, color="black")
+    ax.set_aspect("equal")
+    ax.set_title("Input point cloud")
 
-double_edge_forest.compute_measurement_landscapes(
-    cycle_func=signed_chain_excess_connected_components,
-    max_k=6,
-    num_grid_points=1000,
-    label="unsigned excess components",
-    signed=False)   
+    fig, ax = plt.subplots(figsize=(6, 3))
+    forest.plot_barcode(
+        ax=ax,
+        min_bar_length=0.01,
+        coloring="forest",
+        bar_width=3,
+        title="Barcode",
+    )
 
-double_edge_forest.plot_landscape_comparison_between_functionals(labels=["signed components", "unsigned components"] )
-double_edge_forest.plot_landscape_comparison_between_functionals(labels=["signed excess components", "unsigned excess components"] )
+    fig, axes = plt.subplots(1, 2, figsize=(8, 4))
+    for ax, filt_val in zip(axes, [0.35, 0.75]):
+        forest.plot_at_filtration(
+            filt_val,
+            ax=ax,
+            min_bar_length=0.05,
+            coloring="bars",
+            vertex_size=7,
+            show=False,
+            title=f"filtration value {filt_val:g}",
+        )
+    plt.tight_layout()
+
+    forest.plot_barcode_cycle_reps(
+        relative_position=0.1,
+        min_bar_length=0.05,
+        coloring="bars",
+        linewidth_cycle=2.0,
+        vertex_size=7,
+        style_2d={"point_color": "0.15", "point_alpha": 0.75},
+        show=False,
+    )
+
+    cycle_reps = forest.barcode_cycle_reps(relative_position=0.1, min_bar_length=0.05)
+    print(f"Extracted {len(cycle_reps)} representative cycle(s).")
+    if cycle_reps:
+        first_rep_coords = cycle_reps[0].vertex_coordinates(
+            forest.point_cloud,
+            signed=False,
+        )
+        print(f"First representative touches {first_rep_coords.shape[0]} vertices.")
+
+    grid = np.linspace(0.0, 1.4, 200)
+    landscape_specs = [
+        ("edge length", signed_chain_edge_length),
+        ("excess curvature", signed_chain_excess_curvature),
+    ]
+
+    for label, cycle_func in landscape_specs:
+        forest.compute_measurement_landscapes(
+            cycle_func=cycle_func,
+            label=label,
+            max_k=3,
+            x_grid=grid,
+            min_bar_length=0.05,
+            cache=True,
+        )
+
+    fig, axes = plt.subplots(1, 2, figsize=(9, 3.5))
+    forest.plot_measurement_landscapes(
+        label="edge length",
+        ks=[1, 2, 3],
+        ax=axes[0],
+        title="Edge-length landscapes",
+        linewidth=2.0,
+        show=False,
+    )
+    forest.plot_measurement_landscapes(
+        label="excess curvature",
+        ks=[1, 2, 3],
+        ax=axes[1],
+        title="Excess-curvature landscapes",
+        linewidth=2.0,
+        show=False,
+    )
+    plt.tight_layout()
+
+    length_values = forest.landscape_families["edge length"].evaluate_on_grid(
+        grid,
+        levels=3,
+    )
+    print(f"Edge-length landscape feature array shape: {length_values.shape}")
+
+    plt.show()
 
 
-
-
-# %%
-# Sample landscapes on a fixed grid to get NumPy arrays.
-grid = np.linspace(0.0, 1.0, 64)
-length_family = pers_forest.compute_measurement_landscapes(
-    cycle_func=signed_chain_edge_length,
-    max_k=3,
-    x_grid=grid,
-    label="length-features",
-    cache=False,
-)
-values = length_family.evaluate_on_grid(grid, levels=3)
-
-# %%
+if __name__ == "__main__":
+    main()

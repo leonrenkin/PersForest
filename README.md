@@ -1,25 +1,27 @@
 # Persistence Forests and Measurement Landscapes
 
-Implementation accompanying the manuscript on persistent cycle progressions and measurement landscapes available at https://doi.org/10.48550/arXiv.2512.09668. The code is meant to be usable by anyone interested in experimenting with the algorithm and reproducing figures/benchmarks from the manuscript.
+Implementation accompanying the manuscript on persistent cycle progressions
+and measurement landscapes, available at
+https://doi.org/10.48550/arXiv.2512.09668.
 
 ## What this repo provides
 - `PersistenceForest` (primary entry point) builds the forest of optimal cycles for an alpha complex, together with barcodes and cycle representatives over the filtration.
 - Plotting and animation methods for cycle representatives and barcodes in codimension 1.
 - Measurement landscapes using cycle functionals such as length, enclosed area and excess curvature.
 - Beginner-friendly tutorial notebooks in `examples/tutorials/`.
-- End-to-end example in `pers_forest_example.py` showing forest construction, plotting and landscape computation.
-- Example for generating animations in `animation_tutorial.ipynb`.
-- Benchmark tooling in `benchmark.py` to reproduce runtime plots reported in the paper.
-- Paper figure notebook `paper-examples.ipy` was used to generate manuscript graphics.
+- Runnable script quickstart in `examples/pers_forest_example.py`.
 
 ## Installation
-Tested with Python 3.13.3.
+Requires Python `>=3.13,<3.14`.
+
 ```bash
 git clone https://github.com/leonrenkin/persforest.git
 cd persforest
 pip install .
 ```
+
 Optional extras:
+
 ```bash
 # Plotly-based 2D/3D interactive plotting
 pip install ".[plotly]"
@@ -29,6 +31,9 @@ pip install ".[notebook]"
 
 # GIF export via Pillow
 pip install ".[animation]"
+
+# Extra dependencies for regression/benchmark examples
+pip install ".[examples]"
 ```
 
 ## Quickstart
@@ -63,30 +68,39 @@ forest.plot_measurement_landscapes(label="edge-length")
 values = family.evaluate_on_grid(grid, levels=5)
 plt.show()
 ```
-Run the richer demo with:
+Run the script quickstart with:
 ```bash
 python examples/pers_forest_example.py
 ```
 
-For guided notebooks, start with `examples/tutorials/README.md`.
+## Tutorials
+For a guided introduction, start with `examples/tutorials/README.md`.
+The tutorial notebooks are intended to be read in this order:
+
+1. `examples/tutorials/01_visualizing_cycle_representatives.ipynb` - plot barcodes and cycle representatives in 2D and 3D.
+2. `examples/tutorials/02_extracting_cycle_representatives.ipynb` - extract representatives as simplices, coordinates and planar paths.
+3. `examples/tutorials/03_animating_cycle_representatives.ipynb` - create filtration and measurement animations.
+4. `examples/tutorials/04_measurement_landscapes.ipynb` - compute, plot and vectorize measurement landscapes.
 
 ## Measurement Landscapes
-- Define cycle functionals in `cycle_rep_vectorisations.py` (examples: edge length, area, connected components, signed/unsigned variants).
+- Define cycle functionals in `persforest/cycle_rep_vectorisations.py` (examples: edge length, area, connected components, signed/unsigned variants).
 - `forest.compute_measurement_landscapes(...)` builds families for one functional; `plot_landscape_comparison_between_functionals` contrasts multiple labels.
 - Use `family.evaluate_on_grid(grid, levels=max_k)` to sample landscape values numerically.
 
 ## Repository guide
-- `PersistenceForest.py` – forest construction, barcodes, plotting wrappers, measurement landscapes.
-- `forest_plotting.py` – shared plotting/animation utilities.
-- `forest_landscapes.py` – landscape computation and visualisation.
-- `cycle_rep_vectorisations.py` – cycle functionals.
-- `color_scheme.py` – consistent color palettes across plots.
-- `examples/tutorials/` – concise user tutorials for visualization, extraction, animation and measurement landscapes.
-- `pers_forest_example.py` – main usage example.
-- `animation_tutorial.ipynb` – animation example. 
-- `benchmark.py` – runtime benchmarks.
-- `paper-examples.ipy`, generated plot directories, `paper_figures/` – scripts/notebooks for paper figures.
-- `point_cloud_sampling.py`, `point_cloud_generator.py` – synthetic data utilities.
+- `persforest/PersistenceForest.py` - forest construction, barcodes, plotting wrappers and measurement landscapes.
+- `persforest/cycle_rep_vectorisations.py` - cycle functionals for measurement landscapes.
+- `persforest/forest_landscapes.py` - landscape computation, evaluation and comparison utilities.
+- `persforest/forest_plotting.py` - shared barcode, forest and animation plotting helpers.
+- `persforest/simplicial_filtration_plotting.py` - Matplotlib filtration plotting.
+- `persforest/simplicial_filtration_plotly.py` - Plotly filtration plotting.
+- `examples/tutorials/` - guided tutorial notebooks.
+- `examples/pers_forest_example.py` - compact runnable quickstart.
+- `examples/animation_tutorial.ipynb` - animation example.
+- `examples/benchmark.py` - runtime benchmark script.
+- `examples/paper-examples.ipy` - manuscript figure examples.
+- `examples/point_cloud_sampling.py` - synthetic point-cloud samplers used by examples.
 
 ## Notes
-- Animations require a working Matplotlib animation backend (Pillow or ffmpeg).
+- MP4 animation export requires `ffmpeg`; GIF export requires the `animation` extra.
+- Plotly figures require the `plotly` or `notebook` extra.
