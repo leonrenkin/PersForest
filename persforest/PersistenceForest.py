@@ -1889,6 +1889,7 @@ class PersistenceForest:
         show_orientation_arrows: bool = False,
         remove_double_edges: bool = False,
         linewidth_cycle: float = 0.8,
+        style_2d: Optional[dict[str, Any]] = None,
     ):
         """
         Plot one representative cycle for each sufficiently long barcode bar.
@@ -1925,6 +1926,12 @@ class PersistenceForest:
             plotting.
         linewidth_cycle : float
             Line width for cycle edges.
+        style_2d : dict | None
+            2D style overrides. Supports the same keys as
+            ``plot_at_filtration``. For vertex styling, use
+            ``point_color`` and ``point_alpha``. ``cycle_edge_width`` is used
+            when supplied; otherwise ``linewidth_cycle`` is kept for backward
+            compatibility.
 
         Returns
         -------
@@ -1946,6 +1953,7 @@ class PersistenceForest:
             show_orientation_arrows=show_orientation_arrows,
             remove_double_edges=remove_double_edges,
             linewidth_cycle=linewidth_cycle,
+            style_2d=style_2d,
         )
 
     def plot_at_filtration_plotly(

@@ -757,6 +757,7 @@ def plot_barcode_cycle_reps(
     show_orientation_arrows: bool = False,
     remove_double_edges: bool = False,
     linewidth_cycle: float = 0.8,
+    style_2d: Optional[dict[str, Any]] = None,
 ):
     """
     Plot one representative cycle for each sufficiently long barcode bar.
@@ -796,6 +797,11 @@ def plot_barcode_cycle_reps(
         plotting.
     linewidth_cycle : float
         Line width for cycle edges.
+    style_2d : dict | None
+        2D style overrides. Supports the same keys as ``plot_at_filtration``.
+        For vertex styling, use ``point_color`` and ``point_alpha``.
+        ``cycle_edge_width`` is used when supplied; otherwise
+        ``linewidth_cycle`` is kept for backward compatibility.
 
     Returns
     -------
@@ -808,6 +814,13 @@ def plot_barcode_cycle_reps(
         raise ValueError("plot_barcode_cycle_reps only implemented for dimension 2")
 
     color_map = forest._get_color_map(coloring=coloring)
+    style = _resolve_style_2d(style_2d)
+    cycle_linewidth = (
+        float(style["cycle_edge_width"])
+        if style_2d is not None and "cycle_edge_width" in style_2d
+        else linewidth_cycle
+    )
+    draw_orientation_arrows = show_orientation_arrows or bool(style["show_orientation_arrows"])
 
     pts = np.asarray(forest.point_cloud, dtype=float)
     if pts.ndim != 2 or pts.shape[1] != 2:
@@ -820,9 +833,12 @@ def plot_barcode_cycle_reps(
         pts[:, 0],
         pts[:, 1],
         s=vertex_size,
-        color="k",
+        color=style["point_color"],
+        alpha=float(style["point_alpha"]),
         zorder=point_zorder,
         label="points",
+        marker="o",
+        edgecolors="none",
     )
 
     for bar in forest.barcode:
@@ -845,13 +861,13 @@ def plot_barcode_cycle_reps(
         ax.add_collection(
             LineCollection(
                 segments,
-                linewidths=linewidth_cycle,
+                linewidths=cycle_linewidth,
                 colors=[color_map[bar]],
                 zorder=cycle_zorder,
             )
         )
 
-        if show_orientation_arrows:
+        if draw_orientation_arrows:
             for seg in segments:
                 (x0, y0), (x1, y1) = np.asarray(seg, dtype=float)
                 dx = x1 - x0
@@ -878,9 +894,9 @@ def plot_barcode_cycle_reps(
                     xytext=(x_start, y_start),
                     arrowprops=dict(
                         arrowstyle="-|>",
-                        linewidth=0.2,
+                        linewidth=float(style["arrow_linewidth"]),
                         color=color_map[bar],
-                        mutation_scale=6,
+                        mutation_scale=float(style["arrow_scale"]),
                     ),
                     zorder=cycle_zorder,
                 )
