@@ -6,7 +6,7 @@ import gudhi as gd
 
 # %%
 # Import PersistenceForest class
-# PersistenceForest contains methods for plotting barcodes, cycle representatives, and generalized landscapes.
+# PersistenceForest contains methods for plotting barcodes, cycle representatives, and measurement landscapes.
 # This is the central class of the persforest package.
 from persforest import PersistenceForest
 
@@ -56,15 +56,15 @@ print('Example of vertex cycle representatives coordinates')
 print(cycle_reps_vertex_coords)  #print first cycle representative as array of coordinates
 
 # %%
-# showcase of generalized landscape functionalities
+# showcase of measurement landscape functionalities
 
 #import cycle functionals which map a (signed) cycle representative to a real number
 from persforest.cycle_rep_vectorisations import signed_chain_edge_length, constant_one_functional,signed_chain_excess_curvature
 
-#compute generalized landscapes
+#compute measurement landscapes
 # By default (cache=True), landscapes are saved on the PersistenceForest object with the given label.
 # Landscapes can be plotted from the PersistenceForest object with the chosen label.
-pers_forest.compute_generalized_landscape_family(
+pers_forest.compute_measurement_landscapes(
     cycle_func=signed_chain_edge_length,
     max_k=6,
     num_grid_points=1000,
@@ -73,14 +73,14 @@ pers_forest.compute_generalized_landscape_family(
     cache_functionals=True,
 )
 
-pers_forest.compute_generalized_landscape_family(
+pers_forest.compute_measurement_landscapes(
     cycle_func=constant_one_functional,
     max_k=6,
     num_grid_points=1000,
     label="1",
 )
 
-pers_forest.compute_generalized_landscape_family(
+pers_forest.compute_measurement_landscapes(
     cycle_func=signed_chain_excess_curvature,
     max_k=6,
     num_grid_points=1000,
@@ -88,9 +88,9 @@ pers_forest.compute_generalized_landscape_family(
 )
 
 # Plot the different landscape families
-pers_forest.plot_landscape_family(label='length', title = "Length Persistence Landscapes")
-pers_forest.plot_landscape_family(label="1", title = "Regular Persistence Landscapes")
-pers_forest.plot_landscape_family(label="excess curvature", title = "Excess Curvature Persistence Landscapes")
+pers_forest.plot_measurement_landscapes(label='length', title = "Length Persistence Landscapes")
+pers_forest.plot_measurement_landscapes(label="1", title = "Regular Persistence Landscapes")
+pers_forest.plot_measurement_landscapes(label="excess curvature", title = "Excess Curvature Persistence Landscapes")
 
 # %%
 print(pers_forest.landscape_families['length'])
@@ -108,27 +108,27 @@ double_edge_forest.plot_at_filtration(15,style_2d={"show_orientation_arrows": Tr
 
 # %%
 # Showcase of signed vs unsigned chains
-double_edge_forest.compute_generalized_landscape_family(
+double_edge_forest.compute_measurement_landscapes(
     cycle_func=signed_chain_connected_components,
     max_k=6,
     num_grid_points=1000,
     label="signed components",
 )
 
-double_edge_forest.compute_generalized_landscape_family(
+double_edge_forest.compute_measurement_landscapes(
     cycle_func=signed_chain_excess_connected_components,
     max_k=6,
     num_grid_points=1000,
     label="signed excess components",)
 
-double_edge_forest.compute_generalized_landscape_family(
+double_edge_forest.compute_measurement_landscapes(
     cycle_func=signed_chain_connected_components,
     max_k=6,
     num_grid_points=1000,
     label="unsigned components",
     signed=False)    #signed is True by default, set signed=False for unsigned versions
 
-double_edge_forest.compute_generalized_landscape_family(
+double_edge_forest.compute_measurement_landscapes(
     cycle_func=signed_chain_excess_connected_components,
     max_k=6,
     num_grid_points=1000,
@@ -144,7 +144,7 @@ double_edge_forest.plot_landscape_comparison_between_functionals(labels=["signed
 # %%
 # Sample landscapes on a fixed grid to get NumPy arrays.
 grid = np.linspace(0.0, 1.0, 64)
-length_family = pers_forest.compute_generalized_landscape_family(
+length_family = pers_forest.compute_measurement_landscapes(
     cycle_func=signed_chain_edge_length,
     max_k=3,
     x_grid=grid,

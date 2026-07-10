@@ -54,7 +54,7 @@ def featurize_point_cloud(
 ):
     forest = PersistenceForest(point_cloud)
 
-    landscapes = forest.compute_generalized_landscape_family(
+    landscapes = forest.compute_measurement_landscapes(
         cycle_func=cycle_func,
         label=cycle_func.__name__,
         x_grid=x_grid,

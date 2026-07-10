@@ -2609,7 +2609,7 @@ class PersistenceForest:
             **kwargs,
         )
 
-    #------- generalized landscape ----------------
+    #------- measurement landscape ----------------
 
     def plot_barcode_measurement(
         self,
@@ -2687,7 +2687,7 @@ class PersistenceForest:
             **kwargs,
         )
 
-    def compute_generalized_landscape_family(
+    def compute_measurement_landscapes(
         self,
         cycle_func,
         label: str,
@@ -2704,7 +2704,7 @@ class PersistenceForest:
         compute_functionals: bool = True,
     ):
         """
-        Compute a generalized landscape family for this PersistenceForest.
+        Compute measurement landscapes for this PersistenceForest.
 
         Parameters
         ----------
@@ -2747,7 +2747,7 @@ class PersistenceForest:
 
         Returns
         -------
-        GeneralizedLandscapeFamily
+        MeasurementLandscapeFamily
             Family of landscapes evaluated for each bar.
         """
 
@@ -2760,9 +2760,9 @@ class PersistenceForest:
                 # `chain` is a SignedChain
                 return float(cycle_func(chain.unsigned(), point_cloud))
     
-        from .forest_landscapes import compute_generalized_landscape_family
+        from .forest_landscapes import compute_measurement_landscape_family
 
-        return compute_generalized_landscape_family(
+        return compute_measurement_landscape_family(
             self,
             _cycle_value,
             max_k=max_k,
@@ -2777,7 +2777,39 @@ class PersistenceForest:
             compute_functionals=compute_functionals,
         )
 
-    def plot_landscape_family(
+    def compute_generalized_landscape_family(
+        self,
+        cycle_func,
+        label: str,
+        *,
+        max_k: int = 5,
+        num_grid_points: int = 512,
+        mode: Literal["raw", "pyramid"] = "pyramid",
+        min_bar_length: float = 0.0,
+        x_grid: Optional[NDArray[np.float64]] = None,
+        cache: bool = True,
+        signed: bool = False,
+        cache_functionals: bool = False,
+        functionals_label: Optional[str] = None,
+        compute_functionals: bool = True,
+    ):
+        """Legacy compatibility wrapper for compute_measurement_landscapes."""
+        return self.compute_measurement_landscapes(
+            cycle_func=cycle_func,
+            label=label,
+            max_k=max_k,
+            num_grid_points=num_grid_points,
+            mode=mode,
+            min_bar_length=min_bar_length,
+            x_grid=x_grid,
+            cache=cache,
+            signed=signed,
+            cache_functionals=cache_functionals,
+            functionals_label=functionals_label,
+            compute_functionals=compute_functionals,
+        )
+
+    def plot_measurement_landscapes(
         self,
         label: str,
         ks: Optional[list[int]] = None,
@@ -2789,7 +2821,7 @@ class PersistenceForest:
         **kwargs,
     ):
         """
-        Plot a previously computed generalized landscape family.
+        Plot previously computed measurement landscapes.
 
         Parameters
         ----------
@@ -2829,6 +2861,29 @@ class PersistenceForest:
             **kwargs,
         )
 
+    def plot_landscape_family(
+        self,
+        label: str,
+        ks: Optional[list[int]] = None,
+        ax=None,
+        title: Optional[str] = None,
+        *args,
+        show_legend: Optional[bool] = None,
+        linewidth: Optional[float] = None,
+        **kwargs,
+    ):
+        """Legacy compatibility wrapper for plot_measurement_landscapes."""
+        return self.plot_measurement_landscapes(
+            label,
+            ks,
+            ax,
+            title,
+            *args,
+            show_legend=show_legend,
+            linewidth=linewidth,
+            **kwargs,
+        )
+
     def plot_landscape_comparison_between_functionals(
         self,
         labels: list[str],
@@ -2839,7 +2894,7 @@ class PersistenceForest:
         **kwargs
     ):
         """
-        Compare multiple generalized landscape families on the same axes.
+        Compare multiple measurement landscape families on the same axes.
 
         Parameters
         ----------

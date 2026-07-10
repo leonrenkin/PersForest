@@ -1,7 +1,7 @@
 """
 forest_landscapes.py
 
-Generic "generalized landscape" machinery that works for any forest-like
+Generic "measurement landscape" machinery that works for any forest-like
 object which provides:
 
 - forest.point_cloud: np.ndarray of shape (n_points, dim)
@@ -254,7 +254,7 @@ class PiecewiseLinearFunction:
 class BarcodeFunctionals:
     """
     Container for per-bar step functions (StepFunctionData) for a fixed cycle_func.
-    Aligned with the bar ordering used in compute_generalized_landscape_family.
+    Aligned with the bar ordering used in compute_measurement_landscape_family.
     """
     forest_id: str
     label: str
@@ -330,9 +330,9 @@ class BarcodeFunctionals:
         return out
 
 @dataclass
-class GeneralizedLandscapeFamily:
+class MeasurementLandscapeFamily:
     """
-    Container for a family of generalized landscapes for one forest and cycle
+    Container for a family of measurement landscapes for one forest and cycle
     functional.
 
     - bar_kernels: per-bar kernels (typically already rescaled if mode="pyramid")
@@ -353,7 +353,7 @@ class GeneralizedLandscapeFamily:
         *,
         fill_value: float = 0.0,
     ) -> NDArray[np.float64]:
-        """Evaluate selected generalized landscape levels on a common grid.
+        """Evaluate selected measurement landscape levels on a common grid.
 
         Parameters
         ----------
@@ -758,7 +758,7 @@ def compute_convolution_kernel_for_bar(
             },
         )
 
-def compute_generalized_interval_landscape(
+def compute_measurement_interval_landscape(
         forest,
         cycle_func: CycleValueFunc,
         bar,
@@ -770,7 +770,7 @@ def compute_generalized_interval_landscape(
         the new PiecewiseLinearFunction.
 
         Note: this uses the *raw* convolution (no pyramid rescaling).
-        For landscapes, prefer compute_generalized_landscape_family.
+        For landscapes, prefer compute_measurement_landscape_family.
 
         Parameters
         ----------
@@ -889,7 +889,7 @@ def compute_landscape_kernel_for_bar(
             },
         )
 
-def compute_generalized_landscape_family(
+def compute_measurement_landscape_family(
         forest,
         cycle_func: CycleValueFunc,
         label: str,
@@ -903,9 +903,9 @@ def compute_generalized_landscape_family(
         cache_functionals: bool = False,
         functionals_label: Optional[str] = None,
         compute_functionals: bool = True,
-    ) -> GeneralizedLandscapeFamily:
+    ) -> MeasurementLandscapeFamily:
         """
-        Compute a generalized landscape family for a forest.
+        Compute a measurement landscape family for a forest.
 
         If x_grid is provided, all landscapes are evaluated on that grid
         (and num_grid_points is ignored). This is crucial for consistent
@@ -943,7 +943,7 @@ def compute_generalized_landscape_family(
 
         Returns
         -------
-        GeneralizedLandscapeFamily
+        MeasurementLandscapeFamily
             Collection of per-bar kernels and λ_k landscapes on the shared grid.
         """
         if not hasattr(forest, "barcode"):
@@ -985,7 +985,7 @@ def compute_generalized_landscape_family(
 
             landscapes = {k: _zero_plf(k) for k in range(1, max_k + 1)}
 
-            fam = GeneralizedLandscapeFamily(
+            fam = MeasurementLandscapeFamily(
                 forest_id=getattr(forest, "id", str(id(forest))),
                 label=label,
                 rescaling=mode,
@@ -1097,7 +1097,7 @@ def compute_generalized_landscape_family(
         # 6. Assemble family object
         forest_id = getattr(forest, "name", f"Forest@{id(forest)}")
 
-        family = GeneralizedLandscapeFamily(
+        family = MeasurementLandscapeFamily(
             forest_id=forest_id,
             label=label,
             rescaling=mode,
@@ -1188,7 +1188,7 @@ def plot_landscape_family(
     ax.set_xlabel("filtration value")
     ax.set_ylabel("landscape value")
     if title is None:
-        title = f"Generalized landscapes of {label}"
+        title = f"Measurement landscapes of {label}"
     ax.set_title(title)
     if show_legend is None:
         show_legend = len(ks) < 10
