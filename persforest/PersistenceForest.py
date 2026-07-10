@@ -1720,7 +1720,7 @@ class PersistenceForest:
         min_bar_length: float = 0,
         point_zorder: float = 6,
         cycle_zorder: float = 5,
-        dpi: int = 300,
+        dpi: int = 100,
         style_2d: Optional[dict[str, Any]] = None,
         style_3d: Optional[dict[str, Any]] = None,
     ):
