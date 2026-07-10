@@ -1883,6 +1883,7 @@ class PersistenceForest:
         show: bool = True,
         figsize: tuple[float, float] = (7, 7), 
         vertex_size: float = 3,
+        point_zorder: float = 3,
         coloring: Literal['forest','bars'] = "forest",
         title: Optional[str] = None,
         show_orientation_arrows: bool = False,
@@ -1910,6 +1911,8 @@ class PersistenceForest:
             Figure size used when ``ax`` is None.
         vertex_size : float
             Marker size for point cloud.
+        point_zorder : float
+            Matplotlib z-order for the point cloud markers.
         coloring : {"forest","bars"}
             Color scheme; builds the map on first use.
         title : str | None
@@ -1937,6 +1940,7 @@ class PersistenceForest:
             show=show,
             figsize=figsize,
             vertex_size=vertex_size,
+            point_zorder=point_zorder,
             coloring=coloring,
             title=title,
             show_orientation_arrows=show_orientation_arrows,

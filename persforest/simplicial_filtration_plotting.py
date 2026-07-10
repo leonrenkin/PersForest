@@ -751,6 +751,7 @@ def plot_barcode_cycle_reps(
     show: bool = True,
     figsize: tuple[float, float] = (7, 7),
     vertex_size: float = 3,
+    point_zorder: float = 3,
     coloring: Literal["forest", "bars"] = "forest",
     title: Optional[str] = None,
     show_orientation_arrows: bool = False,
@@ -781,6 +782,8 @@ def plot_barcode_cycle_reps(
         Figure size used when ``ax`` is None.
     vertex_size : float
         Marker size for point cloud.
+    point_zorder : float
+        Matplotlib z-order for the point cloud markers.
     coloring : {"forest","bars"}
         Color scheme; builds the map on first use.
     title : str | None
@@ -813,11 +816,19 @@ def plot_barcode_cycle_reps(
     if ax is None:
         _, ax = plt.subplots(figsize=figsize)
 
-    ax.scatter(pts[:, 0], pts[:, 1], s=vertex_size, color="k", zorder=3, label="points")
+    ax.scatter(
+        pts[:, 0],
+        pts[:, 1],
+        s=vertex_size,
+        color="k",
+        zorder=point_zorder,
+        label="points",
+    )
 
     for bar in forest.barcode:
         if bar.lifespan() < min_bar_length:
             continue
+        cycle_zorder = bar.lifespan()
 
         cycle = bar.cycle_at_filtration_value(
             filt_val=bar.birth + bar.lifespan() * relative_position
@@ -836,7 +847,7 @@ def plot_barcode_cycle_reps(
                 segments,
                 linewidths=linewidth_cycle,
                 colors=[color_map[bar]],
-                zorder=5,
+                zorder=cycle_zorder,
             )
         )
 
@@ -861,7 +872,7 @@ def plot_barcode_cycle_reps(
                 x_end = mx + ux * half
                 y_end = my + uy * half
 
-                ax.annotate(
+                arrow = ax.annotate(
                     "",
                     xy=(x_end, y_end),
                     xytext=(x_start, y_start),
@@ -871,8 +882,10 @@ def plot_barcode_cycle_reps(
                         color=color_map[bar],
                         mutation_scale=6,
                     ),
-                    zorder=6,
+                    zorder=cycle_zorder,
                 )
+                if arrow.arrow_patch is not None:
+                    arrow.arrow_patch.set_zorder(cycle_zorder)
 
     ax.set_aspect("equal", adjustable="box")
     if title is None:
