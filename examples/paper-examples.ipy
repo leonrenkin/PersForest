@@ -43,6 +43,46 @@ def savefig_trim_vertical_preserve_width(fig, path, pad_inches=0.02, **kwargs):
     )
     fig.savefig(path, bbox_inches=vertical_bbox, **kwargs)
 
+def add_right_margin_matching_left_overhang(fig, left_ax):
+    """Add right margin matching labels/ticks protruding left of the leftmost axes."""
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    axes_bbox = left_ax.get_window_extent(renderer)
+    tight_bbox = left_ax.get_tightbbox(renderer)
+    left_overhang = max(0, axes_bbox.x0 - tight_bbox.x0) / fig.bbox.width
+    fig.subplots_adjust(right=fig.subplotpars.right - left_overhang)
+
+def style_paper_barcode(ax):
+    """Use a light L-shaped axis frame for compact paper barcode panels."""
+    for side in ["top", "right"]:
+        ax.spines[side].set_visible(False)
+
+    ax.spines["left"].set_visible(True)
+    #ax.spines["left"].set_linewidth(0.6)
+    ax.spines["left"].set_color("0")
+    ax.spines["bottom"].set_visible(True)
+    #ax.spines["bottom"].set_linewidth(0.6)
+    ax.spines["bottom"].set_color("0")
+
+    ax.tick_params(axis="y", left=False, labelleft=False)
+    ax.tick_params(axis="x", width=0.6, length=2.5, pad=1.5)
+    ax.grid(True, axis="x", linestyle=":", linewidth=0.4, alpha=0.35)
+    ax.set_facecolor("none")
+    ax.annotate(
+        "",
+        xy=(1.025, 0),
+        xytext=(1.0, 0),
+        xycoords="axes fraction",
+        arrowprops={
+            "arrowstyle": "->",
+            "color": "0",
+            "linewidth": 0.6,
+            "shrinkA": 0,
+            "shrinkB": 0,
+        },
+        clip_on=False,
+    )
+
 %load_ext autoreload
 %autoreload 3
 !mkdir -p paper_figures
@@ -319,7 +359,7 @@ points_with_6_holes = sample_points_without_balls(3000, dim=2, num_discs=6, radi
 forest_6_holes = PersistenceForest(points_with_6_holes)
 
 fig, axes = plt.subplots(ncols=3, figsize=(width,width*0.39), dpi=300, gridspec_kw={"width_ratios": [3,3,2.5]})
-cycle_rep_style_2d = {"point_color": "0.2", "point_alpha": 1}
+cycle_rep_style_2d = {"point_color": "0.2", "point_alpha": 0.9}
 
 forest_6_holes.plot_barcode_cycle_reps(relative_position=0, min_bar_length=5, coloring="bars", linewidth_cycle=1.2, ax=axes[0], show=False, remove_double_edges=True, vertex_size=1, style_2d=cycle_rep_style_2d)
 axes[0].set_title("Cycle reps at birth")
@@ -328,14 +368,16 @@ axes[0].set_ylim((0,100))
 
 
 forest_6_holes.plot_barcode_cycle_reps(relative_position=0.4, min_bar_length=5, coloring="bars", linewidth_cycle=1.2, ax=axes[1], show=False, remove_double_edges=True, vertex_size=1, style_2d=cycle_rep_style_2d)
-axes[1].set_title(r"Cycle reps at $\frac{4}{10}$th of lifespan")
+axes[1].set_title(r"Cycle reps at rel. pos. 0.4")
 axes[1].set_xlim((0,100))
 axes[1].set_ylim((0,100))
 
-forest_6_holes.plot_barcode(coloring="bars", sort = "length", min_bar_length=1,max_bars= 30 , ax=axes[2], bar_width = 1.2)
+forest_6_holes.plot_barcode(coloring="bars", sort = "length", min_bar_length=1,max_bars= 30 , ax=axes[2], bar_width = 1.0, descending=False)
 axes[2].set_title(r"$H_1$ Barcode")
-axes[2].set_yticklabels([])
 axes[2].set_xlabel(None)
+style_paper_barcode(axes[2])
+
+add_right_margin_matching_left_overhang(fig, axes[0])
 
 savefig_trim_vertical_preserve_width(
     fig,
@@ -343,3 +385,5 @@ savefig_trim_vertical_preserve_width(
     dpi=300,
     transparent=True,
 )
+
+# %%
