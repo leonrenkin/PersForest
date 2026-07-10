@@ -318,15 +318,16 @@ plt.show()
 points_with_6_holes = sample_points_without_balls(3000, dim=2, num_discs=6, radius_range=[0.05,0.15], seed=5) * 100
 forest_6_holes = PersistenceForest(points_with_6_holes)
 
-fig, axes = plt.subplots(ncols=3, figsize=(width,width*0.39), dpi=300, gridspec_kw={"width_ratios": [3,3,2.3]})
+fig, axes = plt.subplots(ncols=3, figsize=(width,width*0.39), dpi=300, gridspec_kw={"width_ratios": [3,3,2.5]})
+cycle_rep_style_2d = {"point_color": "0.2", "point_alpha": 1}
 
-forest_6_holes.plot_barcode_cycle_reps(relative_position=0, min_bar_length=5, coloring="bars", linewidth_cycle=1.2, ax=axes[0], show=False, remove_double_edges=True, vertex_size=0.08)
+forest_6_holes.plot_barcode_cycle_reps(relative_position=0, min_bar_length=5, coloring="bars", linewidth_cycle=1.2, ax=axes[0], show=False, remove_double_edges=True, vertex_size=1, style_2d=cycle_rep_style_2d)
 axes[0].set_title("Cycle reps at birth")
 axes[0].set_xlim((0,100))
 axes[0].set_ylim((0,100))
 
 
-forest_6_holes.plot_barcode_cycle_reps(relative_position=0.4, min_bar_length=5, coloring="bars", linewidth_cycle=1.2, ax=axes[1], show=False, remove_double_edges=True, vertex_size=0.08)
+forest_6_holes.plot_barcode_cycle_reps(relative_position=0.4, min_bar_length=5, coloring="bars", linewidth_cycle=1.2, ax=axes[1], show=False, remove_double_edges=True, vertex_size=1, style_2d=cycle_rep_style_2d)
 axes[1].set_title(r"Cycle reps at $\frac{4}{10}$th of lifespan")
 axes[1].set_xlim((0,100))
 axes[1].set_ylim((0,100))
@@ -342,4 +343,3 @@ savefig_trim_vertical_preserve_width(
     dpi=300,
     transparent=True,
 )
-# %%
