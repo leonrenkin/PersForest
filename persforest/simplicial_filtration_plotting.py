@@ -319,6 +319,8 @@ def _plot_at_filtration_2d(
                     segments,
                     linewidths=float(style["cycle_edge_width"]),
                     colors=[color_map[bar]],
+                    capstyle="round",
+                    joinstyle="round",
                     zorder=cycle_zorder,
                 )
                 ax.add_collection(loop_coll)
@@ -578,6 +580,8 @@ def _plot_at_filtration_with_dual_2d(
                         segments,
                         linewidths=linewidth_cycle,
                         colors=[color_map[bar]],
+                        capstyle="round",
+                        joinstyle="round",
                         zorder=5,
                     )
                 )
@@ -863,6 +867,8 @@ def plot_barcode_cycle_reps(
                 segments,
                 linewidths=cycle_linewidth,
                 colors=[color_map[bar]],
+                capstyle="round",
+                joinstyle="round",
                 zorder=cycle_zorder,
             )
         )
