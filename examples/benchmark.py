@@ -15,7 +15,7 @@ A CSV file (default: `persforest_benchmark.csv`) with columns:
     reduce                      - 1 if reduction was used, 0 otherwise
     compute_barcode             - 1 if barcodes were computed, 0 otherwise
     time_point_cloud_s          - time to generate the point cloud
-    time_persforest_s          - time to construct PersistenceForest
+    time_persistence_forest_s          - time to construct PersistenceForest
     time_total_s                - total time (generation + forest)
     seed                        - random seed used for this run
 
@@ -58,7 +58,9 @@ from point_cloud_sampling import (
 )
 
 # Paths and file naming
-BENCHMARK_DIR = os.path.join(os.path.dirname(__file__), "benchmarks")
+BENCHMARK_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), os.pardir, "benchmarks")
+)
 
 
 def _benchmark_path(name: str, ext: str) -> str:
@@ -221,7 +223,7 @@ def benchmark_single_run(
         "dim": dim,
         "reduce": int(bool(reduce)),
         "compute_barcode": int(bool(compute_barcode)),
-        "time_persforest_s": t_pf_end - t_pf_start,
+        "time_persistence_forest_s": t_pf_end - t_pf_start,
         "seed": int(seed),
     }
 
@@ -276,7 +278,7 @@ def benchmark_suite(
         "dim",
         "reduce",
         "compute_barcode",
-        "time_persforest_s",
+        "time_persistence_forest_s",
         "seed",
     ]
 
@@ -318,7 +320,7 @@ def benchmark_suite(
 def plot_runtimes_from_csv(
     csv_path: Optional[str],
     methods: Sequence[str],
-    time_column: str = "time_persforest_s",
+    time_column: str = "time_persistence_forest_s",
     ax = None,
     show_std: bool = True,
     save_dir: Optional[str]=None,
@@ -343,7 +345,7 @@ def plot_runtimes_from_csv(
     methods:
         Iterable of sampler names (the `sampler` column in the CSV) to plot.
     time_column:
-        Which time column to use, e.g. "time_persforest_s"
+        Which time column to use, e.g. "time_persistence_forest_s"
         or "time_total_s".
     ax:
         Optional existing matplotlib Axes to draw on. If None, a new
@@ -480,7 +482,7 @@ def plot_benchmark_grid(
         plot_runtimes_from_csv(
             csv_path=_benchmark_path(bench_name, "csv"),
             methods=methods,
-            time_column="time_persforest_s",
+            time_column="time_persistence_forest_s",
             label_dict=label_dict,
             color_dict=color_dict,
             linestyle_dict=linestyle_dict,
@@ -516,13 +518,36 @@ def plot_benchmark_row(
     linestyle_dict: Optional[dict[str, str]] = None,
 ) -> None:
     """Render a 1x2 grid (e.g., only linear or only log plots)."""
-    fig, axes = plt.subplots(1, 2, figsize=(4, 2), gridspec_kw={"width_ratios": [1, 1]}, sharey="row", layout='constrained')
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.size": 9,
+        "axes.labelsize": 8,
+        "xtick.labelsize": 6,
+        "ytick.labelsize": 6,
+        "legend.fontsize": 6,
+        "axes.titlesize": 10,
+        "figure.dpi": 300,
+        "axes.grid": False,
+        "grid.color": "#d3d3d3",
+        "grid.linewidth": 0.5,
+        "axes.linewidth": 0.8,
+        "figure.facecolor": "white",
+        "savefig.facecolor": "white",
+    })
+
+    latex_linewidth = 448.13095
+
+    inches_per_pt = 1/72.27
+    width = latex_linewidth * inches_per_pt
+    
+    fig, axes = plt.subplots(1, 2, figsize=(width*0.7, 0.5*width*0.7), gridspec_kw={"width_ratios": [1, 1]}, sharey="row", layout='constrained')
 
     for _, col, bench_name, methods, log_scale in layout:
         plot_runtimes_from_csv(
             csv_path=_benchmark_path(bench_name, "csv"),
             methods=methods,
-            time_column="time_persforest_s",
+            time_column="time_persistence_forest_s",
             label_dict=label_dict,
             color_dict=color_dict,
             linestyle_dict=linestyle_dict,
@@ -569,7 +594,7 @@ if __name__ == "__main__":
                   "uniform_2D_with_30holes_radius-max-dot05":"uniform 2D with 30 holes", 
                   "uniform_3D":"uniform 3D",
                   "noisy_2sphere_noise-std-dot05":"perturbed 2-sphere",
-                  "uniform_3D_with_30holes_radius-max-dot05":"uniform 3D with 30holes"}
+                  "uniform_3D_with_30holes_radius-max-dot05":"uniform 3D with 30 holes"}
 
     # Styling: use three non-default colors (outside Matplotlib's first four).
     custom_colors = ["#8da0cb", "#fc8d62", "#66c2a5"]

@@ -9,7 +9,7 @@ from matplotlib.transforms import Bbox
 plt.rcParams.update({
     "text.usetex": True,
     "font.family": "serif",
-    "font.size": 10,
+    "font.size": 9,
     "axes.labelsize": 8,
     "xtick.labelsize": 6,
     "ytick.labelsize": 6,
@@ -229,7 +229,7 @@ pts = np.vstack([
 ])
 pts = pts[np.linalg.norm(pts, axis=1) > 0.25]
 forest = PersistenceForest(pts)
-forest.set_longest_bar_colors(coloring = "forest", colors = [ "#0ec801",  "#a454f8",  "#e7298a",  "#17becf",   "#bcbd22",   "#b15928",  "#fdb462",  "#7570b3", "#66a61e"])
+forest.set_longest_bar_colors(coloring = "forest", colors = [ "#0ec801",  "#a454f8",  "#e7298a",  "#17becf",  "#C74A06",  "#bcbd22",  "#7570b3", "#4a7814"])
 landscapes = forest.compute_measurement_landscapes(
     signed_chain_circularity_complement,
     x_grid=np.linspace(-1.5/20, 1.5+1.5/20, 200),
@@ -244,7 +244,7 @@ fig1.tight_layout(pad=0.0)
 fig1.savefig("paper_figures/four_leaf_clover_landscapes.pdf", dpi=300, transparent=True)
 
 fig2, axs2 = plt.subplots(nrows=2, figsize=(4,.8))
-forest.plot_barcode(ax=axs2[0], max_bars=12, sort="length", coloring="forest", title="", bar_width=1.3)
+forest.plot_barcode(ax=axs2[0], max_bars=10, sort="length", coloring="forest", title="", bar_width=1.3, descending = True)
 axs2[0].set_xlabel("")
 axs2[0].set_yticks([])
 axs2[0].set_xticks(np.linspace(0, 1.5, 10))
@@ -252,15 +252,15 @@ axs2[0].set_xlim((-1.5/20,1.5+1.5/20))
 axs2[0].set_xticklabels([])
 axs2[0].tick_params(axis='x', which='both', length=0)
 axs2[0].grid()
-for (k, l) in enumerate(list(landscapes.landscapes.values())[:2]):
-    axs2[1].plot(l.xs, l.ys, label=f"{k+1}", lw=1, clip_on=False, zorder=10)
+for (k, l) in enumerate(list(landscapes.landscapes.values())[:3]):
+    axs2[1].plot(l.xs, l.ys, label=f"{k+1}", lw=1, clip_on=False, zorder=10-k)
 axs2[1].set_yticks([])
 axs2[1].sharex(axs2[0])
 axs2[1].tick_params(axis='x', which='both', length=0)
 axs2[1].set_xlabel(None)
 axs2[1].legend(loc='upper left', frameon=False)
 axs2[1].grid()
-axs2[1].set_ylim((0,0.08))
+axs2[1].set_ylim((0,0.07))
 
 fig2.tight_layout(h_pad=0, w_pad=0.0)
 fig2.subplots_adjust(left=0, right=1, top=1, bottom=0)
