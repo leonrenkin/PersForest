@@ -216,16 +216,17 @@ plt.show()
 
 
 # %% four leaf clover
-def sample_four_leaf_clover(n, r=1.0, noise=0.0, R = (0, 2*np.pi)):
-    t = np.random.uniform(R[0], R[1], n)
+def sample_four_leaf_clover(n, r=1.0, noise=0.0, R=(0, 2*np.pi), *, rng):
+    t = rng.uniform(R[0], R[1], n)
     p = (r * np.sin(2*t))[:, None] * np.column_stack((np.cos(t), np.sin(t)))
-    return p + np.random.normal(0, noise, p.shape)
-np.random.seed(6)
+    return p + rng.normal(0, noise, p.shape)
+
+clover_rng = np.random.RandomState(6)
 pts = np.vstack([
-    sample_four_leaf_clover(30, noise=0.01, R = (0, .5*np.pi)),
-    .7*sample_four_leaf_clover(40, noise=0.01, R = (.5*np.pi, np.pi)),
-    1.5*sample_four_leaf_clover(60, noise=0.01, R = (1.5*np.pi, 2*np.pi)),
-    2.5*sample_four_leaf_clover(50, noise=0.01, R = (np.pi, 1.5*np.pi)),
+    sample_four_leaf_clover(30, noise=0.01, R=(0, .5*np.pi), rng=clover_rng),
+    .7*sample_four_leaf_clover(40, noise=0.01, R=(.5*np.pi, np.pi), rng=clover_rng),
+    1.5*sample_four_leaf_clover(60, noise=0.01, R=(1.5*np.pi, 2*np.pi), rng=clover_rng),
+    2.5*sample_four_leaf_clover(50, noise=0.01, R=(np.pi, 1.5*np.pi), rng=clover_rng),
 ])
 pts = pts[np.linalg.norm(pts, axis=1) > 0.25]
 forest = PersistenceForest(pts)
@@ -297,54 +298,165 @@ pts = np.vstack([
 pts = pts[np.linalg.norm(pts, axis=1) > 0.25]
 forest = PersistenceForest(pts)
 forest.set_longest_bar_colors(coloring = "forest", colors = [ "#0ec801",  "#a454f8",  "#e7298a",  "#17becf",  "#C74A06",  "#bcbd22",  "#7570b3", "#4a7814"])
-landscapes = forest.compute_measurement_landscapes(
-    signed_chain_edge_length,
-    x_grid=np.linspace(-1.5/20, 1.5+1.5/20, 2000),
-    label = "length"
+
+length_bars = forest.longest_bars(5)
+length_color_map = forest._get_color_map(coloring="forest")
+length_min_bar_length = length_bars[-1].lifespan()
+length_x_range = (
+    min(bar.birth for bar in length_bars) - 0.05,
+    max(bar.death for bar in length_bars) + 0.05,
 )
-fig1 = plt.figure(figsize=(1,1))
-ax1 = fig1.gca()
-ax1.set_aspect('equal')
-ax1.scatter(*pts.T, s=0.5, color='black')
-ax1.set_axis_off()
-fig1.tight_layout(pad=0.0)
-fig1.savefig("paper_figures/four_leaf_clover_length_landscapes.pdf", dpi=300, transparent=True)
+length_x_grid = np.linspace(*length_x_range, 2000)
 
-fig2, axs2 = plt.subplots(nrows=2, figsize=(4,.8))
-forest.plot_barcode(ax=axs2[0], max_bars=10, sort="length", coloring="forest", title="", bar_width=1.3, descending = True)
-axs2[0].set_xlabel("")
-axs2[0].set_yticks([])
-axs2[0].set_xticks(np.linspace(0, 1.5, 10))
-axs2[0].set_xlim((-1.5/20,1.5+1.5/20))
-axs2[0].set_xticklabels([])
-axs2[0].tick_params(axis='x', which='both', length=0)
-axs2[0].grid()
-for (k, l) in enumerate(list(landscapes.landscapes.values())[:3]):
-    axs2[1].plot(l.xs, l.ys, label=f"{k+1}", lw=1, clip_on=False, zorder=10-k)
-axs2[1].set_yticks([])
-axs2[1].sharex(axs2[0])
-axs2[1].tick_params(axis='x', which='both', length=0)
-axs2[1].set_xlabel(None)
-axs2[1].legend(loc='upper left', frameon=False)
-axs2[1].grid()
-axs2[1].set_ylim((0,3))
+length_landscapes = forest.compute_measurement_landscapes(
+    signed_chain_edge_length,
+    label="length",
+    max_k=4,
+    min_bar_length=length_min_bar_length,
+    x_grid=length_x_grid,
+    cache_functionals=True,
+)
+length_profiles = forest.barcode_functionals["length"]
+landscapes = length_landscapes
 
-fig2.tight_layout(h_pad=0, w_pad=0.0)
-fig2.subplots_adjust(left=0, right=1, top=1, bottom=0)
-fig2.savefig("paper_figures/four_leaf_clover_length_landscapes2.pdf", dpi=300, transparent=True)
+fig_length_landscapes, (
+    ax_length_barcode,
+    ax_length_profiles,
+    ax_length_kernels,
+    ax_length_landscapes,
+) = plt.subplots(
+    nrows=4,
+    ncols=1,
+    figsize=(width, 0.64 * width),
+    sharex=True,
+    layout="constrained",
+    gridspec_kw={"height_ratios": [0.55, 1.0, 1.05, 1.05], "hspace": 0.08},
+)
 
-N = axs2[0].get_xticks().shape[0]
-fig3, axs3 = plt.subplots(ncols=N, figsize=(4,.4), sharex=True, sharey=True)
-style_dict_2d = {'complex_edge_width':0.2, 'cycle_edge_width':1.2}
-for (ax, t) in zip(axs3, axs2[0].get_xticks()):
-    ax.set_aspect('equal')
-    ax.set_box_aspect(1)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    forest.plot_at_filtration(filt_val=t, ax=ax, title="", show=False, vertex_size=1, style_2d = style_dict_2d, point_zorder=4.5)
-fig3.tight_layout(pad=.5)
-fig3.subplots_adjust(left=0, right=1, top=1, bottom=0)
-fig3.savefig("paper_figures/four_leaf_clover_length_landscapes3.pdf", dpi=300, transparent=True)
+# Top: the five retained barcode intervals.
+forest.plot_barcode(
+    ax=ax_length_barcode,
+    max_bars=len(length_bars),
+    sort="length",
+    coloring="forest",
+    title="",
+    xlabel="",
+    bar_width=1.5,
+    descending=True,
+    tight_layout=False,
+)
+style_paper_barcode(ax_length_barcode)
+for bar_index, bar in enumerate(length_bars):
+    ax_length_barcode.text(
+        bar.death + 0.012,
+        bar_index,
+        rf"$I_{{{bar_index + 1}}}$",
+        color=length_color_map[bar],
+        fontsize=6,
+        ha="left",
+        va="center",
+        clip_on=False,
+    )
+
+# Middle: the arc-length measurement profile attached to each interval.
+profile_max = 0.0
+for bar in length_bars:
+    step_function = length_profiles[bar]
+    step_function.plot(
+        ax=ax_length_profiles,
+        x_range=(bar.birth, bar.death),
+        color=length_color_map[bar],
+        linewidth=1.3,
+        solid_capstyle="butt",
+    )
+    profile_max = max(profile_max, float(np.max(step_function.vals)))
+
+# Third row: the colored per-bar convolution kernels.
+for kernel_index, bar in enumerate(length_profiles.bars):
+    kernel = length_landscapes.bar_kernels[kernel_index]
+    ax_length_kernels.plot(
+        kernel.xs,
+        kernel.ys,
+        color=length_color_map[bar],
+        linewidth=1.5,
+        alpha=0.9,
+        zorder=2,
+    )
+
+# Bottom: the first four pointwise order statistics.
+landscape_colors = plt.get_cmap("viridis")(np.linspace(0.1, 0.9, 4))
+landscape_styles = {
+    landscape_index: {
+        "color": landscape_colors[landscape_index - 1],
+        "linestyle": "-",
+        "linewidth": 1.4,
+    }
+    for landscape_index in range(1, 5)
+}
+for landscape_index, landscape in length_landscapes.landscapes.items():
+    ax_length_landscapes.plot(
+        landscape.xs,
+        landscape.ys,
+        label=rf"$\lambda_{{{landscape_index}}}$",
+        zorder=10 - landscape_index,
+        **landscape_styles[landscape_index],
+    )
+
+ax_length_landscapes.legend(
+    loc="upper left",
+    ncols=4,
+    frameon=False,
+    handlelength=2.5,
+    columnspacing=1.0,
+    borderaxespad=0.3,
+)
+
+ax_length_barcode.set_ylabel(
+    r"$H_1$ barcode",
+    rotation=0,
+    ha="right",
+    va="center",
+    labelpad=12,
+)
+ax_length_profiles.set_ylabel(r"arc length")
+ax_length_kernels.set_ylabel(r"kernel value")
+ax_length_landscapes.set_ylabel(r"landscape value")
+ax_length_landscapes.set_xlabel("filtration value")
+
+landscape_max = max(
+    float(np.max(landscape.ys))
+    for landscape in length_landscapes.landscapes.values()
+)
+ax_length_profiles.set_ylim(0, 1.06 * profile_max)
+ax_length_kernels.set_ylim(0, 1.08 * landscape_max)
+ax_length_landscapes.set_ylim(0, 1.08 * landscape_max)
+ax_length_landscapes.set_xlim(length_x_range)
+
+for ax in (
+    ax_length_barcode,
+    ax_length_profiles,
+    ax_length_kernels,
+    ax_length_landscapes,
+):
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.grid(
+        axis="x",
+        color="0.82",
+        linewidth=0.45,
+        linestyle=":",
+        alpha=0.8,
+    )
+for ax in (ax_length_barcode, ax_length_profiles, ax_length_kernels):
+    ax.tick_params(axis="x", which="both", labelbottom=False)
+ax_length_landscapes.spines["bottom"].set_position(("data", 0))
+
+fig_length_landscapes.savefig(
+    "paper_figures/four_leaf_clover_length_landscapes.pdf",
+    dpi=300,
+    transparent=True,
+)
+plt.show()
+
 
 # %% Four leaf clover measurement profiles
 from persforest.cycle_rep_vectorisations import signed_chain_edge_length
@@ -403,7 +515,7 @@ point_y_range = (
     pts[:, 1].min() - point_padding[1],
     pts[:, 1].max() + point_padding[1],
 )
-ax_profile_cloud.scatter(*pts.T, s=1.7, color="black", edgecolors="none")
+ax_profile_cloud.scatter(*pts.T, s=2, color="black", edgecolors="none")
 ax_profile_cloud.set(
     xlim=point_x_range,
     ylim=point_y_range,
@@ -411,7 +523,7 @@ ax_profile_cloud.set(
     title="Point cloud",
 )
 ax_profile_cloud.set_axis_off()
-ax_profile_cloud.text(
+profile_panel_label_a = ax_profile_cloud.text(
     -0.08,
     1.04,
     r"\textbf{(a)}",
@@ -435,7 +547,7 @@ forest.plot_barcode(
 ax_profile_barcode.set_xlim(profile_x_range)
 ax_profile_barcode.tick_params(axis="x", labelbottom=False)
 style_paper_barcode(ax_profile_barcode)
-ax_profile_barcode.text(
+profile_panel_label_b = ax_profile_barcode.text(
     -0.065,
     1.15,
     r"\textbf{(b)}",
@@ -513,7 +625,7 @@ for time_index, (ax, filtration_value) in enumerate(
         ax=ax,
         title="",
         show=False,
-        vertex_size=0.8,
+        vertex_size=1,
         coloring="forest",
         min_bar_length=profile_min_bar_length,
         point_zorder=4.5,
@@ -536,6 +648,66 @@ ax_profile_snapshots[0].text(
     ha="left",
     va="bottom",
 )
+
+# The point-cloud axes and the nested barcode axes have different heights, so
+# their axes-relative title positions do not share a visual baseline. Resolve
+# the constrained layout once, freeze it, and place both top-row headers in
+# figure coordinates on the lower of the two original title baselines.
+fig_profiles.canvas.draw()
+profile_cloud_position = ax_profile_cloud.get_position()
+profile_barcode_position = ax_profile_barcode.get_position()
+profile_title_y_display = min(
+    ax_profile_cloud.title.get_transform().transform(
+        ax_profile_cloud.title.get_position()
+    )[1],
+    ax_profile_barcode.title.get_transform().transform(
+        ax_profile_barcode.title.get_position()
+    )[1],
+)
+profile_title_y = fig_profiles.transFigure.inverted().transform(
+    (0, profile_title_y_display)
+)[1]
+
+profile_label_a_x = fig_profiles.transFigure.inverted().transform(
+    profile_panel_label_a.get_transform().transform(
+        profile_panel_label_a.get_position()
+    )
+)[0]
+profile_label_b_x = fig_profiles.transFigure.inverted().transform(
+    profile_panel_label_b.get_transform().transform(
+        profile_panel_label_b.get_position()
+    )
+)[0]
+
+fig_profiles.set_layout_engine(None)
+ax_profile_cloud.title.set_visible(False)
+ax_profile_barcode.title.set_visible(False)
+fig_profiles.text(
+    0.5 * (profile_cloud_position.x0 + profile_cloud_position.x1),
+    profile_title_y,
+    "Point cloud",
+    fontsize=plt.rcParams["axes.titlesize"],
+    ha="center",
+    va="baseline",
+    in_layout=False,
+)
+fig_profiles.text(
+    0.5 * (profile_barcode_position.x0 + profile_barcode_position.x1),
+    profile_title_y,
+    r"$H_1$ barcode",
+    fontsize=plt.rcParams["axes.titlesize"],
+    ha="center",
+    va="baseline",
+    in_layout=False,
+)
+
+for panel_label, label_x in (
+    (profile_panel_label_a, profile_label_a_x),
+    (profile_panel_label_b, profile_label_b_x),
+):
+    panel_label.set_transform(fig_profiles.transFigure)
+    panel_label.set_position((label_x, profile_title_y))
+    panel_label.set_verticalalignment("baseline")
 
 fig_profiles.savefig(
     "paper_figures/four_leaf_clover_measurement_profiles.pdf",
@@ -568,8 +740,12 @@ forest_6_holes.compute_measurement_landscapes(cycle_func=constant_one_functional
                                                     label = "standard", 
                                                     signed=False,
                                                     max_k=7,
-                                                    x_grid= np.linspace(0,x_max,500))
-forest_6_holes.plot_measurement_landscapes(ax=axes[1], label="standard", show = False,linewidth=1.3)
+                                                    x_grid= np.linspace(0,x_max,5000))
+forest_6_holes.plot_measurement_landscapes(ax=axes[1], 
+                                           label="standard", 
+                                           show = False,
+                                           linewidth=1.3,
+                                           cmap = "viridis")
 axes[1].set_title("Persistence Landscapes", fontsize = 10)
 axes[1].legend(
     frameon=False,
@@ -591,8 +767,12 @@ forest_6_holes.compute_measurement_landscapes(cycle_func=signed_chain_circularit
                                                     label = "circularity_complement", 
                                                     signed=False,
                                                     max_k=7,
-                                                    x_grid= np.linspace(0,x_max,500))
-forest_6_holes.plot_measurement_landscapes(ax=axes[2], label="circularity_complement", show = False, linewidth=1.3)
+                                                    x_grid= np.linspace(0,x_max,5000))
+forest_6_holes.plot_measurement_landscapes(ax=axes[2], 
+                                           label="circularity_complement", 
+                                           show = False, 
+                                           linewidth=1.3,
+                                           cmap = "viridis")
 axes[2].set_title("Non-Circularity Landscapes")
 axes[2].legend(
     frameon=False,
