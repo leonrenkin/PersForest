@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Literal, Iterable, Callable, Union, Sequence, Set
 from collections import defaultdict
 from numpy.typing import NDArray
+from matplotlib.colors import Colormap
 import itertools
 import gudhi as gd
 import math
@@ -2826,6 +2827,8 @@ class PersistenceForest:
         *args,
         show_legend: Optional[bool] = None,
         linewidth: Optional[float] = None,
+        cmap: Optional[Union[str, Colormap]] = None,
+        higher_layers_on_top: bool = False,
         **kwargs,
     ):
         """
@@ -2850,6 +2853,15 @@ class PersistenceForest:
         linewidth : float | None
             Line width for the landscape plots. If omitted, Matplotlib's
             default line width is used.
+        cmap : str or matplotlib.colors.Colormap | None
+            Sequential colormap used across the selected landscape levels.
+            Colors follow increasing ``k``.
+            Named reversed colormaps such as ``"viridis_r"`` are supported.
+            If omitted, Matplotlib's default color cycle is used.
+        higher_layers_on_top : bool
+            If True, landscape levels with larger ``k`` are drawn in front of
+            levels with smaller ``k``. The default keeps lower levels,
+            including the first landscape, in front.
 
         Returns
         -------
@@ -2866,6 +2878,8 @@ class PersistenceForest:
             *args,
             show_legend=show_legend,
             linewidth=linewidth,
+            cmap=cmap,
+            higher_layers_on_top=higher_layers_on_top,
             **kwargs,
         )
 
@@ -2878,6 +2892,8 @@ class PersistenceForest:
         *args,
         show_legend: Optional[bool] = None,
         linewidth: Optional[float] = None,
+        cmap: Optional[Union[str, Colormap]] = None,
+        higher_layers_on_top: bool = False,
         **kwargs,
     ):
         """Legacy compatibility wrapper for plot_measurement_landscapes."""
@@ -2889,6 +2905,8 @@ class PersistenceForest:
             *args,
             show_legend=show_legend,
             linewidth=linewidth,
+            cmap=cmap,
+            higher_layers_on_top=higher_layers_on_top,
             **kwargs,
         )
 

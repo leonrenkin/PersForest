@@ -28,7 +28,9 @@ as the supplied `cycle_value_func` knows how to evaluate it.
 from dataclasses import dataclass, field
 from typing import Any, Callable, Sequence, Optional, Tuple, Dict, Union, Literal,List
 from numpy.typing import NDArray
+import matplotlib
 import matplotlib.axes
+from matplotlib.colors import Colormap
 import numpy as np
 import matplotlib.pyplot as plt
 from bisect import bisect_right
@@ -1132,6 +1134,8 @@ def plot_landscape_family(
         *,
         show_legend: Optional[bool] = None,
         linewidth: Optional[float] = None,
+        cmap: Optional[Union[str, Colormap]] = None,
+        higher_layers_on_top: bool = False,
     ):
     """
     Plot selected landscapes λ_k from a stored family on a given forest.
@@ -1156,6 +1160,15 @@ def plot_landscape_family(
     linewidth : float, optional
         Line width for the landscape plots. If omitted, Matplotlib's default
         line width is used.
+    cmap : str or matplotlib.colors.Colormap | None
+        Sequential colormap used across the selected landscape levels.
+        Colors follow increasing ``k``.
+        Named reversed colormaps such as ``"viridis_r"`` are supported.
+        If omitted, Matplotlib's default color cycle is used.
+    higher_layers_on_top : bool
+        If True, landscape levels with larger ``k`` are drawn in front of
+        levels with smaller ``k``. The default keeps lower levels, including
+        the first landscape, in front.
 
     Returns
     -------
@@ -1174,7 +1187,23 @@ def plot_landscape_family(
     if ax is None:
         fig, ax = plt.subplots()
 
-    zorders = {k: zorder for zorder, k in enumerate(sorted(ks, reverse=True), start=1)}
+    colors_by_k = {}
+    if cmap is not None:
+        colormap = matplotlib.colormaps.get_cmap(cmap)
+        ordered_ks = sorted(set(ks))
+        if len(ordered_ks) == 1:
+            color_positions = np.array([0.5])
+        else:
+            color_positions = np.linspace(0.0, 1.0, len(ordered_ks))
+        colors_by_k = dict(zip(ordered_ks, colormap(color_positions)))
+
+    zorders = {
+        k: zorder
+        for zorder, k in enumerate(
+            sorted(ks, reverse=not higher_layers_on_top),
+            start=1,
+        )
+    }
     for k in ks:
         plf = family.landscapes[k]
         plot_kwargs = {
@@ -1183,6 +1212,8 @@ def plot_landscape_family(
         }
         if linewidth is not None:
             plot_kwargs["linewidth"] = linewidth
+        if cmap is not None:
+            plot_kwargs["color"] = colors_by_k[k]
         ax.plot(plf.xs, plf.ys, **plot_kwargs)
 
     ax.set_xlabel("filtration value")

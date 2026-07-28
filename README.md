@@ -62,7 +62,7 @@ family = forest.compute_measurement_landscapes(
     x_grid=grid,
     label="edge-length",
 )
-forest.plot_measurement_landscapes(label="edge-length")
+forest.plot_measurement_landscapes(label="edge-length", cmap="viridis")
 
 # Sample the first five landscape levels on the grid
 values = family.evaluate_on_grid(grid, levels=5)
