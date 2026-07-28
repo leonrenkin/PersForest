@@ -52,7 +52,7 @@ def add_right_margin_matching_left_overhang(fig, left_ax):
     left_overhang = max(0, axes_bbox.x0 - tight_bbox.x0) / fig.bbox.width
     fig.subplots_adjust(right=fig.subplotpars.right - left_overhang)
 
-def style_paper_barcode(ax):
+def style_paper_barcode(ax, *, show_x_arrow=True):
     """Use a light L-shaped axis frame for compact paper barcode panels."""
     for side in ["top", "right"]:
         ax.spines[side].set_visible(False)
@@ -68,24 +68,25 @@ def style_paper_barcode(ax):
     ax.tick_params(axis="x", width=0.6, length=2.5, pad=1.5)
     ax.grid(True, axis="x", linestyle=":", linewidth=0.4, alpha=0.35)
     ax.set_facecolor("none")
-    ax.annotate(
-        "",
-        xy=(1.025, 0),
-        xytext=(1.0, 0),
-        xycoords="axes fraction",
-        arrowprops={
-            "arrowstyle": "->",
-            "color": "0",
-            "linewidth": 0.6,
-            "shrinkA": 0,
-            "shrinkB": 0,
-        },
-        clip_on=False,
-    )
+    if show_x_arrow:
+        ax.annotate(
+            "",
+            xy=(1.025, 0),
+            xytext=(1.0, 0),
+            xycoords="axes fraction",
+            arrowprops={
+                "arrowstyle": "->",
+                "color": "0",
+                "linewidth": 0.6,
+                "shrinkA": 0,
+                "shrinkB": 0,
+            },
+            clip_on=False,
+        )
 
-%load_ext autoreload
-%autoreload 3
-!mkdir -p paper_figures
+from pathlib import Path
+
+Path("paper_figures").mkdir(parents=True, exist_ok=True)
 
 
 # %% Example: Point clouds with barcodes
@@ -230,7 +231,7 @@ pts = np.vstack([
 ])
 pts = pts[np.linalg.norm(pts, axis=1) > 0.25]
 forest = PersistenceForest(pts)
-forest.set_longest_bar_colors(coloring = "forest", colors = [ "#0ec801",  "#a454f8",  "#e7298a",  "#17becf",  "#C74A06",  "#bcbd22",  "#7570b3", "#4a7814"])
+forest.set_longest_bar_colors(coloring = "bars", colors = [ "#0ec801",  "#a454f8",  "#e7298a",  "#17becf",  "#C74A06",  "#bcbd22",  "#7570b3", "#4a7814"])
 landscapes = forest.compute_measurement_landscapes(
     signed_chain_circularity_complement,
     x_grid=np.linspace(-1.5/20, 1.5+1.5/20, 200),
@@ -245,7 +246,7 @@ fig1.tight_layout(pad=0.0)
 fig1.savefig("paper_figures/four_leaf_clover_landscapes.pdf", dpi=300, transparent=True)
 
 fig2, axs2 = plt.subplots(nrows=2, figsize=(4,.8))
-forest.plot_barcode(ax=axs2[0], max_bars=10, sort="length", coloring="forest", title="", bar_width=1.3, descending = True)
+forest.plot_barcode(ax=axs2[0], max_bars=10, sort="length", coloring="bars", title="", bar_width=1.3, descending = True)
 axs2[0].set_xlabel("")
 axs2[0].set_yticks([])
 axs2[0].set_xticks(np.linspace(0, 1.5, 10))
@@ -275,7 +276,7 @@ for (ax, t) in zip(axs3, axs2[0].get_xticks()):
     ax.set_box_aspect(1)
     ax.set_xticks([])
     ax.set_yticks([])
-    forest.plot_at_filtration(filt_val=t, ax=ax, title="", show=False, vertex_size=1, style_2d = style_dict_2d, point_zorder=4.5)
+    forest.plot_at_filtration(filt_val=t, ax=ax, title="", show=False, vertex_size=1, coloring="bars", style_2d = style_dict_2d, point_zorder=4.5)
 fig3.tight_layout(pad=.5)
 fig3.subplots_adjust(left=0, right=1, top=1, bottom=0)
 fig3.savefig("paper_figures/four_leaf_clover_landscapes3.pdf", dpi=300, transparent=True)
@@ -297,10 +298,11 @@ pts = np.vstack([
 ])
 pts = pts[np.linalg.norm(pts, axis=1) > 0.25]
 forest = PersistenceForest(pts)
-forest.set_longest_bar_colors(coloring = "forest", colors = [ "#0ec801",  "#a454f8",  "#e7298a",  "#17becf",  "#C74A06",  "#bcbd22",  "#7570b3", "#4a7814"])
+#forest.set_longest_bar_colors(coloring = "bars", colors = [ "#0ec801",  "#a454f8",  "#e7298a",  "#17becf",  "#C74A06",  "#bcbd22",  "#7570b3", "#4a7814"])
+forest.set_longest_bar_colors(coloring = "bars", colors = [ "C0",  "C1",  "C2",  "C3",  "C5"])
 
 length_bars = forest.longest_bars(5)
-length_color_map = forest._get_color_map(coloring="forest")
+length_color_map = forest._get_color_map(coloring="bars")
 length_min_bar_length = length_bars[-1].lifespan()
 length_x_range = (
     min(bar.birth for bar in length_bars) - 0.05,
@@ -308,10 +310,11 @@ length_x_range = (
 )
 length_x_grid = np.linspace(*length_x_range, 2000)
 
+n_layers =3
 length_landscapes = forest.compute_measurement_landscapes(
     signed_chain_edge_length,
     label="length",
-    max_k=4,
+    max_k=n_layers,
     min_bar_length=length_min_bar_length,
     x_grid=length_x_grid,
     cache_functionals=True,
@@ -320,19 +323,19 @@ length_profiles = forest.barcode_functionals["length"]
 landscapes = length_landscapes
 
 fig_length_landscapes = plt.figure(
-    figsize=(width, 0.82 * width),
+    figsize=(width, 0.70 * width),
     layout="constrained",
 )
 length_pipeline_grid = fig_length_landscapes.add_gridspec(
     nrows=4,
     ncols=3,
-    height_ratios=[1.25, 1.0, 1.0, 1.0],
-    width_ratios=[1.15, 0.05, 3.2],
+    height_ratios=[0.62, 0.74, 1.0, 1.0],
+    width_ratios=[1.35, 0.05, 3.2],
     hspace=0.10,
     wspace=0.08,
 )
 ax_length_point_cloud = fig_length_landscapes.add_subplot(
-    length_pipeline_grid[0, 0]
+    length_pipeline_grid[:2, 0]
 )
 ax_length_barcode = fig_length_landscapes.add_subplot(
     length_pipeline_grid[0, 2]
@@ -359,12 +362,12 @@ ax_length_point_cloud.scatter(
     edgecolors="none",
 )
 ax_length_point_cloud.set_aspect("equal")
-ax_length_point_cloud.set_anchor("E")
+ax_length_point_cloud.set_anchor("NE")
 ax_length_point_cloud.set_xticks([])
 ax_length_point_cloud.set_yticks([])
 ax_length_point_cloud.set_title(
-    r"\textbf{(a)} Point cloud",
-    loc="left",
+    "Point cloud",
+    loc="center",
     pad=2,
     fontsize=9,
 )
@@ -376,7 +379,7 @@ forest.plot_barcode(
     ax=ax_length_barcode,
     max_bars=len(length_bars),
     sort="length",
-    coloring="forest",
+    coloring="bars",
     title="",
     xlabel="",
     bar_width=1.5,
@@ -388,9 +391,8 @@ style_paper_barcode(ax_length_barcode)
 for barcode_artist in list(ax_length_barcode.texts[barcode_text_count:]):
     barcode_artist.remove()
 ax_length_barcode.set_title(
-    r"\textbf{(b)} Cycle-progression barcode",
-    loc="left",
-    x=0.006,
+    "Cycle-progression barcode",
+    loc="center",
     pad=2,
     fontsize=9,
 )
@@ -432,28 +434,28 @@ for kernel_index, bar in enumerate(length_profiles.bars):
         zorder=2.0 + bar.lifespan(),
     )
 
-# (e) The first four pointwise order statistics.
-landscape_colors = plt.get_cmap("viridis")(np.linspace(0.1, 0.9, 4))
+# (e) landscapes
+landscape_colors = plt.get_cmap("viridis")(np.linspace(0.1, 0.9, n_layers))
 landscape_styles = {
     landscape_index: {
         "color": landscape_colors[landscape_index - 1],
         "linestyle": "-",
         "linewidth": 1.4,
     }
-    for landscape_index in range(1, 5)
+    for landscape_index in range(1, n_layers+1)
 }
 for landscape_index, landscape in length_landscapes.landscapes.items():
     ax_length_landscapes.plot(
         landscape.xs,
         landscape.ys,
         label=rf"$\lambda_{{{landscape_index}}}$",
-        zorder=10 - landscape_index,
+        zorder=10 + landscape_index,
         **landscape_styles[landscape_index],
     )
 
 ax_length_landscapes.legend(
     loc="upper left",
-    ncols=4,
+    ncols=n_layers,
     frameon=False,
     handlelength=2.5,
     columnspacing=1.0,
@@ -463,24 +465,21 @@ ax_length_landscapes.legend(
 ax_length_barcode.set_xlim(length_x_range)
 ax_length_barcode.tick_params(axis="x", which="both", labelbottom=False)
 ax_length_profiles.set_title(
-    r"\textbf{(c)} Arc-length measurement profiles",
-    loc="left",
-    x=0.006,
+    "Path-length measurement profiles",
+    loc="center",
     pad=2,
 )
 ax_length_kernels.set_title(
-    r"\textbf{(d)} Kernel convolutions",
-    loc="left",
-    x=0.006,
+    "Convolution kernels of indicator functions on intervals",
+    loc="center",
     pad=2,
 )
 ax_length_landscapes.set_title(
-    r"\textbf{(e)} Measurement landscapes, $k_{\max}=4$",
-    loc="left",
-    x=0.006,
+    "Measurement landscapes with respect to path length",
+    loc="center",
     pad=2,
 )
-ax_length_profiles.set_ylabel(r"arc length")
+ax_length_profiles.set_ylabel(r"path length")
 ax_length_kernels.set_ylabel(r"kernel value")
 ax_length_landscapes.set_ylabel(r"landscape value")
 ax_length_landscapes.set_xlabel("filtration value")
@@ -512,6 +511,33 @@ for ax in (ax_length_barcode, ax_length_profiles, ax_length_kernels):
     ax.tick_params(axis="x", which="both", labelbottom=False)
 ax_length_landscapes.spines["bottom"].set_position(("data", 0))
 
+# Center each descriptive title while keeping its panel label at the left,
+# matching the title treatment in the measurement-profile figure.
+fig_length_landscapes.canvas.draw()
+for panel_ax, panel_label, panel_label_x in (
+    (ax_length_point_cloud, r"\textbf{(a)}", 0.0),
+    (ax_length_barcode, r"\textbf{(b)}", 0.006),
+    (ax_length_profiles, r"\textbf{(c)}", 0.006),
+    (ax_length_kernels, r"\textbf{(d)}", 0.006),
+    (ax_length_landscapes, r"\textbf{(e)}", 0.006),
+):
+    title_position_display = panel_ax.title.get_transform().transform(
+        panel_ax.title.get_position()
+    )
+    title_position_axes = panel_ax.transAxes.inverted().transform(
+        title_position_display
+    )
+    panel_label_artist = panel_ax.text(
+        panel_label_x,
+        title_position_axes[1],
+        panel_label,
+        transform=panel_ax.transAxes,
+        fontsize=panel_ax.title.get_fontsize(),
+        ha="left",
+        va="baseline",
+    )
+    panel_label_artist.set_in_layout(False)
+
 fig_length_landscapes.savefig(
     "paper_figures/four_leaf_clover_length_landscapes.pdf",
     dpi=300,
@@ -524,7 +550,7 @@ plt.show()
 from persforest.cycle_rep_vectorisations import signed_chain_edge_length
 
 profile_bars = forest.longest_bars(5)
-profile_color_map = forest._get_color_map(coloring="forest")
+profile_color_map = forest._get_color_map(coloring="bars")
 profile_min_bar_length = profile_bars[-1].lifespan()
 profile_x_range = (
     min(bar.birth for bar in profile_bars) - 0.05,
@@ -577,7 +603,7 @@ point_y_range = (
     pts[:, 1].min() - point_padding[1],
     pts[:, 1].max() + point_padding[1],
 )
-ax_profile_cloud.scatter(*pts.T, s=2, color="black", edgecolors="none")
+ax_profile_cloud.scatter(*pts.T, s=2.2, color="black", edgecolors="none")
 ax_profile_cloud.set(
     xlim=point_x_range,
     ylim=point_y_range,
@@ -599,7 +625,7 @@ forest.plot_barcode(
     ax=ax_profile_barcode,
     max_bars=len(profile_bars),
     sort="length",
-    coloring="forest",
+    coloring="bars",
     title=r"$H_1$ barcode",
     xlabel="",
     bar_width=1.5,
@@ -608,7 +634,7 @@ forest.plot_barcode(
 )
 ax_profile_barcode.set_xlim(profile_x_range)
 ax_profile_barcode.tick_params(axis="x", labelbottom=False)
-style_paper_barcode(ax_profile_barcode)
+style_paper_barcode(ax_profile_barcode, show_x_arrow=False)
 profile_panel_label_b = ax_profile_barcode.text(
     -0.065,
     1.15,
@@ -648,7 +674,7 @@ ax_profiles.set(
     xlim=profile_x_range,
     ylim=(0, None),
     xlabel="filtration value",
-    ylabel=r"arc length",
+    ylabel=r"path length",
 )
 ax_profiles.spines[["top", "right"]].set_visible(False)
 ax_profiles.grid(False)
@@ -689,7 +715,7 @@ for time_index, (ax, filtration_value) in enumerate(
         title="",
         show=False,
         vertex_size=1,
-        coloring="forest",
+        coloring="bars",
         min_bar_length=profile_min_bar_length,
         point_zorder=4.5,
         style_2d=profile_cycle_style,
@@ -796,6 +822,8 @@ plt.show()
 
 
 #%% Non-circularity landscapes
+cmap = "viridis"
+higher_layers_on_top = True
 x_max = 31
 seed =5
 from point_cloud_sampling import sample_points_without_balls
@@ -823,7 +851,8 @@ forest_6_holes.plot_measurement_landscapes(ax=axes[1],
                                            label="standard", 
                                            show = False,
                                            linewidth=1.3,
-                                           cmap = "viridis")
+                                           cmap = cmap,
+                                           higher_layers_on_top=higher_layers_on_top)
 axes[1].set_title("Persistence Landscapes", fontsize = 10)
 axes[1].legend(
     frameon=False,
@@ -850,7 +879,8 @@ forest_6_holes.plot_measurement_landscapes(ax=axes[2],
                                            label="circularity_complement", 
                                            show = False, 
                                            linewidth=1.3,
-                                           cmap = "viridis")
+                                           cmap = cmap,
+                                           higher_layers_on_top=higher_layers_on_top)
 axes[2].set_title("Non-Circularity Landscapes")
 axes[2].legend(
     frameon=False,
@@ -872,7 +902,7 @@ axes[1].set_box_aspect(ratios[0] / ratios[1])
 axes[2].set_box_aspect(ratios[0] / ratios[2])
 fig.subplots_adjust(left=0.04, right=0.995, bottom=0.14, top=0.86)
 
-fig.savefig(f"paper_figures/circle_6holes_random_points_non-circularity-landscapes_seed{seed}.pdf",dpi=300, transparent=True)
+fig.savefig(f"paper_figures/circle_6holes_random_points_non-circularity-landscapes_seed{seed}_cmap-{cmap}_zorder-{higher_layers_on_top}.pdf",dpi=300, transparent=True)
 plt.show()
 
 
