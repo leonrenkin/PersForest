@@ -215,73 +215,6 @@ fig.align_ylabels()
 fig.savefig('paper_figures/point_clouds_landscape_comparisons.pdf', transparent=True, dpi=300)
 plt.show()
 
-
-# %% four leaf clover
-def sample_four_leaf_clover(n, r=1.0, noise=0.0, R=(0, 2*np.pi), *, rng):
-    t = rng.uniform(R[0], R[1], n)
-    p = (r * np.sin(2*t))[:, None] * np.column_stack((np.cos(t), np.sin(t)))
-    return p + rng.normal(0, noise, p.shape)
-
-clover_rng = np.random.RandomState(6)
-pts = np.vstack([
-    sample_four_leaf_clover(30, noise=0.01, R=(0, .5*np.pi), rng=clover_rng),
-    .7*sample_four_leaf_clover(40, noise=0.01, R=(.5*np.pi, np.pi), rng=clover_rng),
-    1.5*sample_four_leaf_clover(60, noise=0.01, R=(1.5*np.pi, 2*np.pi), rng=clover_rng),
-    2.5*sample_four_leaf_clover(50, noise=0.01, R=(np.pi, 1.5*np.pi), rng=clover_rng),
-])
-pts = pts[np.linalg.norm(pts, axis=1) > 0.25]
-forest = PersistenceForest(pts)
-forest.set_longest_bar_colors(coloring = "bars", colors = [ "#0ec801",  "#a454f8",  "#e7298a",  "#17becf",  "#C74A06",  "#bcbd22",  "#7570b3", "#4a7814"])
-landscapes = forest.compute_measurement_landscapes(
-    signed_chain_circularity_complement,
-    x_grid=np.linspace(-1.5/20, 1.5+1.5/20, 200),
-    label = "circularity_complement"
-)
-fig1 = plt.figure(figsize=(1,1))
-ax1 = fig1.gca()
-ax1.set_aspect('equal')
-ax1.scatter(*pts.T, s=0.5, color='black')
-ax1.set_axis_off()
-fig1.tight_layout(pad=0.0)
-fig1.savefig("paper_figures/four_leaf_clover_landscapes.pdf", dpi=300, transparent=True)
-
-fig2, axs2 = plt.subplots(nrows=2, figsize=(4,.8))
-forest.plot_barcode(ax=axs2[0], max_bars=10, sort="length", coloring="bars", title="", bar_width=1.3, descending = True)
-axs2[0].set_xlabel("")
-axs2[0].set_yticks([])
-axs2[0].set_xticks(np.linspace(0, 1.5, 10))
-axs2[0].set_xlim((-1.5/20,1.5+1.5/20))
-axs2[0].set_xticklabels([])
-axs2[0].tick_params(axis='x', which='both', length=0)
-axs2[0].grid()
-for (k, l) in enumerate(list(landscapes.landscapes.values())[:3]):
-    axs2[1].plot(l.xs, l.ys, label=f"{k+1}", lw=1, clip_on=False, zorder=10-k)
-axs2[1].set_yticks([])
-axs2[1].sharex(axs2[0])
-axs2[1].tick_params(axis='x', which='both', length=0)
-axs2[1].set_xlabel(None)
-axs2[1].legend(loc='upper left', frameon=False)
-axs2[1].grid()
-axs2[1].set_ylim((0,0.07))
-
-fig2.tight_layout(h_pad=0, w_pad=0.0)
-fig2.subplots_adjust(left=0, right=1, top=1, bottom=0)
-fig2.savefig("paper_figures/four_leaf_clover_landscapes2.pdf", dpi=300, transparent=True)
-
-N = axs2[0].get_xticks().shape[0]
-fig3, axs3 = plt.subplots(ncols=N, figsize=(4,.4), sharex=True, sharey=True)
-style_dict_2d = {'complex_edge_width':0.2, 'cycle_edge_width':1.2}
-for (ax, t) in zip(axs3, axs2[0].get_xticks()):
-    ax.set_aspect('equal')
-    ax.set_box_aspect(1)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    forest.plot_at_filtration(filt_val=t, ax=ax, title="", show=False, vertex_size=1, coloring="bars", style_2d = style_dict_2d, point_zorder=4.5)
-fig3.tight_layout(pad=.5)
-fig3.subplots_adjust(left=0, right=1, top=1, bottom=0)
-fig3.savefig("paper_figures/four_leaf_clover_landscapes3.pdf", dpi=300, transparent=True)
-
-
 # %% Four-leaf clover measurement-landscape construction
 from persforest.cycle_rep_vectorisations import signed_chain_edge_length
 
@@ -359,14 +292,14 @@ length_profiles = forest.barcode_functionals["length"]
 snapshot_times = np.array([0.0, 0.33, 0.38, 0.44, 0.53, 0.75, 1.00, 1.30])
 
 fig_clover_construction = plt.figure(
-    figsize=(width, 0.80 * width),
+    figsize=(width, 0.90 * width),
     layout="constrained",
 )
 construction_grid = fig_clover_construction.add_gridspec(
     nrows=6,
     ncols=1,
-    height_ratios=[0.18, 0.95, 0.62, 1.0, 1.0, 1.0],
-    hspace=0.06,
+    height_ratios=[0.18, 0.95, 0.62, 1.0, 1.25, 1.25],
+    hspace=0.15,
 )
 ax_cycle_progression_header = fig_clover_construction.add_subplot(
     construction_grid[0]
@@ -392,19 +325,22 @@ ax_length_landscapes = fig_clover_construction.add_subplot(
 # (a) The cycle-progression barcode comprises both the interval barcode and its
 # evolving cycle representatives.
 ax_cycle_progression_header.set_axis_off()
+panel_label_artists = [
+    ax_cycle_progression_header.text(
+        0.0,
+        0.5,
+        r"\textbf{(a)}",
+        transform=ax_cycle_progression_header.transAxes,
+        fontsize=plt.rcParams["axes.titlesize"],
+        ha="left",
+        va="center",
+        in_layout=False,
+    )
+]
 ax_cycle_progression_header.text(
-    0.006,
-    0.5,
-    r"\textbf{(a)}",
-    transform=ax_cycle_progression_header.transAxes,
-    fontsize=plt.rcParams["axes.titlesize"],
-    ha="left",
-    va="center",
-)
-ax_cycle_progression_header.text(
     0.5,
     0.5,
-    "Cycle-progression barcode",
+    "Cycle progression barcode",
     transform=ax_cycle_progression_header.transAxes,
     fontsize=plt.rcParams["axes.titlesize"],
     ha="center",
@@ -432,12 +368,13 @@ point_y_range = (
 cycle_style = {
     "complex_face_alpha": 0.10,
     "complex_edge_width": 0.18,
-    "cycle_edge_width": 1.25,
+    "cycle_edge_width": 1,
 }
-inset_width = 0.116
-inset_height = 0.70
-inset_y = 0.15
+inset_width = 0.12
+inset_height = 0.76
+inset_y = 0.12
 display_centers = np.linspace(0.06, 0.94, len(snapshot_times))
+snapshot_axes = []
 
 for time_index, (filtration_value, display_center) in enumerate(
     zip(snapshot_times, display_centers)
@@ -456,7 +393,7 @@ for time_index, (filtration_value, display_center) in enumerate(
         ax=snapshot_ax,
         title="",
         show=False,
-        vertex_size=1,
+        vertex_size=1.1,
         coloring="bars",
         min_bar_length=length_min_bar_length,
         point_zorder=4.5,
@@ -485,19 +422,7 @@ for time_index, (filtration_value, display_center) in enumerate(
     )
     snapshot_ax.title.set_fontsize(6)
     snapshot_ax.set_axis_off()
-
-    leader = ConnectionPatch(
-        xyA=(display_center, inset_y),
-        coordsA=ax_cycle_states.transAxes,
-        xyB=(filtration_value, 1.0),
-        coordsB=ax_length_barcode.get_xaxis_transform(),
-        arrowstyle="-",
-        color="0.55",
-        linewidth=0.5,
-        clip_on=False,
-        zorder=1,
-    )
-    fig_clover_construction.add_artist(leader)
+    snapshot_axes.append(snapshot_ax)
 
 # The five longest intervals paired with the cycle representatives above.
 forest.plot_barcode(
@@ -524,7 +449,7 @@ for bar_index, bar in enumerate(length_bars):
         clip_on=False,
     )
 
-# (b) Arc-length measurement profiles attached to the retained intervals.
+# (b) Path length measurement profiles attached to the retained intervals.
 profile_max = 0.0
 for bar in length_bars:
     step_function = length_profiles[bar]
@@ -567,7 +492,7 @@ ax_length_landscapes.legend(
     frameon=False,
     handlelength=2.5,
     columnspacing=1.0,
-    borderaxespad=0.3,
+    borderaxespad=1.1,
 )
 
 landscape_max = max(
@@ -580,17 +505,26 @@ ax_length_convolutions.set_ylim(0, 1.08 * landscape_max)
 ax_length_landscapes.set_ylim(0, 1.08 * landscape_max)
 
 ax_length_profiles.set(
-    title="Arc-length measurement profiles",
-    ylabel="arc length",
+    ylabel="path length",
+)
+ax_length_profiles.set_title(
+    "Path length measurement profiles",
+    pad=3.0,
 )
 ax_length_convolutions.set(
-    title="Per-interval rescaled convolutions",
     ylabel="convolution value",
 )
+ax_length_convolutions.set_title(
+    "Per-interval rescaled convolutions",
+    pad=2.0,
+)
 ax_length_landscapes.set(
-    title="Arc-length measurement landscapes",
     xlabel="filtration value",
     ylabel="landscape value",
+)
+ax_length_landscapes.set_title(
+    "Path length measurement landscapes",
+    pad=2.0,
 )
 
 for filtration_value in snapshot_times:
@@ -648,15 +582,17 @@ for panel_ax, panel_label in (
     (ax_length_convolutions, r"\textbf{(c)}"),
     (ax_length_landscapes, r"\textbf{(d)}"),
 ):
-    panel_ax.text(
-        0.006,
-        1.02,
-        panel_label,
-        transform=panel_ax.transAxes,
-        fontsize=panel_ax.title.get_fontsize(),
-        ha="left",
-        va="bottom",
-        in_layout=False,
+    panel_label_artists.append(
+        panel_ax.text(
+            0.0,
+            1.02,
+            panel_label,
+            transform=panel_ax.transAxes,
+            fontsize=panel_ax.title.get_fontsize(),
+            ha="left",
+            va="bottom",
+            in_layout=False,
+        )
     )
 
 fig_clover_construction.align_ylabels(
@@ -666,6 +602,61 @@ fig_clover_construction.align_ylabels(
         ax_length_landscapes,
     )
 )
+
+# Resolve constrained layout before aligning the panel labels and comparing
+# positions from the snapshot and barcode axes.  Each leader starts just
+# outside the point closest to its barcode marker in display coordinates,
+# keeping the line out of the cloud.
+fig_clover_construction.canvas.draw()
+renderer = fig_clover_construction.canvas.get_renderer()
+panel_label_x_display = min(
+    ax.yaxis.label.get_window_extent(renderer).x0
+    for ax in (
+        ax_length_profiles,
+        ax_length_convolutions,
+        ax_length_landscapes,
+    )
+)
+panel_label_x_figure = fig_clover_construction.transFigure.inverted().transform(
+    (panel_label_x_display, 0)
+)[0]
+for panel_label_artist in panel_label_artists:
+    panel_label_position_display = panel_label_artist.get_transform().transform(
+        panel_label_artist.get_position()
+    )
+    panel_label_y_figure = (
+        fig_clover_construction.transFigure.inverted().transform(
+            panel_label_position_display
+        )[1]
+    )
+    panel_label_artist.set_transform(fig_clover_construction.transFigure)
+    panel_label_artist.set_position(
+        (panel_label_x_figure, panel_label_y_figure)
+    )
+
+for snapshot_ax, filtration_value in zip(snapshot_axes, snapshot_times):
+    barcode_position = ax_length_barcode.get_xaxis_transform().transform(
+        (filtration_value, 1.0)
+    )
+    point_positions = snapshot_ax.transData.transform(pts)
+    closest_point_index = np.argmin(
+        np.sum((point_positions - barcode_position) ** 2, axis=1)
+    )
+    leader = ConnectionPatch(
+        xyA=pts[closest_point_index],
+        coordsA=snapshot_ax.transData,
+        xyB=(filtration_value, 1.0),
+        coordsB=ax_length_barcode.get_xaxis_transform(),
+        arrowstyle="-",
+        shrinkA=5.0,
+        shrinkB=0.0,
+        color="0.55",
+        linewidth=0.5,
+        clip_on=False,
+        zorder=1,
+    )
+    leader.set_in_layout(False)
+    fig_clover_construction.add_artist(leader)
 
 fig_clover_construction.savefig(
     "paper_figures/four_leaf_clover_measurement_landscape_construction.pdf",
@@ -760,8 +751,7 @@ fig.savefig(f"paper_figures/circle_6holes_random_points_non-circularity-landscap
 plt.show()
 
 
-# %%
-#cycle rep showcase
+# %% cycle rep showcase
 points_with_6_holes = sample_points_without_balls(3000, dim=2, num_discs=6, radius_range=[0.05,0.15], seed=5) * 100
 forest_6_holes = PersistenceForest(points_with_6_holes)
 
@@ -793,4 +783,4 @@ savefig_trim_vertical_preserve_width(
     transparent=True,
 )
 
-# %%
+
