@@ -319,21 +319,59 @@ length_landscapes = forest.compute_measurement_landscapes(
 length_profiles = forest.barcode_functionals["length"]
 landscapes = length_landscapes
 
-fig_length_landscapes, (
-    ax_length_barcode,
-    ax_length_profiles,
-    ax_length_kernels,
-    ax_length_landscapes,
-) = plt.subplots(
-    nrows=4,
-    ncols=1,
-    figsize=(width, 0.64 * width),
-    sharex=True,
+fig_length_landscapes = plt.figure(
+    figsize=(width, 0.82 * width),
     layout="constrained",
-    gridspec_kw={"height_ratios": [0.55, 1.0, 1.05, 1.05], "hspace": 0.08},
+)
+length_pipeline_grid = fig_length_landscapes.add_gridspec(
+    nrows=4,
+    ncols=3,
+    height_ratios=[1.25, 1.0, 1.0, 1.0],
+    width_ratios=[1.15, 0.05, 3.2],
+    hspace=0.10,
+    wspace=0.08,
+)
+ax_length_point_cloud = fig_length_landscapes.add_subplot(
+    length_pipeline_grid[0, 0]
+)
+ax_length_barcode = fig_length_landscapes.add_subplot(
+    length_pipeline_grid[0, 2]
+)
+ax_length_profiles = fig_length_landscapes.add_subplot(
+    length_pipeline_grid[1, 2],
+    sharex=ax_length_barcode,
+)
+ax_length_kernels = fig_length_landscapes.add_subplot(
+    length_pipeline_grid[2, 2],
+    sharex=ax_length_barcode,
+)
+ax_length_landscapes = fig_length_landscapes.add_subplot(
+    length_pipeline_grid[3, 2],
+    sharex=ax_length_barcode,
 )
 
-# Top: the five retained barcode intervals.
+# (a) The geometric input.
+ax_length_point_cloud.scatter(
+    pts[:, 0],
+    pts[:, 1],
+    s=2.2,
+    color="0.25",
+    edgecolors="none",
+)
+ax_length_point_cloud.set_aspect("equal")
+ax_length_point_cloud.set_anchor("E")
+ax_length_point_cloud.set_xticks([])
+ax_length_point_cloud.set_yticks([])
+ax_length_point_cloud.set_title(
+    r"\textbf{(a)} Point cloud",
+    loc="left",
+    pad=2,
+    fontsize=9,
+)
+for spine in ax_length_point_cloud.spines.values():
+    spine.set_visible(False)
+
+# (b) The five retained cycle-progression barcode intervals.
 forest.plot_barcode(
     ax=ax_length_barcode,
     max_bars=len(length_bars),
@@ -345,7 +383,17 @@ forest.plot_barcode(
     descending=True,
     tight_layout=False,
 )
+barcode_text_count = len(ax_length_barcode.texts)
 style_paper_barcode(ax_length_barcode)
+for barcode_artist in list(ax_length_barcode.texts[barcode_text_count:]):
+    barcode_artist.remove()
+ax_length_barcode.set_title(
+    r"\textbf{(b)} Cycle-progression barcode",
+    loc="left",
+    x=0.006,
+    pad=2,
+    fontsize=9,
+)
 for bar_index, bar in enumerate(length_bars):
     ax_length_barcode.text(
         bar.death + 0.012,
@@ -358,7 +406,7 @@ for bar_index, bar in enumerate(length_bars):
         clip_on=False,
     )
 
-# Middle: the arc-length measurement profile attached to each interval.
+# (c) The arc-length measurement profile attached to each interval.
 profile_max = 0.0
 for bar in length_bars:
     step_function = length_profiles[bar]
@@ -368,10 +416,11 @@ for bar in length_bars:
         color=length_color_map[bar],
         linewidth=1.3,
         solid_capstyle="butt",
+        zorder=2.0 + bar.lifespan(),
     )
     profile_max = max(profile_max, float(np.max(step_function.vals)))
 
-# Third row: the colored per-bar convolution kernels.
+# (d) The colored per-bar kernel convolutions.
 for kernel_index, bar in enumerate(length_profiles.bars):
     kernel = length_landscapes.bar_kernels[kernel_index]
     ax_length_kernels.plot(
@@ -380,10 +429,10 @@ for kernel_index, bar in enumerate(length_profiles.bars):
         color=length_color_map[bar],
         linewidth=1.5,
         alpha=0.9,
-        zorder=2,
+        zorder=2.0 + bar.lifespan(),
     )
 
-# Bottom: the first four pointwise order statistics.
+# (e) The first four pointwise order statistics.
 landscape_colors = plt.get_cmap("viridis")(np.linspace(0.1, 0.9, 4))
 landscape_styles = {
     landscape_index: {
@@ -411,12 +460,25 @@ ax_length_landscapes.legend(
     borderaxespad=0.3,
 )
 
-ax_length_barcode.set_ylabel(
-    r"$H_1$ barcode",
-    rotation=0,
-    ha="right",
-    va="center",
-    labelpad=12,
+ax_length_barcode.set_xlim(length_x_range)
+ax_length_barcode.tick_params(axis="x", which="both", labelbottom=False)
+ax_length_profiles.set_title(
+    r"\textbf{(c)} Arc-length measurement profiles",
+    loc="left",
+    x=0.006,
+    pad=2,
+)
+ax_length_kernels.set_title(
+    r"\textbf{(d)} Kernel convolutions",
+    loc="left",
+    x=0.006,
+    pad=2,
+)
+ax_length_landscapes.set_title(
+    r"\textbf{(e)} Measurement landscapes, $k_{\max}=4$",
+    loc="left",
+    x=0.006,
+    pad=2,
 )
 ax_length_profiles.set_ylabel(r"arc length")
 ax_length_kernels.set_ylabel(r"kernel value")
@@ -579,6 +641,7 @@ for bar_index, bar in enumerate(profile_bars):
         color=profile_color_map[bar],
         linewidth=1.3,
         solid_capstyle="butt",
+        zorder=2.0 + bar.lifespan(),
     )
 
 ax_profiles.set(
@@ -631,6 +694,21 @@ for time_index, (ax, filtration_value) in enumerate(
         point_zorder=4.5,
         style_2d=profile_cycle_style,
     )
+    active_snapshot_bars = [
+        bar
+        for bar in forest.barcode
+        if (
+            bar.birth <= filtration_value < bar.death
+            and bar.lifespan() >= profile_min_bar_length
+        )
+    ]
+    if active_snapshot_bars:
+        cycle_collections = ax.collections[-len(active_snapshot_bars):]
+        for cycle_collection, bar in zip(
+            cycle_collections,
+            active_snapshot_bars,
+        ):
+            cycle_collection.set_zorder(5.0 + bar.lifespan())
     ax.set(
         xlim=point_x_range,
         ylim=point_y_range,
