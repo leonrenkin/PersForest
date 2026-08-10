@@ -142,8 +142,8 @@ from persforest.cycle_rep_vectorisations import signed_chain_area, signed_chain_
 fig, axes = plt.subplots(nrows=2,ncols=3, figsize=(0.85*width, 0.85 * 1.5/4 *width), sharex='col', layout='constrained')
 
 cycle_funcs_list = [
-    ("$f$ = length",signed_chain_edge_length),
-    ("$f$ = area",signed_chain_area), 
+    ("$f$ = arc length",signed_chain_edge_length),
+    ("$f$ = enclosed area",signed_chain_area), 
     ("$f$ = excess curvature",signed_chain_excess_curvature)
 ]
 
@@ -217,7 +217,6 @@ plt.show()
 
 # %% Four-leaf clover measurement-landscape construction
 from persforest.cycle_rep_vectorisations import signed_chain_edge_length
-
 
 def sample_four_leaf_clover(
     n,
@@ -449,7 +448,7 @@ for bar_index, bar in enumerate(length_bars):
         clip_on=False,
     )
 
-# (b) Path length measurement profiles attached to the retained intervals.
+# (b) Arc length measurement profiles attached to the retained intervals.
 profile_max = 0.0
 for bar in length_bars:
     step_function = length_profiles[bar]
@@ -505,10 +504,10 @@ ax_length_convolutions.set_ylim(0, 1.08 * landscape_max)
 ax_length_landscapes.set_ylim(0, 1.08 * landscape_max)
 
 ax_length_profiles.set(
-    ylabel="path length",
+    ylabel="arc length",
 )
 ax_length_profiles.set_title(
-    "Path length measurement profiles",
+    "Arc length measurement profiles",
     pad=3.0,
 )
 ax_length_convolutions.set(
@@ -523,7 +522,7 @@ ax_length_landscapes.set(
     ylabel="landscape value",
 )
 ax_length_landscapes.set_title(
-    "Path length measurement landscapes",
+    "Arc length measurement landscapes",
     pad=2.0,
 )
 
@@ -749,6 +748,7 @@ fig.subplots_adjust(left=0.04, right=0.995, bottom=0.14, top=0.86)
 
 fig.savefig(f"paper_figures/circle_6holes_random_points_non-circularity-landscapes_seed{seed}_cmap-{cmap}_zorder-{higher_layers_on_top}.pdf",dpi=300, transparent=True)
 plt.show()
+
 
 
 # %% cycle rep showcase
