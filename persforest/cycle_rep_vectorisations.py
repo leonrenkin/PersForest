@@ -696,6 +696,48 @@ def signed_chain_circularity_complement(signed_chain: SignedChain, point_cloud: 
     """
     return 1- signed_chain_circularity(signed_chain=signed_chain, point_cloud=point_cloud)
 
+def signed_chain_circularity_squared_complement(
+    signed_chain: SignedChain,
+    point_cloud: NDArray[np.float64],
+) -> float:
+    """Return ``1 - signed_chain_circularity(...)**2``.
+
+    Parameters
+    ----------
+    signed_chain : SignedChain
+        Signed 1-chain.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the chain vertices.
+
+    Returns
+    -------
+    float
+        Complement of the squared circularity score.
+    """
+    circularity = signed_chain_circularity(signed_chain, point_cloud)
+    return 1 - circularity**2
+
+def signed_chain_circularity_complement_squared(
+    signed_chain: SignedChain,
+    point_cloud: NDArray[np.float64],
+) -> float:
+    """Return ``(1 - signed_chain_circularity(...))**2``.
+
+    Parameters
+    ----------
+    signed_chain : SignedChain
+        Signed 1-chain.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the chain vertices.
+
+    Returns
+    -------
+    float
+        Squared complement of the circularity score.
+    """
+    complement = signed_chain_circularity_complement(signed_chain, point_cloud)
+    return complement**2
+
 def signed_chain_non_circularity(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
     Return the non-circularity score ``perimeter**2 / (4π * area) - 1``.
