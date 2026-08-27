@@ -138,13 +138,15 @@ fig.savefig('paper_figures/point_clouds_with_barcodes.pdf', transparent=True, dp
 plt.show()
 
 # %% Example: Measurement comparisons
-from persforest.cycle_rep_vectorisations import signed_chain_area, signed_chain_edge_length, signed_chain_excess_curvature, signed_chain_circularity_complement
-fig, axes = plt.subplots(nrows=2,ncols=3, figsize=(0.85*width, 0.85 * 1.5/4 *width), sharex='col', layout='constrained')
+from persforest.cycle_rep_vectorisations import signed_chain_area, signed_chain_edge_length, signed_chain_excess_curvature, signed_chain_circularity_complement,signed_chain_convex_hull_area_deficit, signed_chain_convex_hull_perimeter_deficit
+fig, axes = plt.subplots(nrows=2,ncols=3, figsize=(0.92*width, 0.85 * 1.5/4 *width), sharex='col', layout='constrained')
 
 cycle_funcs_list = [
     ("$f$ = arc length",signed_chain_edge_length),
     ("$f$ = enclosed area",signed_chain_area), 
-    ("$f$ = excess curvature",signed_chain_excess_curvature)
+    #("$f$ = excess curvature",signed_chain_excess_curvature)
+    ("$f$ = hull perimeter deficit", signed_chain_convex_hull_perimeter_deficit),
+    #("$f$ = hull area deficit", signed_chain_convex_hull_area_deficit),
 ]
 
 use_signed = False

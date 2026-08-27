@@ -5,6 +5,7 @@ import numpy as np
 from .PersistenceForest import SignedChain
 
 _EPS = 1e-12
+_UNIT_INTERVAL_TOL = 64 * np.finfo(np.float64).eps
 
 def _to_xy(points: Iterable[Tuple[float, float]]) -> np.ndarray:
     """
@@ -30,6 +31,175 @@ def _to_xy(points: Iterable[Tuple[float, float]]) -> np.ndarray:
         P = P[:-1].copy()
     return P
 
+def _convex_hull_indices(points: NDArray[np.float64]) -> NDArray[np.int64]:
+    """Return counterclockwise convex-hull vertex indices without closure."""
+    coordinates = np.asarray(points, dtype=float)
+    if coordinates.ndim != 2 or coordinates.shape[1] != 2:
+        raise ValueError("points must have shape (n_points, 2)")
+    if not np.all(np.isfinite(coordinates)):
+        raise ValueError("points must contain only finite coordinates")
+
+    # Lexicographic ordering with the original index as a deterministic
+    # tie-breaker. Keep one representative of each repeated coordinate.
+    order = np.lexsort(
+        (np.arange(len(coordinates)), coordinates[:, 1], coordinates[:, 0])
+    )
+    unique_indices: List[int] = []
+    for index in order:
+        index = int(index)
+        if not unique_indices or not np.array_equal(
+            coordinates[index], coordinates[unique_indices[-1]]
+        ):
+            unique_indices.append(index)
+
+    if len(unique_indices) <= 2:
+        return np.asarray(unique_indices, dtype=np.int64)
+
+    def cross(origin_index: int, first_index: int, second_index: int) -> float:
+        first = coordinates[first_index] - coordinates[origin_index]
+        second = coordinates[second_index] - coordinates[origin_index]
+        return float(first[0] * second[1] - first[1] * second[0])
+
+    lower: List[int] = []
+    for index in unique_indices:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], index) <= 0.0:
+            lower.pop()
+        lower.append(index)
+
+    upper: List[int] = []
+    for index in reversed(unique_indices):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], index) <= 0.0:
+            upper.pop()
+        upper.append(index)
+
+    return np.asarray(lower[:-1] + upper[:-1], dtype=np.int64)
+
+def _convex_polygon_diameter(hull: NDArray[np.float64]) -> float:
+    """Return the Euclidean diameter of a counterclockwise convex polygon."""
+    hull_coordinates = np.asarray(hull, dtype=float)
+    n_vertices = len(hull_coordinates)
+    if n_vertices <= 1:
+        return 0.0
+    if n_vertices == 2:
+        return float(np.linalg.norm(hull_coordinates[1] - hull_coordinates[0]))
+
+    def doubled_triangle_area(i: int, j: int, k: int) -> float:
+        edge = hull_coordinates[j] - hull_coordinates[i]
+        offset = hull_coordinates[k] - hull_coordinates[i]
+        return abs(float(edge[0] * offset[1] - edge[1] * offset[0]))
+
+    # Rotating calipers: each hull vertex advances at most once around the
+    # polygon, so the diameter computation is linear in the hull size.
+    antipodal_index = 1
+    maximum_squared_distance = 0.0
+    for index in range(n_vertices):
+        next_index = (index + 1) % n_vertices
+        while doubled_triangle_area(
+            index,
+            next_index,
+            (antipodal_index + 1) % n_vertices,
+        ) > doubled_triangle_area(index, next_index, antipodal_index):
+            antipodal_index = (antipodal_index + 1) % n_vertices
+
+        for first_index in (index, next_index):
+            for second_index in (
+                antipodal_index,
+                (antipodal_index + 1) % n_vertices,
+            ):
+                difference = (
+                    hull_coordinates[first_index] - hull_coordinates[second_index]
+                )
+                squared_distance = float(np.dot(difference, difference))
+                maximum_squared_distance = max(
+                    maximum_squared_distance,
+                    squared_distance,
+                )
+
+    return math.sqrt(maximum_squared_distance)
+
+def _point_to_segment_distances(
+    points: NDArray[np.float64],
+    segment_start: NDArray[np.float64],
+    segment_end: NDArray[np.float64],
+) -> NDArray[np.float64]:
+    """Return distances from points to a closed line segment."""
+    segment = segment_end - segment_start
+    squared_length = float(np.dot(segment, segment))
+    if squared_length == 0.0:
+        raise ValueError("Convex-hull edges must have positive length")
+
+    parameters = ((points - segment_start) @ segment) / squared_length
+    parameters = np.clip(parameters, 0.0, 1.0)
+    projections = segment_start + parameters[:, None] * segment
+    return np.linalg.norm(points - projections, axis=1)
+
+def _polygon_max_convexity_defect_depth(points: NDArray[np.float64]) -> float:
+    """Return the deepest hull-chord indentation of an ordered polygon."""
+    polygon = np.asarray(points, dtype=float)
+    if polygon.ndim != 2 or polygon.shape[1] != 2:
+        raise ValueError("points must have shape (n_points, 2)")
+    if len(polygon) < 3:
+        return 0.0
+
+    hull_indices = _convex_hull_indices(polygon)
+    if len(hull_indices) < 3:
+        return 0.0
+
+    # For a simple polygon, sorting hull vertices by their occurrence on the
+    # boundary makes each consecutive pair delimit exactly one hull pocket.
+    boundary_positions = sorted(int(index) for index in hull_indices)
+    maximum_depth = 0.0
+    for position_index, start in enumerate(boundary_positions):
+        end = boundary_positions[(position_index + 1) % len(boundary_positions)]
+        if end > start:
+            pocket_points = polygon[start + 1:end]
+        else:
+            pocket_points = np.concatenate(
+                (polygon[start + 1:], polygon[:end]), axis=0
+            )
+
+        if len(pocket_points) == 0:
+            continue
+
+        distances = _point_to_segment_distances(
+            pocket_points,
+            polygon[start],
+            polygon[end],
+        )
+        maximum_depth = max(maximum_depth, float(distances.max()))
+
+    return maximum_depth
+
+def _planar_signed_chain_vertices(
+    signed_chain: SignedChain,
+    point_cloud: NDArray[np.float64],
+) -> NDArray[np.float64]:
+    """Validate a planar signed 1-chain and return its support vertices."""
+    coordinates = np.asarray(point_cloud, dtype=float)
+    if coordinates.ndim != 2 or coordinates.shape[1] != 2:
+        raise ValueError("point_cloud must have shape (n_points, 2)")
+    if not signed_chain.signed_simplices:
+        return np.empty((0, 2), dtype=float)
+    if signed_chain.dim() != 1:
+        raise ValueError("Function only defined for 1-dimensional chains")
+
+    return signed_chain.vertex_coordinates(coordinates, signed=True)
+
+def _require_unit_interval(value: float, measurement_name: str) -> float:
+    """Validate a normalized geometric measurement."""
+    if not math.isfinite(value):
+        raise ValueError(f"{measurement_name} must be finite, got {value}")
+    if -_UNIT_INTERVAL_TOL <= value < 0.0:
+        return 0.0
+    if 1.0 < value <= 1.0 + _UNIT_INTERVAL_TOL:
+        return 1.0
+    if not 0.0 <= value <= 1.0:
+        raise ValueError(
+            f"{measurement_name} must lie in [0, 1], got {value}. "
+            "This indicates inconsistent cycle and convex-hull geometry."
+        )
+    return float(value)
+
 def polygon_length(points: Iterable[Tuple[float, float]]) -> float:
     """
     Perimeter (sum of edge lengths) of the closed polygonal loop.
@@ -47,7 +217,7 @@ def polygon_length(points: Iterable[Tuple[float, float]]) -> float:
     """
     P = _to_xy(points)
     diffs = np.roll(P, -1, axis=0) - P
-    return float(np.linalg.norm(diffs, axis=1).sum())
+    return math.fsum(np.linalg.norm(diffs, axis=1))
 
 def polygon_area(points: Iterable[Tuple[float, float]], signed: bool = False) -> float:
     """
@@ -69,7 +239,7 @@ def polygon_area(points: Iterable[Tuple[float, float]], signed: bool = False) ->
     P = _to_xy(points)
     x, y = P[:, 0], P[:, 1]
     xs, ys = np.roll(x, -1), np.roll(y, -1)
-    a = 0.5 * float(np.dot(x, ys) - np.dot(y, xs))
+    a = 0.5 * math.fsum(x * ys - y * xs)
     return a if signed else abs(a)
 
 def polygon_area_length_ratio(points: Iterable[Tuple[float, float]]) -> float:
@@ -388,22 +558,12 @@ def signed_chain_edge_length(signed_chain: SignedChain, point_cloud: NDArray[np.
     """
     if signed_chain.dim() != 1:
         raise ValueError("Function only defined for 1-dimensional chains")
-    
-    total = 0.0
-    for simplex, sign in signed_chain.signed_simplices:
-        # Make sure we have exactly two vertices: an edge
-        verts_idx = list(simplex)
-        if len(verts_idx) != 2:
-            continue
 
-        p0 = point_cloud[verts_idx[0]]
-        p1 = point_cloud[verts_idx[1]]
-        length = float(np.linalg.norm(p1 - p0))
-
-        # Orientation/sign is ignored; we just accumulate edge lengths.
-        total += length
-
-    return total
+    return math.fsum(
+        float(np.linalg.norm(point_cloud[simplex[1]] - point_cloud[simplex[0]]))
+        for simplex, _ in signed_chain.signed_simplices
+        if len(simplex) == 2
+    )
 
 def constant_one_functional(signed_chain = None, point_cloud = None) -> float:
     """
@@ -575,17 +735,162 @@ def signed_chain_area(signed_chain: SignedChain, point_cloud:  NDArray[np.float6
     x_max_list = np.array([point_cloud[path, 0].max() for path in paths])
     index_max = np.argmax(x_max_list)
 
-    total_area = 0
+    signed_areas = []
 
     for index, path in enumerate(paths):
         if len(path) < 2:
             print(paths)
             raise ValueError("Paths too short")
-        if index == index_max:
-            total_area += polygon_area(point_cloud[path])
-        else:
-            total_area -= polygon_area(point_cloud[path])
-    return total_area
+        path_area = polygon_area(point_cloud[path])
+        signed_areas.append(path_area if index == index_max else -path_area)
+    return math.fsum(signed_areas)
+
+def signed_chain_convex_hull_area_deficit(
+    signed_chain: SignedChain,
+    point_cloud: NDArray[np.float64],
+) -> float:
+    """Return the relative area missing from the chain's convex hull.
+
+    The measurement is
+
+    ``1 - enclosed_area / convex_hull_area``.
+
+    It is zero for a convex enclosed region and approaches one as the enclosed
+    area becomes small relative to its convex hull. A chain with zero convex
+    hull area is treated as convex and returns zero.
+
+    Parameters
+    ----------
+    signed_chain : SignedChain
+        Planar signed 1-chain.
+    point_cloud : ndarray, shape (n_points, 2)
+        Planar coordinates indexed by the chain vertices.
+
+    Returns
+    -------
+    float
+        Area deficit in ``[0, 1]``.
+    """
+    vertices = _planar_signed_chain_vertices(signed_chain, point_cloud)
+    if len(vertices) == 0:
+        return 0.0
+
+    hull = vertices[_convex_hull_indices(vertices)]
+    hull_area = polygon_area(hull)
+    enclosed_area = signed_chain_area(signed_chain, point_cloud)
+    if hull_area == 0.0:
+        if enclosed_area != 0.0:
+            raise ValueError(
+                "Convex hull has zero area but the signed chain encloses "
+                f"area {enclosed_area}"
+            )
+        return 0.0
+
+    return _require_unit_interval(
+        1.0 - enclosed_area / hull_area, "area deficit"
+    )
+
+def signed_chain_convex_hull_perimeter_deficit(
+    signed_chain: SignedChain,
+    point_cloud: NDArray[np.float64],
+) -> float:
+    """Return the relative perimeter excess over the chain's convex hull.
+
+    The measurement is
+
+    ``1 - convex_hull_perimeter / chain_edge_length``.
+
+    It is zero for a convex polygonal cycle. Doubled signed edges contribute
+    to the chain length and therefore increase the deficit. A zero-length
+    chain is treated as convex and returns zero.
+
+    Parameters
+    ----------
+    signed_chain : SignedChain
+        Planar signed 1-chain.
+    point_cloud : ndarray, shape (n_points, 2)
+        Planar coordinates indexed by the chain vertices.
+
+    Returns
+    -------
+    float
+        Perimeter deficit in ``[0, 1]``.
+    """
+    vertices = _planar_signed_chain_vertices(signed_chain, point_cloud)
+    if len(vertices) == 0:
+        return 0.0
+
+    hull = vertices[_convex_hull_indices(vertices)]
+    hull_perimeter = polygon_length(hull)
+    chain_length = signed_chain_edge_length(signed_chain, point_cloud)
+    if chain_length == 0.0:
+        if hull_perimeter != 0.0:
+            raise ValueError(
+                "Signed chain has zero length but its convex hull has perimeter "
+                f"{hull_perimeter}"
+            )
+        return 0.0
+
+    return _require_unit_interval(
+        1.0 - hull_perimeter / chain_length, "perimeter deficit"
+    )
+
+def signed_chain_max_convexity_defect_depth(
+    signed_chain: SignedChain,
+    point_cloud: NDArray[np.float64],
+    normalize: bool = True,
+) -> float:
+    """Return the maximum hull-chord indentation depth of the chain.
+
+    Convexity defects are computed separately on each closed polygonal path,
+    and the largest depth is returned. With the default normalization, depth
+    is divided by the diameter of the convex hull of the entire chain. Thus a
+    convex or degenerate chain returns zero and the normalized result lies in
+    ``[0, 1]``.
+
+    Parameters
+    ----------
+    signed_chain : SignedChain
+        Planar signed 1-chain.
+    point_cloud : ndarray, shape (n_points, 2)
+        Planar coordinates indexed by the chain vertices.
+    normalize : bool, optional
+        If True, divide the depth by the global convex-hull diameter. If
+        False, return depth in the coordinate units of ``point_cloud``.
+
+    Returns
+    -------
+    float
+        Maximum normalized or absolute convexity-defect depth.
+    """
+    vertices = _planar_signed_chain_vertices(signed_chain, point_cloud)
+    if len(vertices) == 0:
+        return 0.0
+
+    coordinates = np.asarray(point_cloud, dtype=float)
+    paths = signed_chain_to_polyhedral_paths(signed_chain, coordinates)
+    if not paths:
+        raise ValueError("Non-empty signed chain produced no polygonal paths")
+    maximum_depth = max(
+        _polygon_max_convexity_defect_depth(coordinates[path])
+        for path in paths
+    )
+
+    if not normalize:
+        return maximum_depth
+
+    hull = vertices[_convex_hull_indices(vertices)]
+    hull_diameter = _convex_polygon_diameter(hull)
+    if hull_diameter == 0.0:
+        if maximum_depth != 0.0:
+            raise ValueError(
+                "Convex hull has zero diameter but the chain has "
+                f"convexity-defect depth {maximum_depth}"
+            )
+        return 0.0
+    return _require_unit_interval(
+        maximum_depth / hull_diameter, "normalized convexity-defect depth"
+    )
 
 def signed_chain_excess_curvature(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
