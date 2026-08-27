@@ -218,6 +218,11 @@ plt.show()
 # %% Four-leaf clover measurement-landscape construction
 from persforest.cycle_rep_vectorisations import signed_chain_edge_length
 
+# Plot each measurement profile only on its interval by default.  Set this to
+# True to show its zero-valued extension over the full filtration range.
+show_profile_zero_extension = True
+
+
 def sample_four_leaf_clover(
     n,
     r=1.0,
@@ -454,7 +459,11 @@ for bar in length_bars:
     step_function = length_profiles[bar]
     step_function.plot(
         ax=ax_length_profiles,
-        x_range=(bar.birth, bar.death),
+        x_range=(
+            length_x_range
+            if show_profile_zero_extension
+            else (bar.birth, bar.death)
+        ),
         color=length_color_map[bar],
         linewidth=1.3,
         solid_capstyle="butt",
@@ -657,8 +666,13 @@ for snapshot_ax, filtration_value in zip(snapshot_axes, snapshot_times):
     leader.set_in_layout(False)
     fig_clover_construction.add_artist(leader)
 
+clover_construction_filename = (
+    "four_leaf_clover_measurement_landscape_construction_zero_extended.pdf"
+    if show_profile_zero_extension
+    else "four_leaf_clover_measurement_landscape_construction.pdf"
+)
 fig_clover_construction.savefig(
-    "paper_figures/four_leaf_clover_measurement_landscape_construction.pdf",
+    f"paper_figures/{clover_construction_filename}",
     dpi=300,
     transparent=True,
 )
@@ -782,5 +796,3 @@ savefig_trim_vertical_preserve_width(
     dpi=300,
     transparent=True,
 )
-
-
