@@ -1600,6 +1600,218 @@ class PersistenceForest:
 
         return
 
+    # ----- interior activity plotting -------
+
+    def plot_interior_simplex_activity(
+        self,
+        ax=None,
+        show: bool = True,
+        figsize: tuple[float, float] = (5, 5),
+        dpi: int = 300,
+        coloring: Literal["forest", "bars"] = "forest",
+        show_complex: bool = False,
+        complex_max_filtration: float | None = None,
+        overlap: Literal["longest", "layer"] = "longest",
+        vertex_size: float = 2,
+        min_activity_length: float = 0.0,
+        style: dict[str, Any] | None = None,
+        geometry: Literal["cells", "surface"] = "cells",
+    ):
+        """Plot 2D or 3D interior-simplex activity using Matplotlib.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes or None
+            Axes to draw on. For a 3D forest, an explicitly supplied axes must
+            use ``projection="3d"``.
+        show : bool
+            If True, call ``matplotlib.pyplot.show`` after plotting.
+        figsize : tuple[float, float]
+            Figure size used when creating an axes.
+        dpi : int
+            Figure resolution used when creating an axes.
+        coloring : {"forest", "bars"}
+            Bar color map to use.
+        show_complex : bool
+            If True, overlay complex edges.
+        complex_max_filtration : float or None
+            Maximum filtration value included in the optional complex overlay.
+        overlap : {"longest", "layer"}
+            Whether a multiply active simplex uses its longest interval or is
+            drawn once for every activity interval.
+        vertex_size : float
+            Point-cloud marker size.
+        min_activity_length : float
+            Ignore activity intervals shorter than this value.
+        style : dict or None
+            Renderer-specific style overrides.
+        geometry : {"cells", "surface"}
+            For 3D only, draw tetrahedral cells or per-bar region boundaries.
+
+        Returns
+        -------
+        matplotlib.axes.Axes
+            Axes containing the activity plot.
+        """
+        from .interior_activity_plotting import plot_interior_simplex_activity
+
+        return plot_interior_simplex_activity(
+            self,
+            ax=ax,
+            show=show,
+            figsize=figsize,
+            dpi=dpi,
+            coloring=coloring,
+            show_complex=show_complex,
+            complex_max_filtration=complex_max_filtration,
+            overlap=overlap,
+            vertex_size=vertex_size,
+            min_activity_length=min_activity_length,
+            style=style,
+            geometry=geometry,
+        )
+
+    def plot_interior_simplex_activity_gradient(
+        self,
+        ax=None,
+        show: bool = True,
+        figsize: tuple[float, float] = (5, 5),
+        dpi: int = 300,
+        coloring: Literal["forest", "bars"] = "forest",
+        vertex_size: float = 2,
+        title: str | None = None,
+        min_activity_length: float = 0.0,
+        style: dict[str, Any] | None = None,
+    ):
+        """Plot the smooth 2D interior-activity field.
+
+        This representation is defined only for 2D forests. Parameters are
+        forwarded to ``interior_activity_plotting`` without modification.
+
+        Returns
+        -------
+        matplotlib.axes.Axes
+            Axes containing the activity gradient.
+        """
+        from .interior_activity_plotting import (
+            plot_interior_simplex_activity_gradient,
+        )
+
+        return plot_interior_simplex_activity_gradient(
+            self,
+            ax=ax,
+            show=show,
+            figsize=figsize,
+            dpi=dpi,
+            coloring=coloring,
+            vertex_size=vertex_size,
+            title=title,
+            min_activity_length=min_activity_length,
+            style=style,
+        )
+
+    def plot_interior_simplex_activity_plotly(
+        self,
+        coloring: Literal["forest", "bars"] = "forest",
+        show_complex: bool = False,
+        complex_max_filtration: float | None = None,
+        overlap: Literal["longest", "layer"] = "longest",
+        vertex_size: float = 2.0,
+        min_activity_length: float = 0.0,
+        geometry: Literal["cells", "surface"] = "surface",
+        cell_shrink: float = 1.0,
+        opacity: float | None = None,
+        show: bool = True,
+        renderer: str | None = None,
+        width: int | None = None,
+        height: int | None = None,
+        style: dict[str, Any] | None = None,
+        edge_mode: Literal["none", "surface", "all"] = "none",
+    ):
+        """Interactively plot 3D interior activity using Plotly.
+
+        The default clean view draws the boundary of each per-bar activity
+        region with no explicit mesh edges. Face opacity scales with activity
+        duration over ``(0.35, 0.95)`` by default. Activity meshes are grouped
+        by persistence bar for legend toggling and include simplex,
+        activity-length and barcode data in hover labels. Plotly is imported
+        only when this method is called.
+
+        Parameters
+        ----------
+        coloring : {"forest", "bars"}
+            Bar color map to use.
+        show_complex : bool
+            If True, overlay a subdued wireframe of the filtered complex.
+        complex_max_filtration : float or None
+            Maximum filtration value included in the complex wireframe.
+        overlap : {"longest", "layer"}
+            Whether a multiply active tetrahedron uses its longest interval or
+            is included once for every activity interval.
+        vertex_size : float
+            Plotly point-cloud marker size.
+        min_activity_length : float
+            Ignore activity intervals shorter than this value.
+        geometry : {"surface", "cells"}
+            ``"surface"`` cancels shared faces within each bar and is the clean
+            presentation default. ``"cells"`` draws every activity
+            tetrahedron for structural inspection.
+        cell_shrink : float
+            Cell-mode shrink factor in ``(0, 1]``. Keep the default ``1`` to
+            avoid artificial gaps; smaller values produce an exploded view.
+        opacity : float or None
+            Optional fixed face opacity. The default ``None`` scales opacity
+            linearly with activity duration, relative to the maximum displayed
+            duration, through ``style["activity_alpha_range"]``. The default
+            range is ``(0.35, 0.95)``.
+        show : bool
+            If True, display the figure.
+        renderer : str or None
+            Plotly renderer passed to ``Figure.show``.
+        width, height : int or None
+            Figure dimensions in pixels.
+        style : dict or None
+            Plotly style overrides. The most important are
+            ``activity_alpha_range``, ``flatshading``, ``lighting``,
+            ``lightposition``, ``camera_eye`` and ``remove_axes``.
+            ``show_activity_edges`` remains as a compatibility alias; prefer
+            ``edge_mode`` in new code.
+        edge_mode : {"none", "surface", "all"}
+            Activity-edge policy. ``"none"`` is the clean default.
+            ``"surface"`` outlines only faces exposed on each per-bar region
+            boundary and is the recommended opt-in mode. ``"all"`` outlines
+            every tetrahedral cell, including internal and rear-facing edges.
+            Surface edges use a darkened bar color unless
+            ``style["activity_edge_color"]`` overrides it.
+
+        Returns
+        -------
+        plotly.graph_objects.Figure
+            Interactive 3D figure.
+        """
+        from .interior_activity_plotly import (
+            plot_interior_simplex_activity_plotly,
+        )
+
+        return plot_interior_simplex_activity_plotly(
+            self,
+            coloring=coloring,
+            show_complex=show_complex,
+            complex_max_filtration=complex_max_filtration,
+            overlap=overlap,
+            vertex_size=vertex_size,
+            min_activity_length=min_activity_length,
+            geometry=geometry,
+            cell_shrink=cell_shrink,
+            opacity=opacity,
+            show=show,
+            renderer=renderer,
+            width=width,
+            height=height,
+            style=style,
+            edge_mode=edge_mode,
+        )
+
     # ----- filtration plotting helpers -------
 
     def _simplices_present_at_filtration(self, filt_val: float) -> Dict[str, Any]:
