@@ -765,7 +765,89 @@ fig.subplots_adjust(left=0.04, right=0.995, bottom=0.14, top=0.86)
 fig.savefig(f"paper_figures/circle_6holes_random_points_non-circularity-landscapes_seed{seed}_cmap-{cmap}_zorder-{higher_layers_on_top}.pdf",dpi=300, transparent=True)
 plt.show()
 
+#%% Non-convexity landscapes
+cmap = "viridis"
+higher_layers_on_top = True
+x_max = 31
+seed =5
+from point_cloud_sampling import sample_points_without_balls
+points_with_6_holes = sample_points_without_balls(3000, dim=2, num_discs=6, radius_range=[0.09,0.15], seed=seed) * 100
+forest_6_holes = PersistenceForest(points_with_6_holes)
 
+ratios = [1,1.2,1.2]
+
+fig, axes = plt.subplots(ncols=3,figsize=(width,width*0.36), gridspec_kw={"width_ratios": ratios, 'wspace':0.25})
+forest_6_holes.plot_at_filtration(0,ax=axes[0], coloring="forest", vertex_size=1.3, show=False)
+#ax.set_axis_off()
+axes[0].set_title("Point Cloud")
+axes[0].set_xlim(0,100)
+axes[0].set_ylim(0,100)
+
+from persforest.cycle_rep_vectorisations import signed_chain_convex_hull_perimeter_deficit, signed_chain_convex_hull_area_deficit, constant_one_functional
+
+
+forest_6_holes.compute_measurement_landscapes(cycle_func=constant_one_functional,
+                                                    label = "standard", 
+                                                    signed=False,
+                                                    max_k=7,
+                                                    x_grid= np.linspace(0,x_max,5000))
+forest_6_holes.plot_measurement_landscapes(ax=axes[1], 
+                                           label="standard", 
+                                           show = False,
+                                           linewidth=1.3,
+                                           cmap = cmap,
+                                           higher_layers_on_top=higher_layers_on_top)
+axes[1].set_title("Persistence Landscapes", fontsize = 10)
+axes[1].legend(
+    frameon=False,
+    fontsize=6,
+    handlelength=0.8,   # length of colored line segment
+    #handletextpad=0.3,  # gap between line and text
+    borderpad=0.2,      # padding inside legend box
+    labelspacing=0.3,   # vertical space between entries
+    columnspacing=0.5,
+)
+axes[1].grid(False)
+axes[1].set_xlim(0,x_max)
+axes[1].set_ylim(bottom=0)
+axes[1].set_xlabel("")
+axes[1].set_ylabel("")
+
+
+forest_6_holes.compute_measurement_landscapes(cycle_func=signed_chain_convex_hull_area_deficit,
+                                                    label = "hull_area_deficit", 
+                                                    signed=False,
+                                                    max_k=7,
+                                                    x_grid= np.linspace(0,x_max,5000))
+forest_6_holes.plot_measurement_landscapes(ax=axes[2], 
+                                           label="hull_area_deficit", 
+                                           show = False, 
+                                           linewidth=1.3,
+                                           cmap = cmap,
+                                           higher_layers_on_top=higher_layers_on_top)
+axes[2].set_title("Non-Circularity Landscapes")
+axes[2].legend(
+    frameon=False,
+    fontsize=6,
+    handlelength=0.8,   # length of colored line segment
+    #handletextpad=0.3,  # gap between line and text
+    borderpad=0.2,      # padding inside legend box
+    labelspacing=0.3,   # vertical space between entries
+    columnspacing=0.5,
+)
+axes[2].grid(False)
+axes[2].set_xlim(0,x_max)
+axes[2].set_ylim(bottom=0)
+axes[2].set_xlabel("")
+axes[2].set_ylabel("")
+
+axes[0].set_box_aspect(1)
+axes[1].set_box_aspect(ratios[0] / ratios[1])
+axes[2].set_box_aspect(ratios[0] / ratios[2])
+fig.subplots_adjust(left=0.04, right=0.995, bottom=0.14, top=0.86)
+
+fig.savefig(f"paper_figures/circle_6holes_random_points_non-convexity-landscapes_seed{seed}_cmap-{cmap}_zorder-{higher_layers_on_top}.pdf",dpi=300, transparent=True)
+plt.show()
 
 # %% cycle rep showcase
 points_with_6_holes = sample_points_without_balls(3000, dim=2, num_discs=6, radius_range=[0.05,0.15], seed=5) * 100
