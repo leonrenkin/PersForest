@@ -1,6 +1,6 @@
 import numpy as np
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Literal, Iterable, Callable, Union, Sequence, Set
+from typing import Any, Dict, List, Optional, Tuple, Literal, Iterable, Iterator, Callable, Union, Sequence, Set
 from collections import defaultdict
 from numpy.typing import NDArray
 from matplotlib.colors import Colormap
@@ -320,6 +320,8 @@ class SignedChain:
             signed_simplices=cleaned,
             active_start=self.active_start,
             active_end=self.active_end,
+            interior_available=self.interior_available,
+            interior=self.interior
         )
 
     def only_double_simplices(self) -> "SignedChain":
@@ -1348,21 +1350,61 @@ class PersistenceForest:
 
         return
 
-    def _cycle_reps_from_node_diff(self, bar: PFBar) -> list[SignedChain]:
+    def iter_bar_cycle_reps(self, bar: PFBar) -> Iterator[SignedChain]:
+        """Yield iterator of representatives of a bar in descending filtration order.
+
+        Normal mode yields stored representatives; 
+        diff-only mode reconstructs boundaries and interiors with independent simplex sets.
+
+        Raises
+        ------
+        ValueError
+            On iteration, if the bar is foreign or required diffs are missing.
         """
-        Reconstruct cycle representatives for a bar from node diffs.
+        if bar not in self.barcode:
+            raise ValueError("Bar is not in barcode of forest")
 
-        Parameters
-        ----------
-        bar : PFBar
-            Bar whose node progression should be reconstructed.
+        if not self.diff_only_mode:
+            yield from reversed(bar.cycle_reps)
+            return
 
-        Returns
-        -------
-        list[SignedChain]
-            Cycle representatives ordered by increasing filtration value. Each
-            returned chain has ``interior_available=True`` and an ``interior``
-            set containing accumulated full-dimensional simplices.
+        interior = set()
+        simplices = set()
+        for nid in reversed(bar._node_progression):
+            node = self.nodes[nid]
+            if not node._simplex_diff_available:
+                raise ValueError("node._simplex_diff_available is not available; this should not happen")
+
+            active_start, active_end = self._node_activity(node)
+            simplices = update_chain_with_diff(
+                signed_simplices=simplices,
+                interior_diff=node._barcode_interior_diff,
+                codim1_simplex_diff=node._barcode_codim1_simplex_diff,
+            )
+            simplices = update_chain_with_diff(
+                signed_simplices=simplices,
+                interior_diff=node._interior_diff,
+                codim1_simplex_diff=node._codim1_simplex_diff,
+            )
+            if node._interior_diff is not None:
+                interior.update(node._interior_diff)
+            if node._barcode_interior_diff is not None:
+                interior.update(node._barcode_interior_diff)
+
+            yield SignedChain(
+                signed_simplices=simplices.copy(),
+                active_start=active_start,
+                active_end=active_end,
+                interior_available=True,
+                interior=interior.copy(),
+            )
+
+    # ----- Interior computation and activity ------
+
+    def _add_interior_to_bar(self, bar: PFBar):
+        """
+        Adds an ``interior`` set containing accumulated full-dimensional simplices to each SignedChain in bar, 
+        and sets ``interior_available=True``.
 
         Raises
         ------
@@ -1370,40 +1412,32 @@ class PersistenceForest:
             If any node in the progression does not have simplex diffs.
         """
 
+        if self.diff_only_mode:
+            raise ValueError("Saving interiors is not possible with diff_only_mode=True")
+
         interior = set()
         simplices = set()
-        cycle_reps = []
 
         for nid in reversed(bar._node_progression):
             node = self.nodes[nid]
 
-            active_start, active_end = self._node_activity(node)
-
             if not node._simplex_diff_available:
                 raise ValueError("set PersistenceForest(..., keep_simplex_diff=True)")
-            simplices = update_chain_with_diff(signed_simplices=simplices, interior_diff=node._barcode_interior_diff, codim1_simplex_diff=node._barcode_codim1_simplex_diff)
-            simplices = update_chain_with_diff(signed_simplices=simplices, interior_diff=node._interior_diff, codim1_simplex_diff=node._codim1_simplex_diff)
 
             if node._interior_diff is not None:
                 interior.update(node._interior_diff)
             if node._barcode_interior_diff is not None:
                 interior.update(node._barcode_interior_diff)
 
-            signed_chain = SignedChain(
-                signed_simplices=simplices.copy(),
-                active_start=active_start,
-                active_end=active_end,
-                interior_available=True,
-                interior=interior.copy()
-            )
-            cycle_reps.append(signed_chain)
+            if node.cycle is None:
+                raise ValueError(f"Node with id {node.id} has node.cycle = None. This should not happen.")
+            
+            node.cycle.interior = interior
+            node.cycle.interior_available = True
 
+        return
 
-        return list(reversed(cycle_reps))
-
-    # ----- Interior computation and activity ------
-
-    def _compute_interior_of_cycle_reps(self,print_info: bool =False):
+    def _add_interior_to_barcode(self,print_info: bool =False):
         """
         Replace barcode cycle representatives by diff-reconstructed chains.
 
@@ -1423,7 +1457,7 @@ class PersistenceForest:
         interior_start = time.perf_counter()
 
         for bar in self.barcode:
-            bar.cycle_reps = self._cycle_reps_from_node_diff(bar)
+            self._add_interior_to_bar(bar)
         
         interior_end = time.perf_counter()-interior_start
         if print_info:
@@ -2346,31 +2380,26 @@ class PersistenceForest:
 
     # ------ forest plotting tools ------------
 
-    def plot_dendrogram(
-        self,
-        *args,
-        **kwargs
-    ):
-        """
-        Plot the forest as a dendrogram.
+    def plot_persistence_forest(self, **kwargs):
+        """Plot upright trees with barcode colors and a dominant vertical trunk.
 
-        Parameters
-        ----------
-        *args, **kwargs :
-            Forwarded to ``forest_plotting._plot_dendrogram_generic``. Common
-            options include ``ax``, ``show``, ``annotate_ids``,
-            ``leaf_spacing``, ``tree_gap_leaves``, ``check_reduced``,
-            ``small_on_top`` and ``threshold``.
+        Supports ``min_tree_span``, ``min_bar_length``, ``min_branch_span``,
+        ``nodes="none"|"critical"|"all"``, ``collapse_degree2``, ``coloring``,
+        ``edge_style="curved"|"straight"|"routed"``, ``curvature``,
+        ``branch_angle``, ``min_clearance``, and Matplotlib styling. Filters affect only the display. See
+        :func:`persforest.forest_plotting._plot_persistence_forest_generic`
+        for full parameter descriptions and optional layout metadata.
         """
-        from .forest_plotting import _plot_dendrogram_generic
-        return _plot_dendrogram_generic(self, *args, **kwargs)
+        from .forest_plotting import _plot_persistence_forest_generic
+        return _plot_persistence_forest_generic(self, **kwargs)
 
     def plot_barcode(self, *args, **kwargs):
         """
         Plot a 1D barcode from self.barcode (a set[Bar]).
 
-        Each Bar contributes a horizontal segment from birth to death.
-        If death is +inf, an arrow is drawn to the right.
+        Intervals run from birth to death, horizontally by default. Use
+        orientation="vertical" to share a filtration axis with a forest plot.
+        Infinite intervals end in an arrow.
 
         Parameters
         ----------
@@ -2381,8 +2410,12 @@ class PersistenceForest:
             Default is "birth".
         title : str
             Plot title.
+        orientation : {"horizontal", "vertical"}
+            Direction of barcode intervals (default: horizontal).
         xlabel : str
-            Label for the x-axis.
+            Filtration-axis label, also used vertically unless ylabel is given.
+        ylabel : str or None
+            Override the filtration-axis label for vertical barcodes.
         coloring : {"forest","bars","none","grey"}
             Which color scheme to use:
             - "forest": use self.color_map_forest (tree-structured colors).
@@ -2520,7 +2553,7 @@ class PersistenceForest:
             - 3D HTML path: Plotly figure.
         """
         from pathlib import Path
-        from .forest_plotting import _animate_filtration_generic
+        from .simplicial_filtration_animation import _animate_filtration_generic
 
         out_format = format
         if out_format is None and filename is not None:

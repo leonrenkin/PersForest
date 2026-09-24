@@ -8,7 +8,9 @@ object which provides:
 - forest.barcode: iterable of bar objects, where each bar has
       bar.birth: float
       bar.death: float (can be math.inf)
-      bar.cycle_reps: iterable of cycle representatives
+
+- forest.iter_bar_cycle_reps(bar): iterator of cycle representatives in
+      descending filtration order
 
 - each cycle representative has
       rep.active_start: float
@@ -418,6 +420,7 @@ def _build_step_function_data(
         ----------
         forest :
             Forest-like object providing ``point_cloud`` and ``barcode``.
+            Requires ``iter_bar_cycle_reps(bar)`` in descending filtration order.
         bar :
             Bar instance taken from ``forest.barcode``.
         cycle_func : CycleValueFunc
@@ -433,18 +436,16 @@ def _build_step_function_data(
         if bar not in forest.barcode:
             raise ValueError("Bar is not in barcode of forest")
 
-        starts = np.array(
-            [cycle.active_start for cycle in bar.cycle_reps],
-            dtype=float,
-        )
-        ends = np.array(
-            [cycle.active_end for cycle in bar.cycle_reps],
-            dtype=float,
-        )
-        vals = np.array(
-            [cycle_func(cycle, forest.point_cloud) for cycle in bar.cycle_reps],
-            dtype=float,
-        )
+        records = [
+            (cycle.active_start, cycle.active_end,
+             float(cycle_func(cycle, forest.point_cloud)))
+            for cycle in forest.iter_bar_cycle_reps(bar)
+        ]
+        # The iterator runs from death toward birth. Reverse only scalar
+        # records so reconstructed chains need not be retained.
+        records.reverse()
+        data = np.asarray(records, dtype=float).reshape(-1, 3)
+        starts, ends, vals = data.T
 
         if starts.size == 0:
             # Degenerate: no representatives
