@@ -81,14 +81,17 @@ def featurize_point_cloud(
 
 
 def _featurize_point_cloud_row(
-    base_dir,
+    point_cloud_base_dir,
     row_index,
     point_cloud_param_row,
     cycle_func,
     signed,
     landscape_feature_params,
 ):
-    point_cloud = np.load(point_cloud_param_row["save_path"])
+    point_cloud_path = Path(point_cloud_param_row["save_path"])
+    if not point_cloud_path.is_absolute():
+        point_cloud_path = point_cloud_base_dir / point_cloud_path
+    point_cloud = np.load(point_cloud_path)
     feature = featurize_point_cloud(
         point_cloud=point_cloud,
         cycle_func=cycle_func,
@@ -121,7 +124,7 @@ def process_cycle_func(
     if max_workers < 1:
         raise ValueError("max_workers must be >= 1")
 
-    base_dir = Path(__file__).resolve().parent
+    point_cloud_base_dir = Path(point_cloud_params_path).resolve().parent
     point_cloud_param_rows = point_cloud_params.to_dict(orient="records")
     n_point_clouds = len(point_cloud_params)
 
@@ -129,7 +132,7 @@ def process_cycle_func(
         rows = []
         for row_index, point_cloud_param_row in enumerate(point_cloud_param_rows):
             _, feature_row = _featurize_point_cloud_row(
-                base_dir=base_dir,
+                point_cloud_base_dir=point_cloud_base_dir,
                 row_index=row_index,
                 point_cloud_param_row=point_cloud_param_row,
                 cycle_func=cycle_func,
@@ -146,7 +149,7 @@ def process_cycle_func(
             futures = [
                 executor.submit(
                     _featurize_point_cloud_row,
-                    base_dir,
+                    point_cloud_base_dir,
                     row_index,
                     point_cloud_param_row,
                     cycle_func,
