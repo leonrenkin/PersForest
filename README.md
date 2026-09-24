@@ -6,8 +6,8 @@ https://doi.org/10.48550/arXiv.2512.09668.
 
 ## What this repo provides
 - `PersistenceForest` (primary entry point) builds the forest of optimal cycles for an alpha complex, together with barcodes and cycle representatives over the filtration.
-- Plotting and animation methods for cycle representatives and barcodes in codimension 1.
-- Measurement landscapes using cycle functionals such as length, enclosed area and excess curvature.
+- Plotting and animation methods for cycle representatives, barcodes and persistence forests in codimension 1.
+- Measurement landscapes using cycle functionals such as length, enclosed area or volume, and excess curvature.
 - Beginner-friendly tutorial notebooks in `examples/tutorials/`.
 - Runnable script quickstart in `examples/pers_forest_example.py`.
 
@@ -51,7 +51,7 @@ pts = rng.random((300, 2))
 forest = PersistenceForest(pts, print_info=True)
 
 # 3) Visualize
-forest.plot_barcode(min_bar_length=0.01, coloring="forest")
+forest.plot_barcode(coloring="forest")
 forest.plot_at_filtration(0.1)
 
 # 4) Measurement landscapes
@@ -81,9 +81,10 @@ The tutorial notebooks are intended to be read in this order:
 2. `examples/tutorials/02_extracting_cycle_representatives.ipynb` - extract representatives as simplices, coordinates and planar paths.
 3. `examples/tutorials/03_animating_cycle_representatives.ipynb` - create filtration and measurement animations.
 4. `examples/tutorials/04_measurement_landscapes.ipynb` - compute, plot and vectorize measurement landscapes.
+5. `examples/tutorials/05_plotting_persistence_forests.ipynb` - plot persistence forests and compare them with barcodes.
 
 ## Measurement Landscapes
-- Define cycle functionals in `persforest/cycle_rep_vectorisations.py` (examples: edge length, area, connected components, signed/unsigned variants).
+- Define cycle functionals in `persforest/cycle_rep_vectorisations.py` (examples: edge length, enclosed area or volume, connected components, signed/unsigned variants).
 - `forest.compute_measurement_landscapes(...)` builds families for one functional; `plot_landscape_comparison_between_functionals` contrasts multiple labels.
 - Use `family.evaluate_on_grid(grid, levels=max_k)` to sample landscape values numerically.
 
@@ -91,7 +92,8 @@ The tutorial notebooks are intended to be read in this order:
 - `persforest/PersistenceForest.py` - forest construction, barcodes, plotting wrappers and measurement landscapes.
 - `persforest/cycle_rep_vectorisations.py` - cycle functionals for measurement landscapes.
 - `persforest/forest_landscapes.py` - landscape computation, evaluation and comparison utilities.
-- `persforest/forest_plotting.py` - shared barcode, forest and animation plotting helpers.
+- `persforest/forest_plotting.py` - barcode and persistence-forest plotting helpers.
+- `persforest/simplicial_filtration_animation.py` - filtration and barcode-panel animation helpers.
 - `persforest/simplicial_filtration_plotting.py` - Matplotlib filtration plotting.
 - `persforest/simplicial_filtration_plotly.py` - Plotly filtration plotting.
 - `examples/tutorials/` - guided tutorial notebooks.

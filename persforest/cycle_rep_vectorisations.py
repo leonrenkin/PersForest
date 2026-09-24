@@ -1067,6 +1067,42 @@ def signed_chain_non_circularity(signed_chain: SignedChain, point_cloud: NDArray
 
     return non_circularity
 
+def signed_chain_interior_volume(
+    signed_chain: SignedChain, point_cloud: NDArray[np.float64]
+) -> float:
+    """Return enclosed volume by summing absolute interior simplex volumes.
+
+    Computes area in 2D and volume in 3D (or d-volume in dimension d).
+    Orientation is ignored; an available but empty interior has volume zero.
+
+    Raises
+    ------
+    ValueError
+        If the interior is unavailable or simplices are not full-dimensional.
+    """
+    if not signed_chain.interior_available or signed_chain.interior is None:
+        raise ValueError(
+            "Interior is unavailable. Set compute_interior=True "
+            "(with keep_simplex_diff=True) or diff_only_mode=True and obtain "
+            "the chain through forest.iter_bar_cycle_reps(bar)."
+        )
+    if not signed_chain.interior:
+        return 0.0
+
+    points = np.asarray(point_cloud, dtype=float)
+    if points.ndim != 2 or points.shape[1] < 1:
+        raise ValueError("point_cloud must have shape (n_points, dim) with dim >= 1")
+    dim = points.shape[1]
+    simplices = [simplex for simplex, _ in signed_chain.interior]
+    if any(len(simplex) != dim + 1 for simplex in simplices):
+        raise ValueError("Interior simplices must be full-dimensional (dim + 1 vertices)")
+
+    vertices = points[np.asarray(simplices, dtype=int)]
+    edges = vertices[:, 1:, :] - vertices[:, :1, :]
+    volumes = np.abs(np.linalg.det(edges)) / math.factorial(dim)
+    return float(math.fsum(volumes))
+
+
 def signed_chain_volume(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
     Return the summed simplex volume of a signed chain.
