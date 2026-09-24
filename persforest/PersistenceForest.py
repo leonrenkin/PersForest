@@ -612,7 +612,7 @@ class PersistenceForest:
 
         start = time.perf_counter()
         self._alpha_complex = gd.AlphaComplex(points=point_cloud) # pyright: ignore[reportAttributeAccessIssue]
-        self.simplex_tree = self._alpha_complex.create_simplex_tree(output_squared_values=True)
+        self.simplex_tree = self._alpha_complex.create_simplex_tree(output_squared_values=False)
         alpha_complex_time = time.perf_counter()-start
         if print_info:
             print(f"Alpha complex generated in {alpha_complex_time}")
