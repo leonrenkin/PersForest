@@ -428,10 +428,10 @@ class PFNode:
     """
     id: int # unique node identifier
     filt_val: float
-    cycle: SignedChain 
+    cycle: SignedChain | None
     children: set[int]                                    #ids of children
     parent: Optional[int] = None
-    # is_root would be True for tree roots; parent is the current source of truth.
+    _is_inactive_leaf: bool = False #keeps track of leaves where root above leaves have been removed from active cycles
     _barcode_covered: int = 0
 
     _simplex_diff_available: bool = False       # True when simplex diffs were stored for this node.
@@ -558,7 +558,7 @@ class PersistenceForest:
                  print_info: bool = False,
                  keep_simplex_diff: bool = False,
                  compute_interior: bool = False,
-                 low_memory_mode: bool =False,
+                 diff_only_mode: bool = False,
                  filtration_tol: float = 1e-12,
                  ):
         """
@@ -581,7 +581,7 @@ class PersistenceForest:
         compute_interior : bool
             If True, reconstruct cycle representatives with their interior
             simplices. Requires ``keep_simplex_diff=True``.
-        low_memory_mode : bool
+        diff_only_mode : bool
             Reserved for a future diff-only representation. Currently raises
             ``ValueError`` when enabled.
         filtration_tol : float
@@ -610,16 +610,12 @@ class PersistenceForest:
 
         start = time.perf_counter()
         self._alpha_complex = gd.AlphaComplex(points=point_cloud) # pyright: ignore[reportAttributeAccessIssue]
-        self.simplex_tree = self._alpha_complex.create_simplex_tree()
+        self.simplex_tree = self._alpha_complex.create_simplex_tree(output_squared_values=True)
         alpha_complex_time = time.perf_counter()-start
         if print_info:
             print(f"Alpha complex generated in {alpha_complex_time}")
 
         start = time.perf_counter()
-        # Take square root of filtration value since Gudhi alpha-complex filtration values are squared.
-        for simplex, filtration in self.simplex_tree.get_filtration():
-            self.simplex_tree.assign_filtration(simplex, (filtration**0.5)*2)
-        
         # Extract s filtration up to order d
         self.filtration =  [(simplex,filtration) for simplex, filtration in self.simplex_tree.get_filtration() if len(simplex) >= self.dim] #keep simplices up to codim 1
         filtration_time = time.perf_counter()-start
@@ -631,12 +627,11 @@ class PersistenceForest:
         self.landscape_families: Dict[str, Any] = {}
         self.barcode_functionals: Dict[str, Any] = {}
 
-        if low_memory_mode:
-            raise ValueError("This feature is a work in progress. We only story diff insteaf of full cycle reps which should drastically memory usage.")
-        if low_memory_mode and not keep_simplex_diff:
-            raise ValueError("low_memory_mode=True requires keep_simplex_diff=True")
+        if diff_only_mode and not keep_simplex_diff:
+            print("Setting keep_simplex_diff=True since diff_only_mode=True ")
+            keep_simplex_diff=True
         self.keep_simplex_diff = keep_simplex_diff
-        self.low_memory_mode = low_memory_mode
+        self.diff_only_mode = diff_only_mode
         self.compute_interior = compute_interior
 
         self._compute_forest(print_info = print_info)
@@ -644,7 +639,8 @@ class PersistenceForest:
         self.reduced = reduce
         
         # Compute where each cycle is active.
-        self._compute_loop_activity()
+        if not self.diff_only_mode:
+            self._compute_loop_activity()
 
         if reduce:
             self._reduce_forest(print_info = print_info)
@@ -653,12 +649,12 @@ class PersistenceForest:
             if self.keep_simplex_diff:
                 self.compute_barcode_diff(print_info=print_info)
             else:
-                self.compute_barcode(print_info = print_info)
+                self.compute_barcode_cycles(print_info = print_info)
 
         if compute_interior and not keep_simplex_diff:
             raise ValueError("compute_interior=True requires keep_simplex_diff=True")
 
-        if compute_interior:
+        if compute_interior: #we should probably remove that feature, the interior can be very quickly collected from the barcode interior diff sequence
             self._compute_interior_of_cycle_reps(print_info = print_info)
 
 
@@ -692,8 +688,11 @@ class PersistenceForest:
         """
 
         nid = next(self._node_id)
-        
-        new_cycle = SignedChain(signed_simplices=signed_boundary(simplex=simplex,orientation=orientation))
+
+        if not self.diff_only_mode:
+            new_cycle = SignedChain(signed_simplices=signed_boundary(simplex=simplex,orientation=orientation))
+        else:
+            new_cycle = None
 
         if self.keep_simplex_diff:
             new_node = PFNode(id=nid,
@@ -747,6 +746,11 @@ class PersistenceForest:
         self.nodes[nid]=root_node
         self.roots.add(root_node.id)
 
+        #set all leaves below root as inactive
+        leaf_ids = self.leaves_below_node(node=root_node)
+        for leaf_id in leaf_ids:
+            self.nodes[leaf_id]._is_inactive_leaf=True
+
         self.levels.append(filt_val)
 
         return
@@ -773,7 +777,10 @@ class PersistenceForest:
         node1.parent = nid
         node2.parent = nid
 
-        parent_cycle = merge_at_simplex(cycle1 = node1.cycle, cycle2=node2.cycle,  simplex=simplex) 
+        if not self.diff_only_mode:
+            parent_cycle = merge_at_simplex(cycle1 = node1.cycle, cycle2=node2.cycle,  simplex=simplex) 
+        else:
+            parent_cycle = None
 
         if self.keep_simplex_diff:
             parent_node = PFNode(id=nid, 
@@ -812,7 +819,9 @@ class PersistenceForest:
             Filtration value of the update event.
         """
 
-        updated_cycle = node.cycle.cancel_simplex(simplex=simplex)
+        if not self.diff_only_mode:
+            updated_cycle = node.cycle.cancel_simplex(simplex=simplex)
+        else: updated_cycle = None
 
         nid = next(self._node_id)
         node.parent=nid
@@ -840,6 +849,16 @@ class PersistenceForest:
     
     # ----- compute the forest ----------
 
+
+    def _update_node_list(self, node_id_list: List[int]) -> List[PFNode]:
+        """Return current root ancestors for ``node_id_list``."""
+        L=[]
+        for id in node_id_list:
+            if not self.nodes[id]._is_inactive_leaf:
+                active_node = self.get_root(self.nodes[id])
+                L.append(active_node)
+        return L
+
     def _compute_forest(self, print_info: bool = False):
         """ 
         Compute the persistence forest from the alpha-complex filtration.
@@ -856,6 +875,8 @@ class PersistenceForest:
 
         #simplices is already ordered in ascending order by number of simplices 
         for simplex, filt_val in reversed(self.filtration):
+            #print("simplex", simplex)
+            #print("active_node_ids",self._active_node_ids)
             
             if len(simplex) == self.dim+1:
                 orientation = simplex_orientation(simplex=simplex, point_cloud=self.point_cloud)
@@ -870,13 +891,15 @@ class PersistenceForest:
                         face_cycle_dict[key(face)] = [new_node.id]
 
             elif len(simplex) == self.dim:
-                #L is nodes containing simplex, can be of the form [],[l1], [l1,l2], [l1,l1]
-                #L is active nodes over L_tmp
+                #face_cycle_dict[simplex] contains nodes induced by cofaces of simplex
+                # can be of the form [],[l1], [l1,l2], [l1,l1]
 
                 #If key exists, get its value and remove it
                 #if key does not exists, get []
                 L_tmp_ids = face_cycle_dict.pop(key(simplex), [])
 
+                # find nodes corresponding to cofaces, find active nodes above leaves induced by cofaces, 
+                # we remove construction roots since they are not active anymore
                 L = self._update_node_list(L_tmp_ids)
 
 
@@ -886,29 +909,6 @@ class PersistenceForest:
 
                 #if cycle is only contained in a single loop and appears only once in that loop once, remove that loop from the active loops 
                 elif len(L) == 1:
-                    # Update the face dictionary for all faces contained in the cycle we just removed.
-                    for signed_simplex in L[0].cycle.signed_simplices:
-
-                            simplex = signed_simplex[0]
-
-                            L_simplex_tmp = face_cycle_dict.pop(key(simplex), None)
-                            if L_simplex_tmp is None:
-                                continue
-
-                            L_simplex = self._update_node_list(L_simplex_tmp)
-
-                            if len(L_simplex)> 2:
-                                raise ValueError("L_edge too long in loop removal process")
-
-                            if len(L_simplex)==1:
-                                continue
-                            elif L_simplex[0] != L[0]:
-                                face_cycle_dict[key(simplex)] = [L_simplex[0].id]
-                            elif L_simplex[1] != L[0]: 
-                                face_cycle_dict[key(simplex)] = [L_simplex[1].id]
-                            else:
-                                continue
-                                
                     self.make_root(node=L[0],filt_val=filt_val)
 
                     continue
@@ -986,21 +986,25 @@ class PersistenceForest:
 
     def active_cycles_at(self, filt_val: float) -> List[SignedChain]:
         """Return cycle representatives of nodes active at ``filt_val``."""
+        if self.diff_only_mode:
+            raise ValueError("Not implemented for diff_only_mode yet")
+
         active_nodes = self.active_nodes_at(filt_val=filt_val)
         return [node.cycle for node in active_nodes]
 
     def leaves_below_node(self, node: PFNode) -> set[int]:
         """Return ids of all descendant leaves below ``node``."""
         leaf_ids: set[int] = set()
+        stack = [node.id]
 
-        if len(node.children) == 0:
-            leaf_ids.add(node.id)
-            return leaf_ids
-        
-        for cid in node.children:
-            child = self.nodes[cid]
-            leaf_ids.update(self.leaves_below_node(child))
+        while stack:
+            vid = stack.pop()
+            children_ids = self.nodes[vid].children
 
+            if not children_ids:
+                leaf_ids.add(vid)
+            else:
+                stack.extend(children_ids)
 
         return leaf_ids
 
@@ -1032,10 +1036,6 @@ class PersistenceForest:
 
         return node
 
-    def _update_node_list(self, node_id_list: List[int]) -> List[PFNode]:
-        """Return current root ancestors for ``node_id_list``."""
-        L = [ self.get_root( self.nodes[id] ) for id in node_id_list ]
-        return L
 
     # ----- reduce forest (collapses trivial edges which happen at the same filtration value) -------------
 
@@ -1166,7 +1166,7 @@ class PersistenceForest:
 
     # ----- Compute barcode sequence ---------
 
-    def compute_barcode(self, print_info: bool = False):
+    def compute_barcode_cycles(self, print_info: bool = False):
         """
         Compute the barcode from the forest structure.
 
@@ -1240,7 +1240,7 @@ class PersistenceForest:
             print(f"Barcode computation completed in {barcode_time} sec")
     
         return
-         
+
     def compute_barcode_diff(self, print_info: bool = False):
         """
         Compute the barcode from the forest structure using stored node diffs.
@@ -1258,6 +1258,9 @@ class PersistenceForest:
         diffs are stored on merge nodes for later reconstruction of cycle
         representatives with interiors. Bars are stored in ``self.barcode``.
         """
+        if getattr(self, "_diff_barcode_computed", False):
+            raise RuntimeError("compute_barcode_diff has already been called, repeated calling leads to incorrect simplex accumulations")
+        self._diff_barcode_computed = True
         
         if print_info:
             print("Computing Barcode")
@@ -1270,7 +1273,7 @@ class PersistenceForest:
 
         for id, node in reversed(self.nodes.items()):
             #every barcode starts at leaf
-            if len(node.children)>0:
+            if node.children:
                 continue
 
             death = node.filt_val
@@ -1336,6 +1339,15 @@ class PersistenceForest:
     
         return
 
+    def compute_barcode(self,  print_info: bool = False):
+
+        if self.keep_simplex_diff:
+            self.compute_barcode_diff(print_info=print_info)
+        else:
+            self.compute_barcode_cycles(print_info=print_info)
+
+        return
+
     def _cycle_reps_from_node_diff(self, bar: PFBar) -> list[SignedChain]:
         """
         Reconstruct cycle representatives for a bar from node diffs.
@@ -1388,6 +1400,8 @@ class PersistenceForest:
 
 
         return list(reversed(cycle_reps))
+
+    # ----- Interior computation and activity ------
 
     def _compute_interior_of_cycle_reps(self,print_info: bool =False):
         """
@@ -1479,6 +1493,10 @@ class PersistenceForest:
 
     def cycle_reps_at(self, filt_val: float, min_bar_length:float = 0) -> List[SignedChain]:
         """Return cycle representatives active at ``filt_val``."""
+        
+        if self.diff_only_mode:
+            raise ValueError("Not implemented for diff_only_mode yet")
+
         active_bars = self.active_bars_at(filt_val=filt_val)
         cycles = [bar.cycle_at_filtration_value(filt_val=filt_val) for bar in active_bars if bar.lifespan()>=min_bar_length]
         return cycles
@@ -1863,7 +1881,6 @@ class PersistenceForest:
                     out["tetrahedra"].append(simplex_t)
 
         return out
-
 
     def _complex_snapshot_at_filtration(self, filt_val: float) -> Dict[str, Any]:
         """
@@ -2885,17 +2902,15 @@ class PersistenceForest:
         from .forest_landscapes import plot_barcode_measurement_generic
 
         if signed:
-            def _cycle_value(chain, point_cloud):
-                # `chain` is a SignedChain
+            def _cycle_func(chain, point_cloud):
                 return float(cycle_func(chain, point_cloud))
         else:
-            def _cycle_value(chain, point_cloud):
-                # `chain` is a SignedChain
+            def _cycle_func(chain, point_cloud):
                 return float(cycle_func(chain.unsigned(), point_cloud))
 
         return plot_barcode_measurement_generic(
             forest=self,
-            cycle_func=_cycle_value,
+            cycle_func=_cycle_func,
             bar=bar,
             ax=ax,
             x_range=x_range,
@@ -2915,7 +2930,6 @@ class PersistenceForest:
         *,
         max_k: int = 5,
         num_grid_points: int = 512,
-        mode: Literal["raw", "pyramid"] = "pyramid",
         min_bar_length: float = 0.0,
         x_grid: Optional[NDArray[np.float64]] = None,
         cache: bool = True,
@@ -2943,9 +2957,6 @@ class PersistenceForest:
             Number of landscape levels λ_1..λ_max_k.
         num_grid_points : int, optional
             Number of x-grid samples (if x_grid is None).
-        mode : {"raw", "pyramid"}, optional
-            Kernel mode; "pyramid" uses the standard persistence-landscape
-            tent rescaling.
         min_bar_length : float, optional
             Ignore bars with lifespan < min_bar_length.
         x_grid : np.ndarray | None, optional
@@ -2988,7 +2999,7 @@ class PersistenceForest:
             _cycle_value,
             max_k=max_k,
             num_grid_points=num_grid_points,
-            mode=mode,
+            mode='pyramid',
             label=label,
             min_bar_length=min_bar_length,
             x_grid=x_grid,
@@ -3005,7 +3016,6 @@ class PersistenceForest:
         *,
         max_k: int = 5,
         num_grid_points: int = 512,
-        mode: Literal["raw", "pyramid"] = "pyramid",
         min_bar_length: float = 0.0,
         x_grid: Optional[NDArray[np.float64]] = None,
         cache: bool = True,
@@ -3020,7 +3030,6 @@ class PersistenceForest:
             label=label,
             max_k=max_k,
             num_grid_points=num_grid_points,
-            mode=mode,
             min_bar_length=min_bar_length,
             x_grid=x_grid,
             cache=cache,
