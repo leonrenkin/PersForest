@@ -240,7 +240,7 @@ def _plot_barcode_generic(
 
     return ax
 
-from .forest_geometry import (
+from .forest_plotting_geometry import (
     route_x as _forest_route_x,
     routes_intersect as _forest_routes_intersect,
     edge_routes as _forest_edge_routes,

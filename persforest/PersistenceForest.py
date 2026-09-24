@@ -657,7 +657,7 @@ class PersistenceForest:
             raise ValueError("compute_interior=True requires keep_simplex_diff=True")
 
         if compute_interior: #we should probably remove that feature, the interior can be very quickly collected from the barcode interior diff sequence
-            self._compute_interior_of_cycle_reps(print_info = print_info)
+            self._add_interior_to_barcode(print_info = print_info)
 
 
         return
@@ -1350,7 +1350,7 @@ class PersistenceForest:
 
         return
 
-    def iter_bar_cycle_reps(self, bar: PFBar) -> Iterator[SignedChain]:
+    def iter_bar_cycle_reps(self, bar: PFBar, from_diff: bool = False) -> Iterator[SignedChain]:
         """Yield iterator of representatives of a bar in descending filtration order.
 
         Normal mode yields stored representatives; 
@@ -1432,7 +1432,7 @@ class PersistenceForest:
             if node.cycle is None:
                 raise ValueError(f"Node with id {node.id} has node.cycle = None. This should not happen.")
             
-            node.cycle.interior = interior
+            node.cycle.interior = interior.copy()
             node.cycle.interior_available = True
 
         return
