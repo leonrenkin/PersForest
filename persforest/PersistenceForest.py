@@ -584,8 +584,9 @@ class PersistenceForest:
             If True, reconstruct cycle representatives with their interior
             simplices. Requires ``keep_simplex_diff=True``.
         diff_only_mode : bool
-            Reserved for a future diff-only representation. Currently raises
-            ``ValueError`` when enabled.
+            If True, represent cycle progressions using stored simplex
+            additions and removals. This enables ``keep_simplex_diff``
+            automatically and is incompatible with ``compute_interior=True``.
         filtration_tol : float
             Absolute tolerance used when reducing parent-child pairs at the
             same filtration value.
@@ -629,8 +630,13 @@ class PersistenceForest:
         self.landscape_families: Dict[str, Any] = {}
         self.barcode_functionals: Dict[str, Any] = {}
 
+        if diff_only_mode and compute_interior:
+            raise ValueError("Cannot set diff_only_mode=True and compute_interior=True at the same time.")
         if diff_only_mode and not keep_simplex_diff:
             print("Setting keep_simplex_diff=True since diff_only_mode=True ")
+            keep_simplex_diff=True
+        if compute_interior and not keep_simplex_diff:
+            print("Setting keep_simplex_diff=True since compute_interior=True ")
             keep_simplex_diff=True
         self.keep_simplex_diff = keep_simplex_diff
         self.diff_only_mode = diff_only_mode
@@ -652,9 +658,6 @@ class PersistenceForest:
                 self.compute_barcode_diff(print_info=print_info)
             else:
                 self.compute_barcode_cycles(print_info = print_info)
-
-        if compute_interior and not keep_simplex_diff:
-            raise ValueError("compute_interior=True requires keep_simplex_diff=True")
 
         if compute_interior: #we should probably remove that feature, the interior can be very quickly collected from the barcode interior diff sequence
             self._add_interior_to_barcode(print_info = print_info)
@@ -953,8 +956,8 @@ class PersistenceForest:
         """
         Return nodes active at a given filtration value.
 
-        A non-root node is active at ``r`` if ``node.filt_val >= r`` and its
-        parent has filtration value ``< r``.
+        A non-root node is active at ``r`` if ``node.filt_val > r`` and its
+        parent has filtration value ``<= r``.
 
         Parameters
         ----------
@@ -970,14 +973,14 @@ class PersistenceForest:
 
         active: List[PFNode] = []
         for n in nodes.values():
-            if n.filt_val < filt_val:
+            if n.filt_val <= filt_val:
                 continue
             if n.parent == None:
             # all children must exist and be strictly above alpha
                 continue
             else:
                 parent = nodes[n.parent]
-                if parent.filt_val >= filt_val:
+                if parent.filt_val > filt_val:
                     continue
 
             active.append(n)
@@ -2981,8 +2984,9 @@ class PersistenceForest:
 
                 cycle_func(chain, point_cloud) -> float
 
-            where ``chain`` is a SignedChain. This lets you define arbitrary
-            functionals on cycles (e.g. total length, mass, etc.).
+            where ``chain`` is a SignedChain. Measurements must be finite and
+            nonnegative; negative, NaN, and infinite results raise
+            ``ValueError``. Examples include total length and mass.
         label : str
             Key used to store the family in ``self.landscape_families`` when
             ``cache=True``.

@@ -517,6 +517,8 @@ def compute_barcode_functionals(
     )
 
     if cache:
+        if not hasattr(forest, "barcode_functionals"):
+            forest.barcode_functionals = {}
         key = label
         forest.barcode_functionals[key] = bf
 
@@ -825,6 +827,8 @@ def compute_landscape_kernel_for_bar(
         """
         Build the kernel used for landscapes for a single bar.
 
+        cycle_func values must be finite and nonnegative.
+
         - mode="raw":      return g(x) = (f * 1_[birth,death])(x)
         - mode="pyramid":  return λ(x) = 1/2 * g(2x)
 
@@ -851,6 +855,13 @@ def compute_landscape_kernel_for_bar(
         PiecewiseLinearFunction
             Kernel ready to be sampled on a grid.
         """
+        if sf is None:
+            sf = _build_step_function_data(
+                forest=forest, bar=bar, cycle_func=cycle_func, baseline=0.0
+            )
+        if not np.all(np.isfinite(sf.vals)) or np.any(sf.vals < 0):
+            raise ValueError("Landscape measurements must be finite and nonnegative.")
+
         raw_kernel = compute_convolution_kernel_for_bar(
             forest = forest,
             bar=bar,
@@ -920,7 +931,8 @@ def compute_measurement_landscape_family(
             Forest-like object with ``barcode``, ``point_cloud``,
             ``landscape_families`` and ``barcode_functionals``.
         cycle_func:
-            Function ``f(cycle_rep, point_cloud) -> scalar``.
+            Function ``f(cycle_rep, point_cloud) -> scalar``. 
+            cycle_func values must be finite and nonnegative.
         label:
             Key used to store the family in ``forest.landscape_families``.
         max_k:
@@ -1025,13 +1037,6 @@ def compute_measurement_landscape_family(
                 min_bar_length=min_bar_length,
                 cache=cache_functionals,
             )
-
-        if cache_functionals and compute_functionals:
-            # Ensure cached functionals are available
-            if not hasattr(forest, "barcode_functionals"):
-                forest.barcode_functionals = {}
-            key = functionals_label
-            forest.barcode_functionals[key] = bf
 
         bar_kernels: Dict[int, PiecewiseLinearFunction] = {}
         global_min_x = float("inf")
