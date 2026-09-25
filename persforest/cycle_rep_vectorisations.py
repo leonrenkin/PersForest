@@ -819,7 +819,8 @@ def signed_chain_convex_hull_area_deficit(
     persistence forest. The enclosed-area computation assumes one outer
     boundary and possibly hole boundaries. Stored interior data is not
     required. Disconnected interiors are outside this functional's supported
-    scope; the hull is not computed componentwise.
+    scope. One global hull is computed from all chain vertices, including
+    hole boundaries and signed tendrils; it is not computed componentwise.
 
     Parameters
     ----------
@@ -860,7 +861,7 @@ def signed_chain_convex_hull_perimeter_deficit(
 
     The measurement is
 
-    ``1 - convex_hull_perimeter / chain_edge_length``.
+    ``max(1 - convex_hull_perimeter / chain_edge_length, 0)``.
 
     It is zero for a convex polygonal cycle. Doubled signed edges contribute
     to the chain length and therefore increase the deficit. A zero-length
@@ -869,7 +870,9 @@ def signed_chain_convex_hull_perimeter_deficit(
     Intended for cycles with connected interior, as produced by the
     persistence forest. Stored interior data is not required. Disconnected
     interiors are outside this functional's supported scope; the hull is not
-    computed componentwise.
+    computed componentwise. The clipping implements the nonnegative deficit
+    definition when the global hull perimeter exceeds the chain length;
+    a zero result alone does not establish convexity for disconnected input.
 
     Parameters
     ----------
@@ -899,7 +902,7 @@ def signed_chain_convex_hull_perimeter_deficit(
         return 0.0
 
     return _require_unit_interval(
-        1.0 - hull_perimeter / chain_length, "perimeter deficit"
+        max(1.0 - hull_perimeter / chain_length, 0.0), "perimeter deficit"
     )
 
 def signed_chain_max_convexity_defect_depth(
