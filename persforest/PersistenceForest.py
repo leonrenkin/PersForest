@@ -2031,7 +2031,8 @@ class PersistenceForest:
             ``show_orientation_arrows``,
             ``point_color``, ``point_alpha``, ``complex_face_color``,
             ``complex_face_alpha``, ``complex_edge_color``,
-            ``complex_edge_width``, ``cycle_edge_width``,
+            ``complex_edge_width``, ``complex_edge_alpha``,
+            ``cycle_edge_width``,
             ``arrow_linewidth``, ``arrow_scale``.
         style_3d : dict | None
             Optional 3D style overrides. Supported keys include:
@@ -2390,7 +2391,8 @@ class PersistenceForest:
         ``nodes="none"|"critical"|"all"``, ``collapse_degree2``, ``coloring``,
         ``orientation="vertical"|"horizontal"``,
         ``edge_style="curved"|"straight"|"routed"``, ``curvature``,
-        ``branch_angle``, ``min_clearance``, and Matplotlib styling. Filters affect only the display. See
+        ``branch_angle``, ``min_clearance``, ``node_size``, ``node_alpha``,
+        and Matplotlib styling. Filters affect only the display. See
         :func:`persforest.forest_plotting._plot_persistence_forest_generic`
         for full parameter descriptions and optional layout metadata.
         """

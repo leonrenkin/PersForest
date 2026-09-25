@@ -251,7 +251,7 @@ def _plot_persistence_forest_generic(
     forest, *, ax=None, show=True, min_tree_span=0.0, min_bar_length=0.0,
     min_branch_span=0.0, max_trees=None, nodes="none", collapse_degree2=True,
     coloring="forest", color="0.28", linewidth=1.2, alpha=1.0,
-    node_size=12.0, node_color=None, annotate_ids=False,
+    node_size=12.0, node_color=None, node_alpha=None, annotate_ids=False,
     leaf_spacing=1.0, tree_gap=2.0, figsize=(10, 6),
     title=None, ylabel="Filtration value", grid=False, rasterized=False,
     return_layout=False, edge_style="curved", curvature=1.0, branch_angle=45.0,
@@ -311,10 +311,13 @@ def _plot_persistence_forest_generic(
         Reuse full-barcode colors without recoloring after filtering. 'grey'
         and 'none' use ``color``. Unowned edges also use ``color``.
     color, linewidth, alpha : color, float, float
-        Fallback edge color, line width in points, and opacity.
+        Fallback edge color, line width in points, and edge opacity. Markers
+        also use ``alpha`` unless ``node_alpha`` is supplied.
     node_size, node_color : float, color or None
         Marker area in points squared and override color. By default markers
         inherit their incoming edge's color; roots use the trunk color.
+    node_alpha : float or None
+        Marker opacity between 0 and 1. None (default) inherits ``alpha``.
     annotate_ids : bool
         Label selected markers with original node IDs.
     leaf_spacing, tree_gap : float
@@ -353,6 +356,8 @@ def _plot_persistence_forest_generic(
             raise ValueError(f"{name} must be finite and positive")
     if not np.isfinite(alpha) or not 0 <= alpha <= 1:
         raise ValueError("alpha must be between 0 and 1")
+    if node_alpha is not None and (not np.isfinite(node_alpha) or not 0 <= node_alpha <= 1):
+        raise ValueError("node_alpha must be between 0 and 1 or None")
     if edge_style not in ("straight", "curved", "routed"):
         raise ValueError("edge_style must be 'straight', 'curved', or 'routed'")
     if orientation not in ("vertical", "horizontal"):
@@ -589,7 +594,8 @@ def _plot_persistence_forest_generic(
                          edge_color(main[i] if i in root_set and main[i] is not None else i)
                          for i in markers]
         marker_artist = ax.scatter(coords[:, 0], coords[:, 1], s=node_size, c=marker_colors,
-                   linewidths=0, alpha=alpha, rasterized=rasterized, zorder=3)
+                   linewidths=0, alpha=alpha if node_alpha is None else node_alpha,
+                   rasterized=rasterized, zorder=3)
         if annotate_ids:
             for i in markers:
                 annotation = ax.annotate(str(i), positions[i], xytext=(4, 4),
