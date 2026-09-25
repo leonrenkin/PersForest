@@ -682,7 +682,9 @@ plt.show()
 
 
 # %% Six-hole cycle snapshots and persistence forest
+from persforest import PersistenceForest
 seed = 5
+x_max =15
 from point_cloud_sampling import sample_points_without_balls
 points_with_6_holes = sample_points_without_balls(3000, dim=2, num_discs=6, radius_range=[0.09,0.15], seed=seed) * 100
 forest_6_holes = PersistenceForest(points_with_6_holes)
@@ -703,10 +705,13 @@ for index, filtration_value in enumerate(six_hole_snapshot_times):
         title="",
         coloring="bars",
         min_bar_length=six_hole_min_bar_length,
-        vertex_size=0.6,
+        vertex_size=0.3,
         cycle_zorder=7,
-        style_2d={"complex_face_alpha": 0.07, "complex_edge_width": 0.1,
-                  "cycle_edge_width": 1, "point_alpha": 0.5},
+        style_2d={"complex_face_alpha": 0.07, 
+                  "complex_edge_width": 0.1,
+                  "cycle_edge_width": 1, 
+                  "point_alpha": 0.5,
+                  "complex_edge_alpha": 0.6},
     )
     ax_snapshot.set(xlim=(0, 100), ylim=(0, 100), aspect="equal",
                     title=rf"$t={filtration_value:g}$")
@@ -723,6 +728,9 @@ forest_6_holes.plot_persistence_forest(
     min_bar_length=six_hole_min_bar_length,
     linewidth=1.2,
     title="",
+    node_size = 5,
+    node_alpha = None,
+    nodes = "all",
     ylabel="filtration value",
 )
 ax_six_hole_forest.set_xlim(0, x_max)
@@ -845,6 +853,7 @@ fig.savefig(f"paper_figures/circle_6holes_random_points_non-circularity-landscap
 plt.show()
 
 #%% Non-convexity landscapes
+import persforest
 cmap = "viridis"
 higher_layers_on_top = True
 x_max = 15.5
