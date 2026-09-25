@@ -2384,10 +2384,11 @@ class PersistenceForest:
     # ------ forest plotting tools ------------
 
     def plot_persistence_forest(self, **kwargs):
-        """Plot upright trees with barcode colors and a dominant vertical trunk.
+        """Plot persistence trees with barcode colors and a dominant trunk.
 
         Supports ``min_tree_span``, ``min_bar_length``, ``min_branch_span``,
         ``nodes="none"|"critical"|"all"``, ``collapse_degree2``, ``coloring``,
+        ``orientation="vertical"|"horizontal"``,
         ``edge_style="curved"|"straight"|"routed"``, ``curvature``,
         ``branch_angle``, ``min_clearance``, and Matplotlib styling. Filters affect only the display. See
         :func:`persforest.forest_plotting._plot_persistence_forest_generic`

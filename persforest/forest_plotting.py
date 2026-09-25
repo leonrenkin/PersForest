@@ -255,12 +255,12 @@ def _plot_persistence_forest_generic(
     leaf_spacing=1.0, tree_gap=2.0, figsize=(10, 6),
     title=None, ylabel="Filtration value", grid=False, rasterized=False,
     return_layout=False, edge_style="curved", curvature=1.0, branch_angle=45.0,
-    min_clearance=2.0,
+    min_clearance=2.0, orientation="vertical",
 ):
-    """Draw upright persistence trees with a dominant vertical trunk.
+    """Draw persistence trees with filtration on the vertical or horizontal axis.
 
-    Vertical coordinates are exact filtration values; horizontal coordinates
-    carry no metric meaning. Connections are smooth by default. Crossing
+    Filtration coordinates are exact; the perpendicular coordinates carry no
+    metric meaning. Connections are smooth by default. Crossing
     avoidance shortens lateral transitions only where full-height connections
     would intersect another branch; filtration values never change.
     The barcode continuation defines the trunk where
@@ -285,6 +285,9 @@ def _plot_persistence_forest_generic(
         metadata['clearance_violations'] or enlarge/filter the plot. Intersection
         prevention is mandatory for every style. Unresolvable coincident-event
         intersections raise ValueError instead of producing a crossing plot.
+    orientation : {'vertical', 'horizontal'}
+        Filtration runs upward by default, or to the right when horizontal.
+        The trunk and branches rotate with the filtration axis.
     min_tree_span : float
         Hide trees whose highest leaf minus root value is below this threshold.
         Evaluated on the original tree, before branch filtering.
@@ -322,10 +325,11 @@ def _plot_persistence_forest_generic(
         Appearance controls. Rasterization applies only to edges and markers.
     return_layout : bool
         Return (ax, metadata) instead of ax. Metadata contains positions for
-        all visible original nodes, visible children, roots, edge owners,
+        all visible original nodes in plotted coordinates, visible children, roots, edge owners,
         compressed paths, marker IDs, and adjusted_paths. edge_routes contains
         ForestRoute objects with cubic controls and the endpoint of a possible
-        vertical continuation, in data coordinates. clearance_violations holds
+        continuation, in internal (branch, filtration) coordinates.
+        clearance_violations holds
         (path_index, other_path_index, gap_in_points). Shared junction disks
         are excluded from clearance measurement; labels/markers are not packed.
         Metadata and marker positions update when the figure is redrawn.
@@ -334,6 +338,7 @@ def _plot_persistence_forest_generic(
     from matplotlib.collections import PatchCollection
     from matplotlib.artist import allow_rasterization
     from matplotlib.colors import to_rgba
+    from matplotlib.path import Path
     from matplotlib.patches import PathPatch
 
     for name, value in (("min_tree_span", min_tree_span),
@@ -350,6 +355,8 @@ def _plot_persistence_forest_generic(
         raise ValueError("alpha must be between 0 and 1")
     if edge_style not in ("straight", "curved", "routed"):
         raise ValueError("edge_style must be 'straight', 'curved', or 'routed'")
+    if orientation not in ("vertical", "horizontal"):
+        raise ValueError("orientation must be 'vertical' or 'horizontal'")
     if not np.isfinite(curvature) or not 0 <= curvature <= 1:
         raise ValueError("curvature must be between 0 and 1")
     if not np.isfinite(branch_angle) or not 0 < branch_angle <= 90:
@@ -487,7 +494,12 @@ def _plot_persistence_forest_generic(
                 path.append(c)
             paths.append(tuple(path))
     endpoint_x = dict(x)
-    positions = {i: (x[i], values[i]) for i in children}
+    horizontal = orientation == "horizontal"
+
+    def plotted(point):
+        return tuple(point[::-1]) if horizontal else tuple(point)
+
+    positions = {i: plotted((x[i], values[i])) for i in children}
     palette = forest._get_color_map(coloring) if bars and coloring in ("forest", "bars") else {}
 
     def edge_color(i):
@@ -517,7 +529,8 @@ def _plot_persistence_forest_generic(
     metadata = dict(positions=positions, children=children, roots=tuple(roots),
                     edge_owners={i: owners.get(i) for i in children
                                  if original[i].parent in visible},
-                    paths=paths, marker_ids=tuple(markers), edge_style=edge_style)
+                    paths=paths, marker_ids=tuple(markers), edge_style=edge_style,
+                    orientation=orientation)
     marker_artist, annotations = None, []
     last_transform = None
 
@@ -525,6 +538,8 @@ def _plot_persistence_forest_generic(
         nonlocal last_transform
         matrix = ax.transData.get_affine().get_matrix()
         scales = np.abs([matrix[0, 0], matrix[1, 1]]) * 72 / ax.figure.dpi
+        if horizontal:
+            scales = scales[::-1]
         key = tuple(round(float(scale), 10) for scale in scales)
         if key == last_transform:
             return
@@ -537,9 +552,13 @@ def _plot_persistence_forest_generic(
             scales, min_clearance, linewidth)
         for path, route in zip(paths, routes):
             for k in path[1:-1]:
-                positions[k] = (route.at(values[k])[0], values[k])
-        patches = [PathPatch(routes[index].path(values[a], values[b]))
-                   for index, a, b in color_runs]
+                positions[k] = plotted((route.at(values[k])[0], values[k]))
+        patches = []
+        for index, a, b in color_runs:
+            path = routes[index].path(values[a], values[b])
+            if horizontal:
+                path = Path(path.vertices[:, ::-1], path.codes)
+            patches.append(PathPatch(path))
         collection.set_paths(patches)
         if marker_artist is not None:
             marker_artist.set_offsets([positions[i] for i in markers])
@@ -583,20 +602,22 @@ def _plot_persistence_forest_generic(
     else:
         ax.text(0.5, 0.5, "No trees match the filters", transform=ax.transAxes,
                 ha="center", va="center", color="0.45")
-    ax.set_xticks([])
-    ax.set_ylabel(ylabel)
+    if horizontal:
+        ax.set_yticks([])
+        ax.set_xlabel(ylabel)
+    else:
+        ax.set_xticks([])
+        ax.set_ylabel(ylabel)
     if title is not None:
         ax.set_title(title)
-    for spine in ("top", "right", "bottom"):
+    for spine in (("top", "right", "left") if horizontal else ("top", "right", "bottom")):
         ax.spines[spine].set_visible(False)
-    ax.spines["left"].set_color("0.75")
+    ax.spines["bottom" if horizontal else "left"].set_color("0.75")
     ax.set_axisbelow(True)
     ax.grid(False)
     if grid:
-        ax.grid(axis="y", color="0.9", linewidth=0.6)
+        ax.grid(axis="x" if horizontal else "y", color="0.9", linewidth=0.6)
     refresh_geometry()
     if show:
         plt.show()
     return (ax, metadata) if return_layout else ax
-
-

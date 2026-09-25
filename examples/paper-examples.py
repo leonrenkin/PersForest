@@ -125,9 +125,9 @@ for i, (name,forest) in enumerate(name_forest_list):
                         coloring="grey", 
                         title="", 
                         bar_width = 1)
-    axes[1,i].set_xlim((0,8))
+    axes[1,i].set_xlim((0,4))
     axes[1,i].grid(False)
-    axes[1,i].set_xticks(np.linspace(0,8,3))
+    axes[1,i].set_xticks(np.linspace(0,4,3))
     axes[1,i].set_xlabel(None)
 axes[1,0].set_ylabel("barcode $H_1$", fontsize = 8)
 
@@ -163,7 +163,7 @@ for i, (func_name, cycle_func) in enumerate(cycle_funcs_list):
         forest.compute_measurement_landscapes(
             cycle_func=cycle_func,
             max_k=6,
-            x_grid=np.linspace(0,8,20000),
+            x_grid=np.linspace(0,4,20000),
             label=func_name,
             signed=use_signed,
             cache_functionals=True) 
@@ -186,8 +186,8 @@ for i, (func_name, cycle_func) in enumerate(cycle_funcs_list):
 
 
     axes[1, i].set_title(None)
-    axes[1, i].set_xlim((0,8)) 
-    axes[1, i].set_xticks(np.linspace(0,8,3))
+    axes[1, i].set_xlim((0,4))
+    axes[1, i].set_xticks(np.linspace(0,4,3))
     axes[1, i].set_xlabel(None)
     axes[1, i].set_ylabel(None) 
     axes[1, i].grid(False)
@@ -199,14 +199,14 @@ for i, (func_name, cycle_func) in enumerate(cycle_funcs_list):
                                         signed=use_signed, 
                                         label = name, 
                                         show_baseline = False, 
-                                        x_range = (0,8),
+                                        x_range = (0,4),
                                         color = color_palette[j],
                                         linewidth=1.5)
 
         
     axes[0, i].set_title(func_name)
-    axes[0, i].set_xlim((0,8)) 
-    axes[0, i].set_xticks(np.linspace(0,8,3))
+    axes[0, i].set_xlim((0,4))
+    axes[0, i].set_xticks(np.linspace(0,4,3))
     axes[0, i].set_ylim(bottom=0) 
     axes[0, i].grid(False)
 
@@ -295,7 +295,7 @@ length_profiles = forest.barcode_functionals["length"]
 # The deliberately uneven values capture the births and geometric evolution of
 # the four dominant cycles.  The initial value t_0=0 shows the point-only
 # filtration state before any non-trivial H_1 class is present.
-snapshot_times = np.array([0.0, 0.33, 0.38, 0.44, 0.53, 0.75, 1.00, 1.30])
+snapshot_times = np.array([0.0, 0.165, 0.19, 0.22, 0.265, 0.375, 0.50, 0.65])
 
 fig_clover_construction = plt.figure(
     figsize=(width, 0.90 * width),
@@ -681,10 +681,89 @@ fig_clover_construction.savefig(
 plt.show()
 
 
+# %% Six-hole cycle snapshots and persistence forest
+seed = 5
+from point_cloud_sampling import sample_points_without_balls
+points_with_6_holes = sample_points_without_balls(3000, dim=2, num_discs=6, radius_range=[0.09,0.15], seed=seed) * 100
+forest_6_holes = PersistenceForest(points_with_6_holes)
+
+six_hole_snapshot_times = [0, 1.5, 3, 6, 10, 13]
+six_hole_min_bar_length = 2
+fig_six_hole_forest = plt.figure(figsize=(width, 0.58 * width), layout="constrained")
+six_hole_grid = fig_six_hole_forest.add_gridspec(
+    2, len(six_hole_snapshot_times), height_ratios=[1, 1.1], hspace=0.15
+)
+six_hole_snapshot_axes = []
+for index, filtration_value in enumerate(six_hole_snapshot_times):
+    ax_snapshot = fig_six_hole_forest.add_subplot(six_hole_grid[0, index])
+    forest_6_holes.plot_at_filtration(
+        filt_val=filtration_value,
+        ax=ax_snapshot,
+        show=False,
+        title="",
+        coloring="bars",
+        min_bar_length=six_hole_min_bar_length,
+        vertex_size=0.6,
+        cycle_zorder=7,
+        style_2d={"complex_face_alpha": 0.07, "complex_edge_width": 0.1,
+                  "cycle_edge_width": 1, "point_alpha": 0.5},
+    )
+    ax_snapshot.set(xlim=(0, 100), ylim=(0, 100), aspect="equal",
+                    title=rf"$t={filtration_value:g}$")
+    ax_snapshot.title.set_fontsize(7)
+    ax_snapshot.set_axis_off()
+    six_hole_snapshot_axes.append(ax_snapshot)
+
+ax_six_hole_forest = fig_six_hole_forest.add_subplot(six_hole_grid[1, :])
+forest_6_holes.plot_persistence_forest(
+    ax=ax_six_hole_forest,
+    show=False,
+    orientation="horizontal",
+    coloring="bars",
+    min_bar_length=six_hole_min_bar_length,
+    linewidth=1.2,
+    title="",
+    ylabel="filtration value",
+)
+ax_six_hole_forest.set_xlim(0, x_max)
+ax_six_hole_forest.set_xticks([0, 5, 10, 15])
+for filtration_value in six_hole_snapshot_times:
+    ax_six_hole_forest.axvline(
+        filtration_value, color="0.82", linewidth=0.45, linestyle=":", zorder=0
+    )
+    ax_six_hole_forest.scatter(
+        filtration_value, 1.0, s=8, facecolor="white", edgecolor="0.4",
+        linewidth=0.55, transform=ax_six_hole_forest.get_xaxis_transform(),
+        clip_on=False, zorder=4,
+    )
+
+# Resolve constrained layout before placing leaders between the axes.
+fig_six_hole_forest.canvas.draw()
+for ax_snapshot, filtration_value in zip(
+    six_hole_snapshot_axes, six_hole_snapshot_times
+):
+    leader = ConnectionPatch(
+        xyA=(0.5, 0.0),
+        coordsA=ax_snapshot.transAxes,
+        xyB=(filtration_value, 1.0),
+        coordsB=ax_six_hole_forest.get_xaxis_transform(),
+        arrowstyle="-", shrinkA=0.0, shrinkB=0.0,
+        color="0.55", linewidth=0.5, clip_on=False, zorder=1,
+    )
+    leader.set_in_layout(False)
+    fig_six_hole_forest.add_artist(leader)
+
+fig_six_hole_forest.savefig(
+    f"paper_figures/circle_6holes_cycle_snapshots_forest_seed{seed}.pdf",
+    dpi=300,
+    transparent=True,
+)
+plt.show()
+
 #%% Non-circularity landscapes
 cmap = "viridis"
 higher_layers_on_top = True
-x_max = 31
+x_max = 15.5
 seed =5
 from point_cloud_sampling import sample_points_without_balls
 points_with_6_holes = sample_points_without_balls(3000, dim=2, num_discs=6, radius_range=[0.09,0.15], seed=seed) * 100
@@ -768,7 +847,7 @@ plt.show()
 #%% Non-convexity landscapes
 cmap = "viridis"
 higher_layers_on_top = True
-x_max = 31
+x_max = 15.5
 seed =5
 from point_cloud_sampling import sample_points_without_balls
 points_with_6_holes = sample_points_without_balls(3000, dim=2, num_discs=6, radius_range=[0.09,0.15], seed=seed) * 100
@@ -825,7 +904,7 @@ forest_6_holes.plot_measurement_landscapes(ax=axes[2],
                                            linewidth=1.3,
                                            cmap = cmap,
                                            higher_layers_on_top=higher_layers_on_top)
-axes[2].set_title("Non-Circularity Landscapes")
+axes[2].set_title("Hull Area Deficit Landscapes")
 axes[2].legend(
     frameon=False,
     fontsize=6,
