@@ -12,6 +12,7 @@ import seaborn as sns
 from bisect import bisect_right
 import warnings
 import operator
+from ._validation import validate_point_cloud
 
 # ------- helper function -----------
 
@@ -663,7 +664,7 @@ class PersistenceForest:
             Geometric embeddedness and contractibility of the terminal complex are required by the algorithm 
             but are not verified for a supplied filtration.
         """
-        self.point_cloud = np.array(point_cloud) #point cloud is list of n-dim arrays
+        self.point_cloud = validate_point_cloud(point_cloud)
         self.filtration_tol = float(filtration_tol)
         if self.filtration_tol < 0 or not math.isfinite(self.filtration_tol):
             raise ValueError("filtration_tol must be a finite non-negative number")
@@ -685,7 +686,7 @@ class PersistenceForest:
 
         if filtration is None:
             start = time.perf_counter()
-            self.simplex_tree = gd.AlphaComplex(points=point_cloud).create_simplex_tree(output_squared_values=False)
+            self.simplex_tree = gd.AlphaComplex(points=self.point_cloud).create_simplex_tree(output_squared_values=False)
             filtration = self.simplex_tree.get_filtration()
             alpha_complex_time = time.perf_counter()-start
             if print_info:
@@ -1573,6 +1574,8 @@ class PersistenceForest:
         constructing with ``compute_interior=True`` and
         ``keep_simplex_diff=True``.
         """
+        if not self.compute_interior:
+            raise ValueError("Interior activity requires compute_interior=True")
 
         activity = defaultdict(list)
 
