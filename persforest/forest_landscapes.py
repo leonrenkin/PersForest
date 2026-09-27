@@ -37,6 +37,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from bisect import bisect_right
 import math
+from ._validation import validate_landscape_kernel_input, validate_landscape_request
 
 
 CycleValueFunc = Callable[[Any, np.ndarray], float]
@@ -859,8 +860,7 @@ def compute_landscape_kernel_for_bar(
             sf = _build_step_function_data(
                 forest=forest, bar=bar, cycle_func=cycle_func, baseline=0.0
             )
-        if not np.all(np.isfinite(sf.vals)) or np.any(sf.vals < 0):
-            raise ValueError("Landscape measurements must be finite and nonnegative.")
+        validate_landscape_kernel_input(bar, sf)
 
         raw_kernel = compute_convolution_kernel_for_bar(
             forest = forest,
@@ -963,6 +963,7 @@ def compute_measurement_landscape_family(
         """
         if not hasattr(forest, "barcode"):
             raise AttributeError("Forest object has no 'barcode' attribute. Did you compute it?")
+        x_grid = validate_landscape_request(max_k, num_grid_points, mode, x_grid)
 
         # 1. Filter bars by length
         bars = [
@@ -982,11 +983,6 @@ def compute_measurement_landscape_family(
             if x_grid is None:
                 # No bars => no natural domain; choose a stable default
                 x_grid = np.linspace(0.0, 1.0, num_grid_points)
-            else:
-                x_grid = np.asarray(x_grid, dtype=float)
-                if x_grid.ndim != 1 or x_grid.size < 2:
-                    raise ValueError("x_grid must be a 1D array with at least 2 points")
-
             # Build zero landscapes on the chosen grid
             xmin, xmax = float(x_grid[0]), float(x_grid[-1])
 
@@ -1035,7 +1031,7 @@ def compute_measurement_landscape_family(
                 cycle_func=cycle_func,
                 label=functionals_label,
                 min_bar_length=min_bar_length,
-                cache=cache_functionals,
+                cache=False,
             )
 
         bar_kernels: Dict[int, PiecewiseLinearFunction] = {}
@@ -1066,10 +1062,6 @@ def compute_measurement_landscape_family(
         # 3. Common grid
         if x_grid is None:
             x_grid = np.linspace(global_min_x, global_max_x, num_grid_points)
-        else:
-            x_grid = np.asarray(x_grid, dtype=float)
-            if x_grid.ndim != 1 or x_grid.size < 2:
-                raise ValueError("x_grid must be a 1D array with at least 2 points")
         num_grid_points = x_grid.size  # ensure consistency
 
         # 4. Evaluate all kernels on the grid
@@ -1120,7 +1112,11 @@ def compute_measurement_landscape_family(
             },
         )
 
-        # Cache on the forest instance.
+        # Publish caches only after the complete family succeeds.
+        if cache_functionals and compute_functionals:
+            if not hasattr(forest, "barcode_functionals"):
+                forest.barcode_functionals = {}
+            forest.barcode_functionals[functionals_label] = bf
         if cache:
             if not hasattr(forest, "landscape_families"):
                 forest.landscape_families = {}
