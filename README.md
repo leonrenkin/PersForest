@@ -5,7 +5,7 @@ and measurement landscapes, available at
 https://doi.org/10.48550/arXiv.2512.09668.
 
 ## What this repo provides
-- `PersistenceForest` (primary entry point) builds the forest of optimal cycles for an alpha complex, together with barcodes and cycle representatives over the filtration.
+- `PersistenceForest` (primary entry point) builds the forest of optimal cycles for an alpha complex by default, together with barcodes and cycle representatives over the filtration. Custom simplicial filtrations are also supported under the requirements below.
 - Plotting and animation methods for cycle representatives, barcodes and persistence forests in codimension 1.
 - Measurement landscapes using cycle functionals such as length, enclosed area or volume, and excess curvature.
 - Beginner-friendly tutorial notebooks in `examples/tutorials/`.
@@ -73,6 +73,32 @@ Run the script quickstart with:
 python examples/pers_forest_example.py
 ```
 
+## Filtrations and activity intervals
+
+The default filtration for a point cloud is the alpha filtration with radius values.
+
+To supply a custom filtration, 
+use `PersistenceForest(point_cloud, filtration=ordered_pairs)`, 
+where each pair is `(simplex_vertex_indices, filtration_value)`. 
+Vertex indices refer to rows of `point_cloud`. 
+The algorithm requires geometric embeddedness and a terminal
+complex with trivial homology groups. 
+These geometric and topological conditions are not checked for custom filtrations; 
+the constructor emits a warning about them.
+
+## Difference storage and interior activity
+
+Use `keep_simplex_diff=True` to retain simplex additions and removals.
+`diff_only_mode=True` stores only simplex and additions and removals, which drastically reduces memory usage.
+With `compute_interior=True`, interior simplices are stored for all cycle representatives.
+Both `diff_only_mode=True` and `compute_interior=True` set  `keep_simplex_diff=True`.
+
+With `keep_simplex_diff=True`,
+`forest.interior_simplex_activity()` returns the active interior intervals for each full-dimensional simplex. 
+Visualize them with
+`forest.plot_interior_simplex_activity()` or
+`forest.plot_interior_simplex_activity_plotly()`.
+
 ## Tutorials
 For a guided introduction, start with `examples/tutorials/README.md`.
 The tutorial notebooks are intended to be read in this order:
@@ -87,6 +113,7 @@ The tutorial notebooks are intended to be read in this order:
 - Define cycle functionals in `persforest/cycle_rep_vectorisations.py` (examples: edge length, enclosed area or volume, connected components, signed/unsigned variants).
 - `forest.compute_measurement_landscapes(...)` builds families for one functional; `plot_landscape_comparison_between_functionals` contrasts multiple labels.
 - Use `family.evaluate_on_grid(grid, levels=max_k)` to sample landscape values numerically.
+- Landscape measurements must be finite and nonnegative
 
 ## Repository guide
 - `persforest/PersistenceForest.py` - forest construction, barcodes, plotting wrappers and measurement landscapes.
@@ -96,6 +123,8 @@ The tutorial notebooks are intended to be read in this order:
 - `persforest/simplicial_filtration_animation.py` - filtration and barcode-panel animation helpers.
 - `persforest/simplicial_filtration_plotting.py` - Matplotlib filtration plotting.
 - `persforest/simplicial_filtration_plotly.py` - Plotly filtration plotting.
+- `persforest/interior_activity_plotting.py` - Matplotlib interior-activity plotting.
+- `persforest/interior_activity_plotly.py` - Plotly interior-activity plotting.
 - `examples/tutorials/` - guided tutorial notebooks.
 - `examples/pers_forest_example.py` - compact runnable quickstart.
 - `examples/animation_tutorial.ipynb` - animation example.
@@ -106,3 +135,15 @@ The tutorial notebooks are intended to be read in this order:
 ## Notes
 - MP4 animation export requires `ffmpeg`; GIF export requires the `animation` extra.
 - Plotly figures require the `plotly` or `notebook` extra.
+
+## Tests
+
+There are the manually written tests in
+[`test_persistence_forest_pipeline.py`](tests/test_persistence_forest_pipeline.py),
+accompanied by AI-generated tests in [`tests/tests-by-agents`](tests/tests-by-agents/README.md)
+
+Run all tests from the repository root with the Python 3.13 environment:
+
+```bash
+MPLBACKEND=Agg MPLCONFIGDIR=/tmp/persforest-tests-mpl .venv/bin/python -m unittest discover -v
+```
