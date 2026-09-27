@@ -322,7 +322,7 @@ def _plot_at_filtration_2d(
                     segments,
                     linewidths=float(style["cycle_edge_width"]),
                     colors=[color_map[bar]],
-                    capstyle="round",
+                    capstyle="butt",
                     joinstyle="round",
                     zorder=cycle_zorder,
                 )

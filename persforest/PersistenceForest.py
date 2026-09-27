@@ -2389,6 +2389,7 @@ class PersistenceForest:
 
         Supports ``min_tree_span``, ``min_bar_length``, ``min_branch_span``,
         ``nodes="none"|"critical"|"all"``, ``collapse_degree2``, ``coloring``,
+        ``sort="lifespan"|"birth"|"death"``, ``descending=True|False``,
         ``orientation="vertical"|"horizontal"``,
         ``edge_style="curved"|"straight"|"routed"``, ``curvature``,
         ``branch_angle``, ``min_clearance``, ``node_size``, ``node_alpha``,

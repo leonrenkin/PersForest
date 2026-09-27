@@ -691,9 +691,9 @@ forest_6_holes = PersistenceForest(points_with_6_holes)
 
 six_hole_snapshot_times = [0, 1.5, 3, 6, 10, 13]
 six_hole_min_bar_length = 2
-fig_six_hole_forest = plt.figure(figsize=(width, 0.58 * width), layout="constrained")
+fig_six_hole_forest = plt.figure(figsize=(0.8*width, 0.35 * width), layout="constrained")
 six_hole_grid = fig_six_hole_forest.add_gridspec(
-    2, len(six_hole_snapshot_times), height_ratios=[1, 1.1], hspace=0.15
+    2, len(six_hole_snapshot_times), height_ratios=[1, 0.7], hspace=0.0
 )
 six_hole_snapshot_axes = []
 for index, filtration_value in enumerate(six_hole_snapshot_times):
@@ -705,13 +705,13 @@ for index, filtration_value in enumerate(six_hole_snapshot_times):
         title="",
         coloring="bars",
         min_bar_length=six_hole_min_bar_length,
-        vertex_size=0.3,
+        vertex_size=0.1,
         cycle_zorder=7,
         style_2d={"complex_face_alpha": 0.07, 
                   "complex_edge_width": 0.1,
                   "cycle_edge_width": 1, 
-                  "point_alpha": 0.5,
-                  "complex_edge_alpha": 0.6},
+                  "point_alpha": 0.8,
+                  "complex_edge_alpha": 0.4},
     )
     ax_snapshot.set(xlim=(0, 100), ylim=(0, 100), aspect="equal",
                     title=rf"$t={filtration_value:g}$")
@@ -726,21 +726,33 @@ forest_6_holes.plot_persistence_forest(
     orientation="horizontal",
     coloring="bars",
     min_bar_length=six_hole_min_bar_length,
-    linewidth=1.2,
+    linewidth=1,
+    tree_gap =1,
     title="",
     node_size = 5,
     node_alpha = None,
     nodes = "all",
-    ylabel="filtration value",
+    ylabel=None,
+    descending = False,
 )
+ax_six_hole_forest.set_xlabel("filtration value", labelpad=-2)
 ax_six_hole_forest.set_xlim(0, x_max)
 ax_six_hole_forest.set_xticks([0, 5, 10, 15])
+ax_six_hole_forest.margins(y=0.1)
+six_hole_connection_height = 1.05
 for filtration_value in six_hole_snapshot_times:
     ax_six_hole_forest.axvline(
-        filtration_value, color="0.82", linewidth=0.45, linestyle=":", zorder=0
+        filtration_value,
+        color="0.82",
+        linewidth=0.45,
+        linestyle=":",
+        zorder=0,
+        ymax=six_hole_connection_height,
+        clip_on=False,
     )
     ax_six_hole_forest.scatter(
-        filtration_value, 1.0, s=8, facecolor="white", edgecolor="0.4",
+        filtration_value, six_hole_connection_height,
+        s=8, facecolor="white", edgecolor="0.4",
         linewidth=0.55, transform=ax_six_hole_forest.get_xaxis_transform(),
         clip_on=False, zorder=4,
     )
@@ -753,7 +765,7 @@ for ax_snapshot, filtration_value in zip(
     leader = ConnectionPatch(
         xyA=(0.5, 0.0),
         coordsA=ax_snapshot.transAxes,
-        xyB=(filtration_value, 1.0),
+        xyB=(filtration_value, six_hole_connection_height),
         coordsB=ax_six_hole_forest.get_xaxis_transform(),
         arrowstyle="-", shrinkA=0.0, shrinkB=0.0,
         color="0.55", linewidth=0.5, clip_on=False, zorder=1,
