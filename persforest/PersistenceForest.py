@@ -1572,30 +1572,32 @@ class PersistenceForest:
 
         Notes
         -----
-        Call this only after interiors have been computed, for example by
-        constructing with ``compute_interior=True`` and
-        ``keep_simplex_diff=True``.
+        Requires ``keep_simplex_diff=True``.
         """
-        if not self.compute_interior:
-            raise ValueError("Interior activity requires compute_interior=True")
+        if not self.keep_simplex_diff:
+            raise ValueError("Construct with keep_simplex_diff=True to query interior activity")
+        if not self._barcode_computed:
+            raise RuntimeError("Barcode has not been computed; call compute_barcode() first")
 
         activity = defaultdict(list)
 
         for bar in self.barcode:
-            first_rep = bar.cycle_reps[0]
-            first_simplex_keys = {key(simplex) for simplex, _orientation in first_rep.interior}
-            last_active_end_by_simplex = {}
+            active_end_by_simplex: dict[tuple[int, ...], float] = {}
+            for node_id in reversed(bar._node_progression):
+                node = self.nodes[node_id]
+                if not node._simplex_diff_available:
+                    raise ValueError(f"Interior simplex diffs are unavailable for node {node_id}")
 
-            for cycle_rep in bar.cycle_reps:
-                cycle_rep_simplex_keys = {key(simplex) for simplex, _orientation in cycle_rep.interior}
+                # The first occurrence in descending order is the last active
+                # representative in forward time, including merged branches.
+                for interior_diff in (node._interior_diff, node._barcode_interior_diff):
+                    if interior_diff is not None:
+                        for simplex, _orientation in interior_diff:
+                            active_end_by_simplex.setdefault(key(simplex), node.filt_val)
 
-                for simplex_key in first_simplex_keys:
-                    if simplex_key in cycle_rep_simplex_keys:
-                        last_active_end_by_simplex[simplex_key] = cycle_rep.active_end
-
-            for simplex_key in first_simplex_keys:
+            for simplex_key, active_end in active_end_by_simplex.items():
                 activity[simplex_key].append(
-                    (bar, first_rep.active_start, last_active_end_by_simplex[simplex_key])
+                    (bar, bar.birth, active_end)
                 )
 
         return dict(activity)
