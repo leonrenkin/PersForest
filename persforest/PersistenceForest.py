@@ -11,6 +11,7 @@ import time
 import seaborn as sns
 from bisect import bisect_right
 import warnings
+import operator
 
 # ------- helper function -----------
 
@@ -140,6 +141,70 @@ def simplex_orientation(simplex, point_cloud):
     """
     vectors = [point_cloud[i]-point_cloud[simplex[0]] for i in simplex[1:]]
     return sign_of_determinant(vectors=vectors)
+
+
+def _validate_filtration(
+    filtration: Iterable[tuple[Sequence[int], float]],
+    n_points: int,
+) -> list[tuple[tuple[int, ...], float]]:
+    """Validate filtration and retain its simplex and tie order.
+
+    A face must already have appeared when its coface is encountered. Checking
+    immediate faces therefore verifies closure and inclusion order in one pass.
+
+    Parameters
+    ----------
+    filtration : iterable of (sequence of int, float)
+        Simplex-filtration pairs in ascending filtration order.
+    n_points : int
+        Number of available point-cloud vertices.
+
+    Returns
+    -------
+    list of (tuple of int, float)
+        Validated entries in their original order.
+
+    Raises
+    ------
+    ValueError
+        If an entry is degenerate, duplicated, out of order, or lacks an
+        earlier face, or if its value or vertex index is invalid.
+    """
+    entries = []
+    seen = set()
+    previous_value = -math.inf
+
+    for simplex, value in filtration:
+        try:
+            vertices = tuple(operator.index(vertex) for vertex in simplex)
+        except TypeError as exc:
+            raise ValueError("Filtration vertices must be integer indices") from exc
+        if not vertices or len(set(vertices)) != len(vertices):
+            raise ValueError(f"Filtration simplex {vertices} is empty or has repeated vertices")
+        if any(vertex < 0 or vertex >= n_points for vertex in vertices):
+            raise ValueError(f"Filtration simplex {vertices} has an invalid vertex index")
+
+        try:
+            filtration_value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid filtration value for simplex {vertices}") from exc
+        if not math.isfinite(filtration_value):
+            raise ValueError(f"Filtration value for simplex {vertices} must be finite")
+        if filtration_value < previous_value:
+            raise ValueError("Filtration values must be nondecreasing")
+
+        simplex_key = tuple(sorted(vertices))
+        if simplex_key in seen:
+            raise ValueError(f"Filtration simplex {vertices} appears more than once")
+        for face in itertools.combinations(simplex_key, len(simplex_key) - 1):
+            if face and face not in seen:
+                raise ValueError(f"Face {face} must precede filtration simplex {vertices}")
+
+        entries.append((vertices, filtration_value))
+        seen.add(simplex_key)
+        previous_value = filtration_value
+
+    return entries
 
 def signed_boundary(simplex, orientation: int): 
     """
@@ -547,10 +612,11 @@ class PFBar:
     
 class PersistenceForest:
     """
-    Compute and store alpha-complex cycle progressions in forest format.
+    Compute and store cycle progressions in forest format.
 
     For an ambient ``dim``-dimensional point cloud, the forest tracks
-    codimension-one cycle representatives and their barcode.
+    codimension-one cycle representatives and their barcode. The default
+    filtration is the alpha complex; an ordered filtration can also be supplied.
     """
 
     def __init__(self, 
@@ -562,9 +628,10 @@ class PersistenceForest:
                  compute_interior: bool = False,
                  diff_only_mode: bool = False,
                  filtration_tol: float = 1e-12,
+                 filtration: Iterable[tuple[Sequence[int], float]] | None = None,
                  ):
         """
-        Build a PersistenceForest from a point cloud using the alpha complex.
+        Build a PersistenceForest from a point cloud and a filtration.
 
         Parameters
         ----------
@@ -590,6 +657,11 @@ class PersistenceForest:
         filtration_tol : float
             Absolute tolerance used when reducing parent-child pairs at the
             same filtration value.
+        filtration : iterable of (sequence of int, float), optional
+            Ordered simplex-filtration pairs. 
+            If None, construct the alpha filtration from ``point_cloud``. 
+            Geometric embeddedness and contractibility of the terminal complex are required by the algorithm 
+            but are not verified for a supplied filtration.
         """
         self.point_cloud = np.array(point_cloud) #point cloud is list of n-dim arrays
         self.filtration_tol = float(filtration_tol)
@@ -611,16 +683,29 @@ class PersistenceForest:
 
         self.levels: list[float] = []               #Critical filtration values, might give duplicates in current implementation
 
-        start = time.perf_counter()
-        self._alpha_complex = gd.AlphaComplex(points=point_cloud) # pyright: ignore[reportAttributeAccessIssue]
-        self.simplex_tree = self._alpha_complex.create_simplex_tree(output_squared_values=False)
-        alpha_complex_time = time.perf_counter()-start
-        if print_info:
-            print(f"Alpha complex generated in {alpha_complex_time}")
+        if filtration is None:
+            start = time.perf_counter()
+            self.simplex_tree = gd.AlphaComplex(points=point_cloud).create_simplex_tree(output_squared_values=False)
+            filtration = self.simplex_tree.get_filtration()
+            alpha_complex_time = time.perf_counter()-start
+            if print_info:
+                print(f"Alpha filtration generated in {alpha_complex_time}")
+        else:
+            start = time.perf_counter()
+            filtration = _validate_filtration(filtration, len(self.point_cloud))
+            filtration_verification_time = time.perf_counter()-start
+            if print_info:
+                print(f"Filtration order verified in {filtration}")
+            warnings.warn(
+                "The persistence-forest algorithm requires an embedded and contractible terminal complex;"
+                "these conditions are not verified for a manual filtration.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         start = time.perf_counter()
         # Extract s filtration up to order d
-        self.filtration =  [(simplex,filtration) for simplex, filtration in self.simplex_tree.get_filtration() if len(simplex) >= self.dim] #keep simplices up to codim 1
+        self.filtration =  [(simplex,filt_val) for simplex, filt_val in filtration if len(simplex) >= self.dim] #keep simplices up to codim 1
         filtration_time = time.perf_counter()-start
         if print_info:
             print(f"Filtration processed in {filtration_time}")
