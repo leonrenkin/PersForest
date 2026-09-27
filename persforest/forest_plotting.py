@@ -256,6 +256,7 @@ def _plot_persistence_forest_generic(
     title=None, ylabel="Filtration value", grid=False, rasterized=False,
     return_layout=False, edge_style="curved", curvature=1.0, branch_angle=45.0,
     min_clearance=2.0, orientation="vertical",
+    sort="lifespan", descending=True,
 ):
     """Draw persistence trees with filtration on the vertical or horizontal axis.
 
@@ -301,6 +302,14 @@ def _plot_persistence_forest_generic(
         pruning pass; no repeated pruning or individual short-edge removal.
     max_trees : int or None
         Keep at most this many trees, ranked by original span (largest first).
+        Selection happens before applying the requested display order.
+    sort : {'lifespan', 'birth', 'death'}
+        Order trees by original lifespan (highest leaf value minus root value),
+        birth (root value), or death (highest leaf value). Default is
+        ``'lifespan'``.
+    descending : bool
+        If True (default), arrange larger sort values first. If False, arrange
+        smaller values first. Ties are always resolved by root ID.
     nodes : {'none', 'critical', 'all'} or iterable of str
         Marker selection, or a subset of ('roots', 'branches', 'leaves').
         Roles are determined after filtering. Roots are always critical.
@@ -362,6 +371,10 @@ def _plot_persistence_forest_generic(
         raise ValueError("edge_style must be 'straight', 'curved', or 'routed'")
     if orientation not in ("vertical", "horizontal"):
         raise ValueError("orientation must be 'vertical' or 'horizontal'")
+    if sort not in ("lifespan", "birth", "death"):
+        raise ValueError("sort must be 'lifespan', 'birth', or 'death'")
+    if not isinstance(descending, (bool, np.bool_)):
+        raise TypeError("descending must be a boolean")
     if not np.isfinite(curvature) or not 0 <= curvature <= 1:
         raise ValueError("curvature must be between 0 and 1")
     if not np.isfinite(branch_angle) or not 0 < branch_angle <= 90:
@@ -413,10 +426,19 @@ def _plot_persistence_forest_generic(
         return result
 
     high = heights(children)
-    roots.sort(key=lambda i: (-(high[i] - values[i]), i))
     roots = [i for i in roots if high[i] - values[i] >= min_tree_span]
     if max_trees is not None:
-        roots = roots[:max_trees]
+        roots = sorted(roots, key=lambda i: (-(high[i] - values[i]), i))[:max_trees]
+
+    def tree_sort_value(root):
+        if sort == "birth":
+            return values[root]
+        if sort == "death":
+            return high[root]
+        return high[root] - values[root]
+
+    direction = -1.0 if descending else 1.0
+    roots.sort(key=lambda i: (direction * tree_sort_value(i), i))
     bars = list(getattr(forest, "barcode", ()))
     if min_bar_length > 0 and not bars:
         raise ValueError("min_bar_length requires a computed barcode")
