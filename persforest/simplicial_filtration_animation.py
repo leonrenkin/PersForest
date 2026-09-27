@@ -1034,8 +1034,6 @@ def animate_filtration_pair(
 
     # --- 5) Filtration plot kwargs (match animate_filtration defaults) --------
     base_plot_kwargs = {
-        "fill_triangles": True,
-        "loop_vertex_markers": False,
         "vertex_size": 3,
         "coloring": "forest",  # uses the forest's color dict, shared with barcode
         "show": False,         # we manage figure/axes ourselves
