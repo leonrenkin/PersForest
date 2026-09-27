@@ -730,13 +730,13 @@ class PersistenceForest:
         self._compute_forest(print_info = print_info)
 
         self.reduced = reduce
-        
-        # Compute where each cycle is active.
-        if not self.diff_only_mode:
-            self._compute_loop_activity()
 
         if reduce:
             self._reduce_forest(print_info = print_info)
+   
+        # Compute where each cycle is active.
+        if not self.diff_only_mode:
+            self._compute_loop_activity()
 
         if compute_barcode:
             if self.keep_simplex_diff:
@@ -1573,8 +1573,6 @@ class PersistenceForest:
         constructing with ``compute_interior=True`` and
         ``keep_simplex_diff=True``.
         """
-        if not self.keep_simplex_diff and self.compute_interior:
-            raise ValueError("Set PersistenceForest(..., keep_simplex_diff = True, compute_interior = True)")
 
         activity = defaultdict(list)
 
