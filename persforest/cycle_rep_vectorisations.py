@@ -554,8 +554,10 @@ def signed_chain_edge_length(signed_chain: SignedChain, point_cloud: NDArray[np.
     Returns
     -------
     float
-        Sum of edge lengths, ignoring orientation.
+        Sum of edge lengths, ignoring orientation. The zero chain has length zero.
     """
+    if not signed_chain.signed_simplices:
+        return 0.0
     if signed_chain.dim() != 1:
         raise ValueError("Function only defined for 1-dimensional chains")
 
@@ -591,10 +593,8 @@ def constant_one_functional(signed_chain: SignedChain, point_cloud = None) -> fl
 
 def _support_graph_component_count(signed_chain: SignedChain) -> int:
     """Count components of the underlying edge support, ignoring orientation.
-
-    Shared vertex indices define connectivity in the embedded complex. Both
-    orientations of an edge belong to the same support; they do not cancel.
-    Empty support has zero components. Traversal takes O(V + E) time.
+    Edges of opposing support do not cancel.
+    Empty support has zero components.
 
     Parameters
     ----------
@@ -782,8 +782,10 @@ def signed_chain_area(signed_chain: SignedChain, point_cloud:  NDArray[np.float6
     Returns
     -------
     float
-        Outer area minus inner path areas.
+        Outer area minus inner path areas. The zero chain has area zero.
     """
+    if not signed_chain.signed_simplices:
+        return 0.0
     if signed_chain.dim() != 1:
         raise ValueError("Function only defined for 1-dimensional chains")
 
@@ -976,8 +978,10 @@ def signed_chain_excess_curvature(signed_chain: SignedChain, point_cloud: NDArra
     Returns
     -------
     float
-        Sum of unnormalized excess curvature values.
+        Sum of unnormalized excess curvature values; zero for the zero chain.
     """
+    if not signed_chain.signed_simplices:
+        return 0.0
     if signed_chain.dim() != 1:
         raise ValueError("Function only defined for 1-dimensional chains")
 
@@ -1043,7 +1047,10 @@ def signed_chain_circularity(signed_chain: SignedChain, point_cloud: NDArray[np.
     -------
     float
         Circularity score; 1 is circular, lower values are less circular.
+        The zero chain has score zero by convention.
     """
+    if not signed_chain.signed_simplices:
+        return 0.0
     if signed_chain.dim() != 1:
         raise ValueError("Function only defined for 1-dimensional chains")
     
@@ -1067,8 +1074,10 @@ def signed_chain_circularity_complement(signed_chain: SignedChain, point_cloud: 
     Returns
     -------
     float
-        Complement of the circularity score.
+        Complement of the circularity score; zero for the zero chain.
     """
+    if not signed_chain.signed_simplices:
+        return 0.0
     return 1- signed_chain_circularity(signed_chain=signed_chain, point_cloud=point_cloud)
 
 def signed_chain_circularity_squared_complement(
@@ -1087,8 +1096,10 @@ def signed_chain_circularity_squared_complement(
     Returns
     -------
     float
-        Complement of the squared circularity score.
+        Complement of the squared circularity score; zero for the zero chain.
     """
+    if not signed_chain.signed_simplices:
+        return 0.0
     circularity = signed_chain_circularity(signed_chain, point_cloud)
     return 1 - circularity**2
 
@@ -1108,8 +1119,10 @@ def signed_chain_circularity_complement_squared(
     Returns
     -------
     float
-        Squared complement of the circularity score.
+        Squared complement of the circularity score; zero for the zero chain.
     """
+    if not signed_chain.signed_simplices:
+        return 0.0
     complement = signed_chain_circularity_complement(signed_chain, point_cloud)
     return complement**2
 
