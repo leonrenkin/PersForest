@@ -712,6 +712,7 @@ class PersistenceForest:
             print(f"Filtration processed in {filtration_time}")
 
         self.barcode: set[PFBar] = set()
+        self._barcode_computed = False
 
         self.landscape_families: Dict[str, Any] = {}
         self.barcode_functionals: Dict[str, Any] = {}
@@ -1273,6 +1274,8 @@ class PersistenceForest:
         ``self.barcode``.
         """
         
+        if self._barcode_computed:
+            raise RuntimeError("Barcode computation has already been called for this forest")
         if print_info:
             print("Computing Barcode")
         barcode_start = time.perf_counter()
@@ -1329,7 +1332,7 @@ class PersistenceForest:
         barcode_time = time.perf_counter() - barcode_start
         if print_info:
             print(f"Barcode computation completed in {barcode_time} sec")
-    
+        self._barcode_computed = True
         return
 
     def compute_barcode_diff(self, print_info: bool = False):
@@ -1349,9 +1352,8 @@ class PersistenceForest:
         diffs are stored on merge nodes for later reconstruction of cycle
         representatives with interiors. Bars are stored in ``self.barcode``.
         """
-        if getattr(self, "_diff_barcode_computed", False):
-            raise RuntimeError("compute_barcode_diff has already been called, repeated calling leads to incorrect simplex accumulations")
-        self._diff_barcode_computed = True
+        if self._barcode_computed:
+            raise RuntimeError("Barcode computation has already been called for this forest")
         
         if print_info:
             print("Computing Barcode")
@@ -1427,7 +1429,7 @@ class PersistenceForest:
         barcode_time = time.perf_counter() - barcode_start
         if print_info:
             print(f"Barcode computation completed in {barcode_time} sec")
-    
+        self._barcode_computed = True
         return
 
     def compute_barcode(self,  print_info: bool = False):
@@ -3108,8 +3110,15 @@ class PersistenceForest:
         -------
         MeasurementLandscapeFamily
             Family of landscapes evaluated for each bar.
+
+        Raises
+        ------
+        RuntimeError
+            If the barcode has not been computed yet.
         """
 
+        if not self._barcode_computed:
+            raise RuntimeError("Barcode has not been computed; call compute_barcode() first")
         if signed:
             def _cycle_value(chain, point_cloud):
                 # `chain` is a SignedChain
