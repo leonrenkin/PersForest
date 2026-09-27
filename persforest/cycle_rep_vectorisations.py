@@ -578,11 +578,11 @@ def constant_one_functional(signed_chain: SignedChain, point_cloud = None) -> fl
     Returns
     -------
     float:
-        1 if chain is not 0
-        0 if chain is 0
+        1 if chain is non-zero, 
+        0 for zero-chain
         
     """
-    if not signed_chain.simplices:
+    if not signed_chain.signed_simplices:
         return 0
     else:
         return 1
