@@ -1459,7 +1459,7 @@ class PersistenceForest:
 
         return
 
-    def iter_bar_cycle_reps(self, bar: PFBar, from_diff: bool = False) -> Iterator[SignedChain]:
+    def iter_bar_cycle_reps(self, bar: PFBar) -> Iterator[SignedChain]:
         """Yield iterator of representatives of a bar in descending filtration order.
 
         Normal mode yields stored representatives; 
@@ -1703,8 +1703,8 @@ class PersistenceForest:
         list[SignedChain]
             Cycle representatives for all bars in the barcode.
         """
-        if relative_position < 0 or relative_position > 1:
-            raise ValueError("relative_position must be in [0,1]")
+        if relative_position < 0 or relative_position >= 1:
+            raise ValueError("relative_position must be in [0,1)")
 
         # Get all bars in the barcode
         all_bars = sorted(list(self.barcode), key=lambda bar: bar.lifespan(), reverse=True)
