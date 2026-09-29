@@ -1376,8 +1376,9 @@ class PersistenceForest:
             is_max_tree_bar = True
             root_id = self.get_root(node).id
 
-            barcode_interior_diff = node._interior_diff
-            barcode_codim1_simplex_diff = node._codim1_simplex_diff
+            # Defer unions until we know whether this bar ends at a merge.
+            # Root-reaching bars never need an accumulated diff.
+            barcode_diff_sources = [(node._interior_diff, node._codim1_simplex_diff)]
 
             if node.parent == None:
                 raise ValueError("Leaf has no Parent, this should not happen")
@@ -1391,20 +1392,13 @@ class PersistenceForest:
                     parent._barcode_covered += 1
                     is_max_tree_bar = False
 
-                    #Write down total bar diff in merge node
-                    if self.keep_simplex_diff:
-                        parent._barcode_interior_diff = union_optional_sets(parent._barcode_interior_diff,barcode_interior_diff)
-                        parent._barcode_codim1_simplex_diff =  union_optional_sets(parent._barcode_codim1_simplex_diff, barcode_codim1_simplex_diff)
-        
                     break
 
                 if self.keep_simplex_diff:
-                    barcode_interior_diff = union_optional_sets(barcode_interior_diff, parent._interior_diff)
-                    barcode_codim1_simplex_diff = union_optional_sets(barcode_codim1_simplex_diff, parent._codim1_simplex_diff)
+                    barcode_diff_sources.append((parent._interior_diff, parent._codim1_simplex_diff))
 
                     if parent._barcode_covered != 0:
-                        barcode_interior_diff = union_optional_sets(barcode_interior_diff, parent._barcode_interior_diff)
-                        barcode_codim1_simplex_diff = union_optional_sets(barcode_codim1_simplex_diff, parent._barcode_codim1_simplex_diff)
+                        barcode_diff_sources.append((parent._barcode_interior_diff, parent._barcode_codim1_simplex_diff))
 
                 node_id_progession.append(parent.id)
                 cycle_progression.append(parent.cycle)
@@ -1414,6 +1408,19 @@ class PersistenceForest:
                 parent = self.nodes[parent.parent]
 
             birth = parent.filt_val
+
+            if self.keep_simplex_diff and not is_max_tree_bar:
+                # Each merge owns its accumulators: update them without copying
+                # growing sets or mutating any source node/descendant merge.
+                for interior_diff, codim1_simplex_diff in barcode_diff_sources:
+                    if interior_diff is not None:
+                        if parent._barcode_interior_diff is None:
+                            parent._barcode_interior_diff = set()
+                        parent._barcode_interior_diff.update(interior_diff)
+                    if codim1_simplex_diff is not None:
+                        if parent._barcode_codim1_simplex_diff is None:
+                            parent._barcode_codim1_simplex_diff = set()
+                        parent._barcode_codim1_simplex_diff.update(codim1_simplex_diff)
 
 
             #reverse lists to get progression which is ascending with respect to filtration value
