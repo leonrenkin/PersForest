@@ -659,7 +659,8 @@ class PersistenceForest:
             Coordinates of the input point set.
         reduce : bool
             If True, collapse parent-child pairs whose filtration values differ
-            by at most ``filtration_tol``.
+            by at most ``filtration_tol``, then split branching roots into
+            separate trees.
         compute_barcode : bool
             If True, compute and store the barcode after building the forest.
         print_info : bool
@@ -1203,6 +1204,9 @@ class PersistenceForest:
         - For every grandchild g in c.children, set g.parent = p.id.
         Repeats until no collapsible edges remain.
 
+        Finally, normalize roots so that branches born simultaneously belong
+        to separate trees, each with its child's cycle as root representative.
+
         Parameters
         ----------
         print_info : bool
@@ -1240,6 +1244,8 @@ class PersistenceForest:
                     self._collapse_parent_child(parent=p, child=child)
                     collapses += 1
 
+        self._normalize_roots()
+
         reduction_time = time.perf_counter() - reduction_start
         if print_info:
             print(f"Reduction complete in {reduction_time} sec")
@@ -1247,12 +1253,46 @@ class PersistenceForest:
         
         return
 
-    # If we have multiple edges appearing at the same filtration value, we might get a root node which is also a merge in the reduction process
-    # This will lead to a node which appears in the root list but has type merge
-    # Not a mistake in the code, simply the way the edge case is currently handled
-    # -> use node.parent == None to check if a node is a root
-    # If a merge is also a root, then the merge should be split into 2 separate roots as the merge only lives for 0 time
-    # This is not implemented yet and should not occur for points in general position
+    def _normalize_roots(self) -> None:
+        """Give each surviving root one child and that child's representative.
+
+        Notes
+        -----
+        Called after edge collapse and before activity/barcode computation.
+        A branching root represents a split at birth, so each child receives
+        a separate root at the original birth value. The smallest child ID
+        retains the existing root; other children receive fresh root IDs.
+        Non-root node order is preserved for barcode tie-breaking.
+
+        Root diffs are empty because a root represents exactly its child,
+        including in diff-only mode, where both stored cycles are ``None``.
+        Existing unary roots are normalized too, since collapse can change
+        their child. Repeating this operation leaves the forest unchanged.
+        """
+        for root_id in sorted(self.roots):
+            root = self.nodes[root_id]
+            child_ids = sorted(root.children)
+            for index, child_id in enumerate(child_ids):
+                child = self.nodes[child_id]
+                if index == 0:
+                    child_root = root
+                else:
+                    new_id = next(self._node_id)
+                    child_root = PFNode(
+                        id=new_id, filt_val=root.filt_val,
+                        cycle=child.cycle, children={child_id},
+                    )
+                    self.nodes[new_id] = child_root
+                    self.roots.add(new_id)
+
+                child_root.children = {child_id}
+                child_root.cycle = child.cycle
+                child_root._simplex_diff_available = self.keep_simplex_diff
+                child_root._interior_diff = None
+                child_root._codim1_simplex_diff = None
+                child_root._barcode_interior_diff = None
+                child_root._barcode_codim1_simplex_diff = None
+                child.parent = child_root.id
 
     # ------ Add active period of each cycle ----------
 
