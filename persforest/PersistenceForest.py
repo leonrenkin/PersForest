@@ -33,44 +33,42 @@ def key(simplex):
     """
     return tuple(sorted(simplex))
 
-def sign_of_determinant(vectors):
+def sign_of_determinant(vectors: Sequence[Sequence[float]] | NDArray) -> int:
     """
     Computes the sign of the determinant of d vectors in R^d.
 
     Parameters
     ----------
-    vectors : Iterable[Iterable[float]]
+    vectors : array-like, shape (d, d)
         Collection of d vectors of length d.
 
     Returns
     -------
     int
-        +1 if det > 0, -1 if det < 0, 0 if det = 0.
+        +1 if det > 0, -1 if det < 0.
+
+    Raises
+    ------
+    ValueError
+        If the matrix is invalid, degenerate, or numerically near-degenerate.
+
+    Notes
+    -----
+    Divide by the largest absolute entry before computing the determinant.
+    Reject normalized determinant magnitudes <= 1e-12. This conservative
+    numerical cutoff is invariant under uniform scaling; it is not an exact
+    degeneracy predicate. No higher-precision fallback is attempted.
     """
     A = np.array(vectors, dtype=float)
-    d = A.shape[0]
-
-    sign = 1
-
-    for i in range(d):
-        # Find pivot
-        pivot = i + np.argmax(abs(A[i:, i]))
-        if abs(A[pivot, i]) < 1e-12:
-            return 0  # determinant is zero
-
-        # Row swap changes sign
-        if pivot != i:
-            A[[i, pivot]] = A[[pivot, i]]
-            sign *= -1
-
-        # Eliminate below pivot
-        for j in range(i + 1, d):
-            factor = A[j, i] / A[i, i]
-            A[j, i:] -= factor * A[i, i:]
-
-    # Sign of determinant is the product of the signs of diagonal entries
-    diag_sign = np.sign(np.prod(np.sign(np.diag(A))))
-    return int(sign * diag_sign)
+    if A.ndim != 2 or A.shape[0] == 0 or A.shape[0] != A.shape[1]:
+        raise ValueError("Orientation requires a non-empty square matrix")
+    scale = np.max(np.abs(A))
+    if not np.isfinite(scale) or scale == 0:
+        raise ValueError("Orientation requires finite, nonzero edge vectors")
+    determinant = np.linalg.det(A / scale)
+    if not np.isfinite(determinant) or abs(determinant) <= 1e-12:
+        raise ValueError("Degenerate or numerically near-degenerate edge matrix")
+    return 1 if determinant > 0 else -1
 
 def are_dict_keys_sorted(d):
     """
@@ -123,7 +121,7 @@ def union_optional_sets(set1: Optional[Set], set2: Optional[Set]) -> Optional[Se
     else:
         return set1 | set2
 
-def simplex_orientation(simplex, point_cloud):
+def simplex_orientation(simplex: Sequence[int], point_cloud: NDArray) -> int:
     """
     Compute the orientation of a simplex with respect to the ambient point cloud.
 
@@ -137,11 +135,23 @@ def simplex_orientation(simplex, point_cloud):
     Returns
     -------
     int
-        +1 for positive orientation, -1 for negative orientation, 0 for
-        degenerate simplices.
+        +1 for positive orientation, -1 for negative orientation.
+
+    Raises
+    ------
+    ValueError
+        If the simplex is degenerate or its orientation fails the numerical
+        check in ``sign_of_determinant``. The error identifies its vertex ids.
     """
-    vectors = [point_cloud[i]-point_cloud[simplex[0]] for i in simplex[1:]]
-    return sign_of_determinant(vectors=vectors)
+    with np.errstate(over="ignore", invalid="ignore"):
+        vectors = [point_cloud[i]-point_cloud[simplex[0]] for i in simplex[1:]]
+    try:
+        return sign_of_determinant(vectors=vectors)
+    except ValueError as error:
+        raise ValueError(
+            f"Cannot determine orientation reliably for simplex {tuple(simplex)}: "
+            "degenerate, numerically near-degenerate, or non-finite edge vectors."
+        ) from error
 
 
 def _validate_filtration(
@@ -247,14 +257,17 @@ def boundary_faces_from_tetrahedra(
     -------
     list[tuple[int, int, int]]
         Boundary triangular faces with canonical vertex order.
+
+    Raises
+    ------
+    ValueError
+        If a tetrahedron is degenerate or numerically near-degenerate.
     """
     face_coeffs: Dict[Tuple[int, int, int], int] = defaultdict(int)
 
     for tet in tetrahedra:
         tet_tuple = tuple(tet)
         orientation = simplex_orientation(simplex=tet_tuple, point_cloud=point_cloud)
-        if orientation == 0:
-            orientation = 1
         for face, face_orientation in signed_boundary(
             simplex=list(tet_tuple),
             orientation=orientation,
@@ -575,14 +588,20 @@ class PFBar:
         Raises
         ------
         ValueError
-            If ``filt_val`` lies outside the lifespan or no representative is
-            active (should not happen in a valid bar).
+            If ``filt_val`` lies outside the lifespan, no representative is
+            active, or representatives were not stored (as in diff-only mode).
         """
 
         if filt_val < self.birth:
             raise ValueError(f"Filtration value {filt_val} is too small and not in lifespan of the bar")
         if filt_val >= self.death:
             raise ValueError(f"Filtration value {filt_val} is too large and not in lifespan of the bar")
+        if not self.cycle_reps or any(cycle is None for cycle in self.cycle_reps):
+            raise ValueError(
+                "This bar has no stored cycle representative (possibly because "
+                "PersistenceForest was built with diff_only_mode=True). "
+                "Use forest.cycle_for_bar_at(bar, filt_val) instead."
+            )
 
         if len(self._node_progression)==1:
             return self.cycle_reps[0]
@@ -640,7 +659,8 @@ class PersistenceForest:
             Coordinates of the input point set.
         reduce : bool
             If True, collapse parent-child pairs whose filtration values differ
-            by at most ``filtration_tol``.
+            by at most ``filtration_tol``, then split branching roots into
+            separate trees.
         compute_barcode : bool
             If True, compute and store the barcode after building the forest.
         print_info : bool
@@ -656,8 +676,8 @@ class PersistenceForest:
             additions and removals. This enables ``keep_simplex_diff``
             automatically and is incompatible with ``compute_interior=True``.
         filtration_tol : float
-            Absolute tolerance used when reducing parent-child pairs at the
-            same filtration value.
+            Absolute numerical resolution for parent-child reduction. 
+            Differences at or below this tolerance are ignored and short bars may disappear.
         filtration : iterable of (sequence of int, float), optional
             Ordered simplex-filtration pairs. 
             If None, construct the alpha filtration from ``point_cloud``. 
@@ -1077,9 +1097,14 @@ class PersistenceForest:
         return active
 
     def active_cycles_at(self, filt_val: float) -> List[SignedChain]:
-        """Return cycle representatives of nodes active at ``filt_val``."""
+        """Return active cycle representatives at ``filt_val``."""
         if self.diff_only_mode:
-            raise ValueError("Not implemented for diff_only_mode yet")
+            if not self._barcode_computed:
+                raise RuntimeError("Call compute_barcode() before querying cycles in diff_only_mode")
+            return [
+                self.cycle_for_bar_at(bar, filt_val)
+                for bar in self.active_bars_at(filt_val)
+            ]
 
         active_nodes = self.active_nodes_at(filt_val=filt_val)
         return [node.cycle for node in active_nodes]
@@ -1179,6 +1204,9 @@ class PersistenceForest:
         - For every grandchild g in c.children, set g.parent = p.id.
         Repeats until no collapsible edges remain.
 
+        Finally, normalize roots so that branches born simultaneously belong
+        to separate trees, each with its child's cycle as root representative.
+
         Parameters
         ----------
         print_info : bool
@@ -1216,6 +1244,8 @@ class PersistenceForest:
                     self._collapse_parent_child(parent=p, child=child)
                     collapses += 1
 
+        self._normalize_roots()
+
         reduction_time = time.perf_counter() - reduction_start
         if print_info:
             print(f"Reduction complete in {reduction_time} sec")
@@ -1223,12 +1253,46 @@ class PersistenceForest:
         
         return
 
-    # If we have multiple edges appearing at the same filtration value, we might get a root node which is also a merge in the reduction process
-    # This will lead to a node which appears in the root list but has type merge
-    # Not a mistake in the code, simply the way the edge case is currently handled
-    # -> use node.parent == None to check if a node is a root
-    # If a merge is also a root, then the merge should be split into 2 separate roots as the merge only lives for 0 time
-    # This is not implemented yet and should not occur for points in general position
+    def _normalize_roots(self) -> None:
+        """Give each surviving root one child and that child's representative.
+
+        Notes
+        -----
+        Called after edge collapse and before activity/barcode computation.
+        A branching root represents a split at birth, so each child receives
+        a separate root at the original birth value. The smallest child ID
+        retains the existing root; other children receive fresh root IDs.
+        Non-root node order is preserved for barcode tie-breaking.
+
+        Root diffs are empty because a root represents exactly its child,
+        including in diff-only mode, where both stored cycles are ``None``.
+        Existing unary roots are normalized too, since collapse can change
+        their child. Repeating this operation leaves the forest unchanged.
+        """
+        for root_id in sorted(self.roots):
+            root = self.nodes[root_id]
+            child_ids = sorted(root.children)
+            for index, child_id in enumerate(child_ids):
+                child = self.nodes[child_id]
+                if index == 0:
+                    child_root = root
+                else:
+                    new_id = next(self._node_id)
+                    child_root = PFNode(
+                        id=new_id, filt_val=root.filt_val,
+                        cycle=child.cycle, children={child_id},
+                    )
+                    self.nodes[new_id] = child_root
+                    self.roots.add(new_id)
+
+                child_root.children = {child_id}
+                child_root.cycle = child.cycle
+                child_root._simplex_diff_available = self.keep_simplex_diff
+                child_root._interior_diff = None
+                child_root._codim1_simplex_diff = None
+                child_root._barcode_interior_diff = None
+                child_root._barcode_codim1_simplex_diff = None
+                child.parent = child_root.id
 
     # ------ Add active period of each cycle ----------
 
@@ -1376,8 +1440,9 @@ class PersistenceForest:
             is_max_tree_bar = True
             root_id = self.get_root(node).id
 
-            barcode_interior_diff = node._interior_diff
-            barcode_codim1_simplex_diff = node._codim1_simplex_diff
+            # Defer unions until we know whether this bar ends at a merge.
+            # Root-reaching bars never need an accumulated diff.
+            barcode_diff_sources = [(node._interior_diff, node._codim1_simplex_diff)]
 
             if node.parent == None:
                 raise ValueError("Leaf has no Parent, this should not happen")
@@ -1391,20 +1456,13 @@ class PersistenceForest:
                     parent._barcode_covered += 1
                     is_max_tree_bar = False
 
-                    #Write down total bar diff in merge node
-                    if self.keep_simplex_diff:
-                        parent._barcode_interior_diff = union_optional_sets(parent._barcode_interior_diff,barcode_interior_diff)
-                        parent._barcode_codim1_simplex_diff =  union_optional_sets(parent._barcode_codim1_simplex_diff, barcode_codim1_simplex_diff)
-        
                     break
 
                 if self.keep_simplex_diff:
-                    barcode_interior_diff = union_optional_sets(barcode_interior_diff, parent._interior_diff)
-                    barcode_codim1_simplex_diff = union_optional_sets(barcode_codim1_simplex_diff, parent._codim1_simplex_diff)
+                    barcode_diff_sources.append((parent._interior_diff, parent._codim1_simplex_diff))
 
                     if parent._barcode_covered != 0:
-                        barcode_interior_diff = union_optional_sets(barcode_interior_diff, parent._barcode_interior_diff)
-                        barcode_codim1_simplex_diff = union_optional_sets(barcode_codim1_simplex_diff, parent._barcode_codim1_simplex_diff)
+                        barcode_diff_sources.append((parent._barcode_interior_diff, parent._barcode_codim1_simplex_diff))
 
                 node_id_progession.append(parent.id)
                 cycle_progression.append(parent.cycle)
@@ -1414,6 +1472,19 @@ class PersistenceForest:
                 parent = self.nodes[parent.parent]
 
             birth = parent.filt_val
+
+            if self.keep_simplex_diff and not is_max_tree_bar:
+                # Each merge owns its accumulators: update them without copying
+                # growing sets or mutating any source node/descendant merge.
+                for interior_diff, codim1_simplex_diff in barcode_diff_sources:
+                    if interior_diff is not None:
+                        if parent._barcode_interior_diff is None:
+                            parent._barcode_interior_diff = set()
+                        parent._barcode_interior_diff.update(interior_diff)
+                    if codim1_simplex_diff is not None:
+                        if parent._barcode_codim1_simplex_diff is None:
+                            parent._barcode_codim1_simplex_diff = set()
+                        parent._barcode_codim1_simplex_diff.update(codim1_simplex_diff)
 
 
             #reverse lists to get progression which is ascending with respect to filtration value
@@ -1441,7 +1512,7 @@ class PersistenceForest:
 
         return
 
-    def iter_bar_cycle_reps(self, bar: PFBar, from_diff: bool = False) -> Iterator[SignedChain]:
+    def iter_bar_cycle_reps(self, bar: PFBar) -> Iterator[SignedChain]:
         """Yield iterator of representatives of a bar in descending filtration order.
 
         Normal mode yields stored representatives; 
@@ -1489,6 +1560,37 @@ class PersistenceForest:
                 interior_available=True,
                 interior=interior.copy(),
             )
+
+    def cycle_for_bar_at(self, bar: PFBar, filt_val: float) -> SignedChain:
+        """Return a bar's representative active at a filtration value.
+
+        Stored representatives are used in normal mode. In diff-only mode,
+        replay the bar's simplex diffs from death toward birth and return the
+        first representative active on ``[active_start, active_end)``.
+
+        Parameters
+        ----------
+        bar : PFBar
+            Bar belonging to this forest.
+        filt_val : float
+            Filtration value in ``[bar.birth, bar.death)``.
+
+        Returns
+        -------
+        SignedChain
+            Representative active at ``filt_val``.
+        """
+        if bar not in self.barcode:
+            raise ValueError("Bar is not in barcode of forest")
+        if filt_val < bar.birth or filt_val >= bar.death:
+            raise ValueError(f"Filtration value {filt_val} is not in the bar's lifespan")
+        if not self.diff_only_mode:
+            return bar.cycle_at_filtration_value(filt_val)
+
+        for cycle_rep in self.iter_bar_cycle_reps(bar):
+            if cycle_rep.active_start <= filt_val < cycle_rep.active_end:
+                return cycle_rep
+        raise ValueError(f"Filtration value is in lifespan but no cycle representative was found; this should not happen")
 
     # ----- Interior computation and activity ------
 
@@ -1620,12 +1722,8 @@ class PersistenceForest:
 
     def cycle_reps_at(self, filt_val: float, min_bar_length:float = 0) -> List[SignedChain]:
         """Return cycle representatives active at ``filt_val``."""
-        
-        if self.diff_only_mode:
-            raise ValueError("Not implemented for diff_only_mode yet")
-
         active_bars = self.active_bars_at(filt_val=filt_val)
-        cycles = [bar.cycle_at_filtration_value(filt_val=filt_val) for bar in active_bars if bar.lifespan()>=min_bar_length]
+        cycles = [self.cycle_for_bar_at(bar, filt_val) for bar in active_bars if bar.lifespan()>=min_bar_length]
         return cycles
 
     def _active_bars_with_cycles_at(
@@ -1639,7 +1737,7 @@ class PersistenceForest:
             if bar.lifespan() < min_bar_length:
                 continue
             if bar.birth <= filt_val < bar.death:
-                active.append((bar, bar.cycle_at_filtration_value(filt_val=filt_val)))
+                active.append((bar, self.cycle_for_bar_at(bar, filt_val)))
         return active
 
     def barcode_cycle_reps(self, relative_position=0.1, min_bar_length: float = 0) -> List[SignedChain]:
@@ -1658,8 +1756,8 @@ class PersistenceForest:
         list[SignedChain]
             Cycle representatives for all bars in the barcode.
         """
-        if relative_position < 0 or relative_position > 1:
-            raise ValueError("relative_position must be in [0,1]")
+        if relative_position < 0 or relative_position >= 1:
+            raise ValueError("relative_position must be in [0,1)")
 
         # Get all bars in the barcode
         all_bars = sorted(list(self.barcode), key=lambda bar: bar.lifespan(), reverse=True)
@@ -1668,7 +1766,7 @@ class PersistenceForest:
         selected_bars = [bar for bar in all_bars if bar.lifespan() >= min_bar_length]
         
         # Compute cycle representatives for each selected bar
-        cycles = [bar.cycle_at_filtration_value(filt_val=bar.birth + (bar.lifespan() * relative_position)) for bar in selected_bars]
+        cycles = [self.cycle_for_bar_at(bar, bar.birth + (bar.lifespan() * relative_position)) for bar in selected_bars]
         
         return cycles
 
@@ -2451,6 +2549,12 @@ class PersistenceForest:
         -------
         plotly.graph_objects.Figure
         """
+        if self.diff_only_mode:
+            raise ValueError(
+                "Animations are unavailable with diff_only_mode=True because "
+                "reconstructing cycles for every frame can be slow. "
+                "Build the forest with diff_only_mode=False to animate it."
+            )
         from .simplicial_filtration_plotly import plot_filtration_interactive
 
         return plot_filtration_interactive(
@@ -2649,6 +2753,12 @@ class PersistenceForest:
             - 3D MP4 path: output filename string.
             - 3D HTML path: Plotly figure.
         """
+        if self.diff_only_mode:
+            raise ValueError(
+                "Animations are unavailable with diff_only_mode=True because "
+                "reconstructing cycles for every frame can be slow. "
+                "Build the forest with diff_only_mode=False to animate it."
+            )
         from pathlib import Path
         from .simplicial_filtration_animation import _animate_filtration_generic
 
@@ -2910,6 +3020,12 @@ class PersistenceForest:
             :class:`matplotlib.animation.FuncAnimation` and ``fig`` is the
             underlying figure.
         """
+        if self.diff_only_mode:
+            raise ValueError(
+                "Animations are unavailable with diff_only_mode=True because "
+                "reconstructing cycles for every frame can be slow. "
+                "Build the forest with diff_only_mode=False to animate it."
+            )
         from .forest_landscapes import animate_barcode_measurement_generic
         from copy import deepcopy
 

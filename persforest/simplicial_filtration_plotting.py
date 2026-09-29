@@ -307,7 +307,7 @@ def _plot_at_filtration_2d(
     if show_cycles:
         for bar in forest.barcode:
             if filt_val >= bar.birth and filt_val < bar.death and bar.lifespan()>=min_bar_length:
-                cycle = bar.cycle_at_filtration_value(filt_val=filt_val)
+                cycle = forest.cycle_for_bar_at(bar, filt_val)
                 if cycle.dim() != 1:
                     raise ValueError(
                         f"plot_at_filtration expected a 1-chain, got dim={cycle.dim()}"
@@ -573,7 +573,7 @@ def _plot_at_filtration_with_dual_2d(
     if show_cycles:
         for bar in forest.barcode:
             if filt_val >= bar.birth and filt_val < bar.death:
-                cycle = bar.cycle_at_filtration_value(filt_val=filt_val)
+                cycle = forest.cycle_for_bar_at(bar, filt_val)
                 segments = [
                     np.array(pts[list(signed_simplex[0])])
                     for signed_simplex in cycle.signed_simplices
@@ -853,8 +853,8 @@ def plot_barcode_cycle_reps(
             continue
         cycle_zorder = bar.lifespan()
 
-        cycle = bar.cycle_at_filtration_value(
-            filt_val=bar.birth + bar.lifespan() * relative_position
+        cycle = forest.cycle_for_bar_at(
+            bar, bar.birth + bar.lifespan() * relative_position
         )
         if cycle.dim() != 1:
             raise ValueError(

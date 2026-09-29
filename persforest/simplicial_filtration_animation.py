@@ -114,6 +114,12 @@ def _animate_filtration_generic(
         """
         from matplotlib.animation import FuncAnimation, FFMpegWriter
 
+        if getattr(forest, "diff_only_mode", False):
+            raise ValueError(
+                "Animations are unavailable with diff_only_mode=True because "
+                "reconstructing cycles for every frame can be slow. "
+                "Build the forest with diff_only_mode=False to animate it."
+            )
         if not hasattr(forest, "filtration") or not forest.filtration:
             raise ValueError("Forest has no filtration data to animate.")
         is_3d = (getattr(forest, "dim", None) == 3)
@@ -330,9 +336,9 @@ def _animate_filtration_generic(
             # Optional: overlay a small text box with the current filtration value.
             # Comment this out if you prefer only the built-in title.
             if alpha_digits is None:
-                radius_text = rf"$\alpha = {t:.3g}$"
+                radius_text = rf"$r = {t:.3g}$"
             else:
-                radius_text = rf"$\alpha = {t:.{alpha_digits}f}$"
+                radius_text = rf"$r = {t:.{alpha_digits}f}$"
             ax_cloud.annotate(
                 radius_text,
                 xy=(0.02, 0.98),
@@ -340,6 +346,7 @@ def _animate_filtration_generic(
                 va="top",
                 ha="left",
                 fontsize=11,
+                zorder=1000,
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.7),
             )
 
@@ -856,9 +863,9 @@ def _animate_filtration_generic_3d_matplotlib(
         ax_scene.set_zlabel("z")
         ax_scene.set_title(f"Filtration value r = {float(t):.4g}")
         if alpha_digits is None:
-            radius_text = rf"$\alpha = {float(t):.3g}$"
+            radius_text = rf"$r = {float(t):.3g}$"
         else:
-            radius_text = rf"$\alpha = {float(t):.{alpha_digits}f}$"
+            radius_text = rf"$r = {float(t):.{alpha_digits}f}$"
         ax_scene.text2D(
             0.02,
             0.98,
@@ -867,6 +874,7 @@ def _animate_filtration_generic_3d_matplotlib(
             va="top",
             ha="left",
             fontsize=11,
+            zorder=1000,
             bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.7),
         )
 
@@ -965,6 +973,12 @@ def animate_filtration_pair(
 
     # --- 1) Sanity checks -----------------------------------------------------
     for forest, name in ((forest1, "forest1"), (forest2, "forest2")):
+        if getattr(forest, "diff_only_mode", False):
+            raise ValueError(
+                f"{name} uses diff_only_mode=True; animations are unavailable "
+                "because reconstructing cycles for every frame can be slow. "
+                "Build the forest with diff_only_mode=False to animate it."
+            )
         if not hasattr(forest, "filtration") or not forest.filtration:
             raise ValueError(f"{name} has no filtration data to animate.")
         if not getattr(forest, "barcode", None):
@@ -1058,11 +1072,12 @@ def animate_filtration_pair(
         ax_cloud_1.clear()
         forest1.plot_at_filtration(filt_val=t, ax=ax_cloud_1, **kwargs_cloud_1)
         ax_cloud_1.text(
-            0.02, 0.98, rf"$\alpha = {t:.3g}$",
+            0.02, 0.98, rf"$r = {t:.3g}$",
             transform=ax_cloud_1.transAxes,
             va="top",
             ha="left",
             fontsize=11,
+            zorder=1000,
             bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.7),
         )
 
@@ -1070,11 +1085,12 @@ def animate_filtration_pair(
         ax_cloud_2.clear()
         forest2.plot_at_filtration(filt_val=t, ax=ax_cloud_2, **kwargs_cloud_2)
         ax_cloud_2.text(
-            0.02, 0.98, rf"$\alpha = {t:.3g}$",
+            0.02, 0.98, rf"$r = {t:.3g}$",
             transform=ax_cloud_2.transAxes,
             va="top",
             ha="left",
             fontsize=11,
+            zorder=1000,
             bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.7),
         )
 

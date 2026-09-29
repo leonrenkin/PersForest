@@ -341,7 +341,9 @@ class MeasurementLandscapeFamily:
     functional.
 
     - bar_kernels: per-bar kernels (typically already rescaled if mode="pyramid")
-    - landscapes: k -> λ_k (k-th landscape) as PiecewiseLinearFunction
+    - landscapes: k -> sampled λ_k (k-th landscape) as PiecewiseLinearFunction
+
+    Landscape values are grid approximations.
     """
     forest_id: str 
     label: str
@@ -353,22 +355,21 @@ class MeasurementLandscapeFamily:
     
     def evaluate_on_grid(
         self,
-        grid: NDArray[np.float64],
-        levels: Union[int, Sequence[int]] = 1,
-        *,
-        fill_value: float = 0.0,
+        grid: NDArray[np.float64] | None = None,
+        levels: Union[int, Sequence[int]] | None = None,
     ) -> NDArray[np.float64]:
-        """Evaluate selected measurement landscape levels on a common grid.
+        """Retrieve selected measurement landscape levels on a stored-grid subset.
 
         Parameters
         ----------
         grid:
-            One-dimensional, monotonically non-decreasing sample grid.
+            One-dimensional, monotonically non-decreasing sample grid. Every
+            coordinate must exactly match a coordinate in ``self.x_grid``;
+            if None, uses the full stored grid.
         levels:
             If an int m is given, evaluates levels k=1..m. If a sequence is
-            given, evaluates those k-values in the provided order.
-        fill_value:
-            Value used when a requested landscape level is unavailable.
+            given, evaluates those k-values in the provided order. If None,
+            evaluates levels 1 through the highest computed level (``max_k``).
 
         Returns
         -------
@@ -376,6 +377,9 @@ class MeasurementLandscapeFamily:
             Array of shape (L, G) where G=len(grid) and L is the number of
             requested levels.
         """
+        if grid is None:
+            grid = self.x_grid
+
         grid_arr = np.asarray(grid, dtype=float).ravel()
         if grid_arr.size == 0:
             raise ValueError("grid must be non-empty")
@@ -384,7 +388,21 @@ class MeasurementLandscapeFamily:
         if np.any(np.diff(grid_arr) < 0):
             raise ValueError("grid must be sorted in non-decreasing order")
 
-        if isinstance(levels, int):
+        # Match grid coordinates exactly: snapping nearby points could conceal
+        # an unsampled peak or crossing on a finely spaced construction grid.
+        indices = np.searchsorted(self.x_grid, grid_arr)
+        if (np.any(indices >= self.x_grid.size)
+                or not np.array_equal(self.x_grid[indices], grid_arr)):
+            raise ValueError(
+                "Evaluation grid must be a subset of the stored landscape x_grid "
+                "(exact coordinate matches required). Recompute landscapes with "
+                "x_grid set to the requested grid or a larger grid containing all "
+                "requested points."
+            )
+
+        if levels is None:
+            ks = list(range(1, max(self.landscapes, default=0) + 1))
+        elif isinstance(levels, int):
             if levels < 1:
                 raise ValueError("levels must be >= 1")
             ks = list(range(1, levels + 1))
@@ -393,12 +411,18 @@ class MeasurementLandscapeFamily:
             if any(k < 1 for k in ks):
                 raise ValueError("all requested landscape levels must be >= 1")
 
-        out = np.full((len(ks), grid_arr.size), float(fill_value), dtype=float)
+        missing = sorted({k for k in ks if k not in self.landscapes})
+        if missing:
+            raise ValueError(
+                f"Landscape levels {missing} were not computed. "
+                f"Recompute landscapes with max_k >= {max(missing)} "
+                "or request only computed levels."
+            )
+
+        out = np.empty((len(ks), grid_arr.size), dtype=float)
         for i, k in enumerate(ks):
-            f = self.landscapes.get(k)
-            if f is None:
-                continue
-            out[i, :] = np.asarray(f(grid_arr), dtype=float) # evaluate landscape f on grid with method __call__ in PiecewiseLinearFunction
+            f = self.landscapes[k]
+            out[i, :] = f.ys[indices]
 
         return out
 
@@ -1423,6 +1447,12 @@ def animate_barcode_measurement_generic(
     """
     from matplotlib.animation import FuncAnimation, FFMpegWriter
 
+    if getattr(forest, "diff_only_mode", False):
+        raise ValueError(
+            "Animations are unavailable with diff_only_mode=True because "
+            "reconstructing cycles for every frame can be slow. "
+            "Build the forest with diff_only_mode=False to animate it."
+        )
     if not hasattr(forest, "filtration") or not forest.filtration:
         raise ValueError("Forest has no filtration data to animate.")
 
