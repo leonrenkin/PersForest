@@ -1423,6 +1423,12 @@ def animate_barcode_measurement_generic(
     """
     from matplotlib.animation import FuncAnimation, FFMpegWriter
 
+    if getattr(forest, "diff_only_mode", False):
+        raise ValueError(
+            "Animations are unavailable with diff_only_mode=True because "
+            "reconstructing cycles for every frame can be slow. "
+            "Build the forest with diff_only_mode=False to animate it."
+        )
     if not hasattr(forest, "filtration") or not forest.filtration:
         raise ValueError("Forest has no filtration data to animate.")
 

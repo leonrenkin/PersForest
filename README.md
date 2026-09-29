@@ -89,7 +89,9 @@ the constructor emits a warning about them.
 ## Difference storage and interior activity
 
 Use `keep_simplex_diff=True` to retain simplex additions and removals.
-`diff_only_mode=True` stores only simplex and additions and removals, which drastically reduces memory usage.
+`diff_only_mode=True` stores simplex additions and removals, which drastically reduces memory usage.
+Forest-level cycle queries and static filtration and barcode-cycle plots support diff-only mode.
+Animation methods raise an error in diff-only mode because reconstructing cycles for every frame can be slow.
 With `compute_interior=True`, interior simplices are stored for all cycle representatives.
 Both `diff_only_mode=True` and `compute_interior=True` set  `keep_simplex_diff=True`.
 

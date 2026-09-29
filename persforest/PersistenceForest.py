@@ -2496,6 +2496,12 @@ class PersistenceForest:
         -------
         plotly.graph_objects.Figure
         """
+        if self.diff_only_mode:
+            raise ValueError(
+                "Animations are unavailable with diff_only_mode=True because "
+                "reconstructing cycles for every frame can be slow. "
+                "Build the forest with diff_only_mode=False to animate it."
+            )
         from .simplicial_filtration_plotly import plot_filtration_interactive
 
         return plot_filtration_interactive(
@@ -2694,6 +2700,12 @@ class PersistenceForest:
             - 3D MP4 path: output filename string.
             - 3D HTML path: Plotly figure.
         """
+        if self.diff_only_mode:
+            raise ValueError(
+                "Animations are unavailable with diff_only_mode=True because "
+                "reconstructing cycles for every frame can be slow. "
+                "Build the forest with diff_only_mode=False to animate it."
+            )
         from pathlib import Path
         from .simplicial_filtration_animation import _animate_filtration_generic
 
@@ -2955,6 +2967,12 @@ class PersistenceForest:
             :class:`matplotlib.animation.FuncAnimation` and ``fig`` is the
             underlying figure.
         """
+        if self.diff_only_mode:
+            raise ValueError(
+                "Animations are unavailable with diff_only_mode=True because "
+                "reconstructing cycles for every frame can be slow. "
+                "Build the forest with diff_only_mode=False to animate it."
+            )
         from .forest_landscapes import animate_barcode_measurement_generic
         from copy import deepcopy
 
