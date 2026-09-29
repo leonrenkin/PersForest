@@ -13,6 +13,19 @@ from oracle_landscapes import landscape
 
 
 class LandscapeFamilyTests(unittest.TestCase):
+    def test_default_grid_and_levels_include_all_computed_levels(self):
+        grid = np.arange(5.)
+        specs = [(0, 4, [(0, 4, 1)])]
+        for bars in (specs, []):
+            with self.subTest(empty=not bars):
+                actual = family(profile_forest(bars), measured, 'defaults', x_grid=grid, max_k=4)
+                expected = landscape(grid, bars, 4)
+                np.testing.assert_array_equal(actual.evaluate_on_grid(), expected)
+                np.testing.assert_array_equal(actual.evaluate_on_grid(levels=None), expected)
+                np.testing.assert_array_equal(actual.evaluate_on_grid(grid[::2]), expected[:, ::2])
+                np.testing.assert_array_equal(actual.evaluate_on_grid(levels=1), expected[:1])
+                np.testing.assert_array_equal(actual.evaluate_on_grid(levels=[3, 1]), expected[[2, 0]])
+
     def test_f2_end_to_end_area_and_constant_one(self):
         forest = build(split())
         grid = np.arange(9.)
@@ -27,17 +40,38 @@ class LandscapeFamilyTests(unittest.TestCase):
         actual = family(profile_forest(specs), measured, 'one', x_grid=grid, max_k=3)
         np.testing.assert_allclose(actual.evaluate_on_grid([2, 2.5, 3], levels=2), [[2, 1.5, 2], [1, 1.5, 1]])
         dense = np.linspace(-1, 6, 101)
-        np.testing.assert_allclose(actual.evaluate_on_grid(dense, levels=3), landscape(dense, specs, 3))
+        recomputed = family(profile_forest(specs), measured, 'dense', x_grid=dense, max_k=3)
+        np.testing.assert_allclose(recomputed.evaluate_on_grid(dense, levels=3), landscape(dense, specs, 3))
 
-    def test_coarse_grid_has_documented_interpolation_error_not_exact_envelope(self):
+    def test_coarse_grid_rejects_unsampled_crossing_and_supports_recomputation(self):
         specs = [(0, 4, [(0, 4, 1)]), (1, 5, [(1, 5, 1)])]
         grid = np.arange(6.)
         actual = family(profile_forest(specs), measured, 'one', x_grid=grid, max_k=2)
         np.testing.assert_allclose(actual.evaluate_on_grid(grid, levels=2), landscape(grid, specs, 2))
-        # D7 compatibility: known approximation, not a mathematical oracle.
-        np.testing.assert_allclose(actual.evaluate_on_grid([2.5], levels=2), [[2], [1]])
-        error = abs(actual.evaluate_on_grid([2.5], levels=2) - landscape([2.5], specs, 2))
-        np.testing.assert_allclose(error, .5)  # M*h/2, with M=h=1.
+        with self.assertRaisesRegex(ValueError, 'Recompute landscapes.*larger grid'):
+            actual.evaluate_on_grid([2.5], levels=2)
+        larger_grid = np.sort(np.append(grid, 2.5))
+        recomputed = family(profile_forest(specs), measured, 'refined', x_grid=larger_grid, max_k=2)
+        np.testing.assert_allclose(recomputed.evaluate_on_grid([2.5], levels=2),
+                                   landscape([2.5], specs, 2))
+
+    def test_stored_grid_subsets_repetitions_and_exact_membership(self):
+        grid = np.linspace(0, 4, 17)
+        actual = family(profile_forest([(0, 4, [(0, 4, 1)])]), measured,
+                        'one', x_grid=grid, max_k=2)
+        indices = [0, 2, 2, 8, 16]
+        expected = actual.evaluate_on_grid(grid, levels=2)[:, indices]
+        np.testing.assert_array_equal(actual.evaluate_on_grid(grid[indices], levels=2), expected)
+        for request in ([-1], [5], [1, 1.1], [np.nextafter(grid[8], np.inf)]):
+            with self.subTest(grid=request), self.assertRaisesRegex(ValueError, 'subset.*exact'):
+                actual.evaluate_on_grid(request, levels=[99])
+
+    def test_coarse_grid_rejects_unsampled_peak(self):
+        actual = family(profile_forest([(2, 6, [(2, 6, 1)])]), measured,
+                        'coarse', x_grid=np.array([2., 6.]), max_k=1)
+        np.testing.assert_array_equal(actual.evaluate_on_grid([2, 6]), [[0, 0]])
+        with self.assertRaisesRegex(ValueError, 'Recompute landscapes'):
+            actual.evaluate_on_grid([4])
 
     def test_duplicate_bars_preserve_multiplicity_and_pad_ranks(self):
         forest = build(disconnected())
@@ -67,13 +101,15 @@ class LandscapeFamilyTests(unittest.TestCase):
                                 (profile_forest([(1, 3, [(1, 3, 0)])]), {})]:
             actual = family(forest, measured, 'zero', num_grid_points=7, max_k=3, **options)
             self.assertEqual(len(actual.x_grid), 7)
-            np.testing.assert_array_equal(actual.evaluate_on_grid(np.linspace(-2, 5, 11), levels=3), np.zeros((3, 11)))
+            np.testing.assert_array_equal(actual.evaluate_on_grid(actual.x_grid, levels=3), np.zeros((3, 7)))
+            with self.assertRaisesRegex(ValueError, 'subset'):
+                actual.evaluate_on_grid([-2, 5], levels=3)
         empty = family(profile_forest([]), measured, 'empty', num_grid_points=7)
         np.testing.assert_array_equal(empty.x_grid, np.linspace(0, 1, 7))
 
-    def test_level_selection_fill_values_and_invalid_evaluation(self):
+    def test_level_selection_and_invalid_evaluation(self):
         actual = family(profile_forest([(0, 4, [(0, 4, 1)])]), measured, 'one', x_grid=np.arange(5.), max_k=2)
-        np.testing.assert_allclose(actual.evaluate_on_grid([2], levels=[2, 1, 2, 5], fill_value=9), [[0], [2], [0], [9]])
+        np.testing.assert_allclose(actual.evaluate_on_grid([2], levels=[2, 1, 2]), [[0], [2], [0]])
         self.assertEqual(actual.evaluate_on_grid([2], levels=[]).shape, (0, 1))
         for levels in (0, -1, [0, 1]):
             with self.assertRaises(ValueError):
@@ -81,7 +117,20 @@ class LandscapeFamilyTests(unittest.TestCase):
         for grid in ([], [1, 0], [np.nan], [np.inf]):
             with self.assertRaises(ValueError):
                 actual.evaluate_on_grid(grid)
-        np.testing.assert_array_equal(actual.evaluate_on_grid([-1, 5], levels=2), np.zeros((2, 2)))
+        with self.assertRaisesRegex(ValueError, 'subset'):
+            actual.evaluate_on_grid([-1, 5], levels=2)
+
+    def test_uncomputed_levels_raise_for_integer_and_sequence_requests(self):
+        for specs in ([], [(0, 4, [(0, 4, 1)])]):
+            actual = family(profile_forest(specs), measured, 'levels', x_grid=np.arange(5.), max_k=2)
+            for levels in (3, [3], [2, 1, 5]):
+                with self.subTest(empty=not specs, levels=levels):
+                    with self.assertRaisesRegex(ValueError, 'levels .* were not computed.*Recompute landscapes with max_k >='):
+                        actual.evaluate_on_grid(levels=levels)
+            np.testing.assert_array_equal(actual.evaluate_on_grid(levels=[2]), np.zeros((1, 5)))
+        del actual.landscapes[1]
+        with self.assertRaisesRegex(ValueError, r'levels \[1\] were not computed'):
+            actual.evaluate_on_grid(levels=None)
 
     def test_piecewise_linear_scalar_array_empty_and_outside(self):
         f = PiecewiseLinearFunction(np.array([0., 1, 2]), np.array([0., 2, 0]), (0, 2))

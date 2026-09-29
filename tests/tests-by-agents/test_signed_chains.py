@@ -32,9 +32,12 @@ class SignedChainTests(unittest.TestCase):
 
     def test_determinant_sign_and_degeneracy(self):
         for matrix, expected in [(np.eye(3), 1), ([[0, 1], [1, 0]], -1),
-                                 ([[2, 3], [0, -4]], -1), ([[1, 2], [2, 4]], 0)]:
+                                 ([[2, 3], [0, -4]], -1)]:
             self.assertEqual(sign_of_determinant(matrix), expected)
-        self.assertEqual(simplex_orientation([0, 1, 2], np.array([[0, 0], [1, 0], [2, 0]])), 0)
+        with self.assertRaises(ValueError):
+            sign_of_determinant([[1, 2], [2, 4]])
+        with self.assertRaisesRegex(ValueError, r'simplex \(0, 1, 2\).*degenerate'):
+            simplex_orientation([0, 1, 2], np.array([[0, 0], [1, 0], [2, 0]]))
 
     def test_cancel_projection_double_part_and_merge_do_not_mutate(self):
         original = chain('+01 -02 +12 +03 -03')

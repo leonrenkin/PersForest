@@ -130,14 +130,15 @@ class PublicAPITests(unittest.TestCase):
         self.assertEqual(empty.compute_measurement_landscapes(
             constant_one_functional, 'one').bar_kernels, {})
 
-    def test_missing_interior_dependency_and_diff_only_query_errors(self):
+    def test_missing_interior_dependency_and_diff_only_bar_access_error(self):
         forest_with_interior = build(triangle(), compute_interior=True)
         self.assertTrue(forest_with_interior.keep_simplex_diff)
         self.assertTrue(forest_with_interior.compute_interior)
         forest = build(fan(), diff_only_mode=True, keep_simplex_diff=True)
-        for query in (forest.cycle_reps_at, forest.active_cycles_at):
-            with self.assertRaisesRegex(ValueError, 'diff_only_mode'):
-                query(2.5)
+        bar = forest.max_bar()
+        with self.assertRaisesRegex(ValueError, 'diff_only_mode'):
+            bar.cycle_at_filtration_value(bar.birth)
+        self.assertIsInstance(forest.cycle_for_bar_at(bar, bar.birth), SignedChain)
         with self.assertRaisesRegex(ValueError, 'diff_only_mode'):
             build(triangle(), compute_interior=True, diff_only_mode=True, keep_simplex_diff=True)
 
