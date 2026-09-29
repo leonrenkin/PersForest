@@ -575,14 +575,20 @@ class PFBar:
         Raises
         ------
         ValueError
-            If ``filt_val`` lies outside the lifespan or no representative is
-            active (should not happen in a valid bar).
+            If ``filt_val`` lies outside the lifespan, no representative is
+            active, or representatives were not stored (as in diff-only mode).
         """
 
         if filt_val < self.birth:
             raise ValueError(f"Filtration value {filt_val} is too small and not in lifespan of the bar")
         if filt_val >= self.death:
             raise ValueError(f"Filtration value {filt_val} is too large and not in lifespan of the bar")
+        if not self.cycle_reps or any(cycle is None for cycle in self.cycle_reps):
+            raise ValueError(
+                "This bar has no stored cycle representative (possibly because "
+                "PersistenceForest was built with diff_only_mode=True). "
+                "Use forest.cycle_for_bar_at(bar, filt_val) instead."
+            )
 
         if len(self._node_progression)==1:
             return self.cycle_reps[0]
@@ -1077,9 +1083,14 @@ class PersistenceForest:
         return active
 
     def active_cycles_at(self, filt_val: float) -> List[SignedChain]:
-        """Return cycle representatives of nodes active at ``filt_val``."""
+        """Return active cycle representatives at ``filt_val``."""
         if self.diff_only_mode:
-            raise ValueError("Not implemented for diff_only_mode yet")
+            if not self._barcode_computed:
+                raise RuntimeError("Call compute_barcode() before querying cycles in diff_only_mode")
+            return [
+                self.cycle_for_bar_at(bar, filt_val)
+                for bar in self.active_bars_at(filt_val)
+            ]
 
         active_nodes = self.active_nodes_at(filt_val=filt_val)
         return [node.cycle for node in active_nodes]
@@ -1497,6 +1508,37 @@ class PersistenceForest:
                 interior=interior.copy(),
             )
 
+    def cycle_for_bar_at(self, bar: PFBar, filt_val: float) -> SignedChain:
+        """Return a bar's representative active at a filtration value.
+
+        Stored representatives are used in normal mode. In diff-only mode,
+        replay the bar's simplex diffs from death toward birth and return the
+        first representative active on ``[active_start, active_end)``.
+
+        Parameters
+        ----------
+        bar : PFBar
+            Bar belonging to this forest.
+        filt_val : float
+            Filtration value in ``[bar.birth, bar.death)``.
+
+        Returns
+        -------
+        SignedChain
+            Representative active at ``filt_val``.
+        """
+        if bar not in self.barcode:
+            raise ValueError("Bar is not in barcode of forest")
+        if filt_val < bar.birth or filt_val >= bar.death:
+            raise ValueError(f"Filtration value {filt_val} is not in the bar's lifespan")
+        if not self.diff_only_mode:
+            return bar.cycle_at_filtration_value(filt_val)
+
+        for cycle_rep in self.iter_bar_cycle_reps(bar):
+            if cycle_rep.active_start <= filt_val < cycle_rep.active_end:
+                return cycle_rep
+        raise ValueError(f"Filtration value is in lifespan but no cycle representative was found; this should not happen")
+
     # ----- Interior computation and activity ------
 
     def _add_interior_to_bar(self, bar: PFBar):
@@ -1627,12 +1669,8 @@ class PersistenceForest:
 
     def cycle_reps_at(self, filt_val: float, min_bar_length:float = 0) -> List[SignedChain]:
         """Return cycle representatives active at ``filt_val``."""
-        
-        if self.diff_only_mode:
-            raise ValueError("Not implemented for diff_only_mode yet")
-
         active_bars = self.active_bars_at(filt_val=filt_val)
-        cycles = [bar.cycle_at_filtration_value(filt_val=filt_val) for bar in active_bars if bar.lifespan()>=min_bar_length]
+        cycles = [self.cycle_for_bar_at(bar, filt_val) for bar in active_bars if bar.lifespan()>=min_bar_length]
         return cycles
 
     def _active_bars_with_cycles_at(
@@ -1646,7 +1684,7 @@ class PersistenceForest:
             if bar.lifespan() < min_bar_length:
                 continue
             if bar.birth <= filt_val < bar.death:
-                active.append((bar, bar.cycle_at_filtration_value(filt_val=filt_val)))
+                active.append((bar, self.cycle_for_bar_at(bar, filt_val)))
         return active
 
     def barcode_cycle_reps(self, relative_position=0.1, min_bar_length: float = 0) -> List[SignedChain]:
@@ -1675,7 +1713,7 @@ class PersistenceForest:
         selected_bars = [bar for bar in all_bars if bar.lifespan() >= min_bar_length]
         
         # Compute cycle representatives for each selected bar
-        cycles = [bar.cycle_at_filtration_value(filt_val=bar.birth + (bar.lifespan() * relative_position)) for bar in selected_bars]
+        cycles = [self.cycle_for_bar_at(bar, bar.birth + (bar.lifespan() * relative_position)) for bar in selected_bars]
         
         return cycles
 
