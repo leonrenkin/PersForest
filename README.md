@@ -65,7 +65,7 @@ family = forest.compute_measurement_landscapes(
 forest.plot_measurement_landscapes(label="edge-length", cmap="viridis")
 
 # Sample the first five landscape levels on the grid
-values = family.evaluate_on_grid(grid, levels=5)
+values = family.evaluate_on_grid()
 plt.show()
 ```
 Run the script quickstart with:
@@ -113,8 +113,9 @@ The tutorial notebooks are intended to be read in this order:
 
 ## Measurement Landscapes
 - Define cycle functionals in `persforest/cycle_rep_vectorisations.py` (examples: edge length, enclosed area or volume, connected components, signed/unsigned variants).
-- `forest.compute_measurement_landscapes(...)` builds families for one functional; `plot_landscape_comparison_between_functionals` contrasts multiple labels.
-- Use `family.evaluate_on_grid(grid, levels=max_k)` to sample landscape values numerically.
+- `forest.compute_measurement_landscapes(...)` builds families for one functional; `plot_landscape_comparison_between_functionals` contrasts multiple labels. 
+- Landscapes are stored as grid approximations.
+- Use `family.evaluate_on_grid()` to retrieve all computed levels on the stored grid. Pass `grid` and/or `levels` explicitly to select a subset.
 - Landscape measurements must be finite and nonnegative
 
 ## Repository guide
