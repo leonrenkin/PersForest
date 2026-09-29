@@ -33,44 +33,42 @@ def key(simplex):
     """
     return tuple(sorted(simplex))
 
-def sign_of_determinant(vectors):
+def sign_of_determinant(vectors: Sequence[Sequence[float]] | NDArray) -> int:
     """
     Computes the sign of the determinant of d vectors in R^d.
 
     Parameters
     ----------
-    vectors : Iterable[Iterable[float]]
+    vectors : array-like, shape (d, d)
         Collection of d vectors of length d.
 
     Returns
     -------
     int
-        +1 if det > 0, -1 if det < 0, 0 if det = 0.
+        +1 if det > 0, -1 if det < 0.
+
+    Raises
+    ------
+    ValueError
+        If the matrix is invalid, degenerate, or numerically near-degenerate.
+
+    Notes
+    -----
+    Divide by the largest absolute entry before computing the determinant.
+    Reject normalized determinant magnitudes <= 1e-12. This conservative
+    numerical cutoff is invariant under uniform scaling; it is not an exact
+    degeneracy predicate. No higher-precision fallback is attempted.
     """
     A = np.array(vectors, dtype=float)
-    d = A.shape[0]
-
-    sign = 1
-
-    for i in range(d):
-        # Find pivot
-        pivot = i + np.argmax(abs(A[i:, i]))
-        if abs(A[pivot, i]) < 1e-12:
-            return 0  # determinant is zero
-
-        # Row swap changes sign
-        if pivot != i:
-            A[[i, pivot]] = A[[pivot, i]]
-            sign *= -1
-
-        # Eliminate below pivot
-        for j in range(i + 1, d):
-            factor = A[j, i] / A[i, i]
-            A[j, i:] -= factor * A[i, i:]
-
-    # Sign of determinant is the product of the signs of diagonal entries
-    diag_sign = np.sign(np.prod(np.sign(np.diag(A))))
-    return int(sign * diag_sign)
+    if A.ndim != 2 or A.shape[0] == 0 or A.shape[0] != A.shape[1]:
+        raise ValueError("Orientation requires a non-empty square matrix")
+    scale = np.max(np.abs(A))
+    if not np.isfinite(scale) or scale == 0:
+        raise ValueError("Orientation requires finite, nonzero edge vectors")
+    determinant = np.linalg.det(A / scale)
+    if not np.isfinite(determinant) or abs(determinant) <= 1e-12:
+        raise ValueError("Degenerate or numerically near-degenerate edge matrix")
+    return 1 if determinant > 0 else -1
 
 def are_dict_keys_sorted(d):
     """
@@ -123,7 +121,7 @@ def union_optional_sets(set1: Optional[Set], set2: Optional[Set]) -> Optional[Se
     else:
         return set1 | set2
 
-def simplex_orientation(simplex, point_cloud):
+def simplex_orientation(simplex: Sequence[int], point_cloud: NDArray) -> int:
     """
     Compute the orientation of a simplex with respect to the ambient point cloud.
 
@@ -137,11 +135,23 @@ def simplex_orientation(simplex, point_cloud):
     Returns
     -------
     int
-        +1 for positive orientation, -1 for negative orientation, 0 for
-        degenerate simplices.
+        +1 for positive orientation, -1 for negative orientation.
+
+    Raises
+    ------
+    ValueError
+        If the simplex is degenerate or its orientation fails the numerical
+        check in ``sign_of_determinant``. The error identifies its vertex ids.
     """
-    vectors = [point_cloud[i]-point_cloud[simplex[0]] for i in simplex[1:]]
-    return sign_of_determinant(vectors=vectors)
+    with np.errstate(over="ignore", invalid="ignore"):
+        vectors = [point_cloud[i]-point_cloud[simplex[0]] for i in simplex[1:]]
+    try:
+        return sign_of_determinant(vectors=vectors)
+    except ValueError as error:
+        raise ValueError(
+            f"Cannot determine orientation reliably for simplex {tuple(simplex)}: "
+            "degenerate, numerically near-degenerate, or non-finite edge vectors."
+        ) from error
 
 
 def _validate_filtration(
@@ -247,14 +257,17 @@ def boundary_faces_from_tetrahedra(
     -------
     list[tuple[int, int, int]]
         Boundary triangular faces with canonical vertex order.
+
+    Raises
+    ------
+    ValueError
+        If a tetrahedron is degenerate or numerically near-degenerate.
     """
     face_coeffs: Dict[Tuple[int, int, int], int] = defaultdict(int)
 
     for tet in tetrahedra:
         tet_tuple = tuple(tet)
         orientation = simplex_orientation(simplex=tet_tuple, point_cloud=point_cloud)
-        if orientation == 0:
-            orientation = 1
         for face, face_orientation in signed_boundary(
             simplex=list(tet_tuple),
             orientation=orientation,
@@ -662,8 +675,8 @@ class PersistenceForest:
             additions and removals. This enables ``keep_simplex_diff``
             automatically and is incompatible with ``compute_interior=True``.
         filtration_tol : float
-            Absolute tolerance used when reducing parent-child pairs at the
-            same filtration value.
+            Absolute numerical resolution for parent-child reduction. 
+            Differences at or below this tolerance are ignored and short bars may disappear.
         filtration : iterable of (sequence of int, float), optional
             Ordered simplex-filtration pairs. 
             If None, construct the alpha filtration from ``point_cloud``. 
