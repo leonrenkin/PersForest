@@ -236,6 +236,7 @@ def build_forest(forest):
 
     face_cycle_dict = {}
     Filtration = forest.Filtration
+    Filtration.remove_low_dim_simplices(dim=forest.dim)
 
     #simplices is already ordered in ascending order by number of simplices 
     for simplex, filt_val in reversed(Filtration.filtration_list):

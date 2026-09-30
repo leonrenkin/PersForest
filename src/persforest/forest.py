@@ -85,7 +85,6 @@ class PersistenceForest:
             start = time.perf_counter()
             from filtrations.alpha import alpha_filtration
             self.Filtration = alpha_filtration(point_cloud=point_cloud)
-            self.Filtration.remove_low_dim_simplices(dim=self.dim)
             alpha_complex_time = time.perf_counter()-start
             if print_info:
                 print(f"Alpha filtration generated in {alpha_complex_time}")
@@ -94,7 +93,6 @@ class PersistenceForest:
             from filtrations.simplicial import SimplicialFiltration
             filtration = _validate_filtration(filtration, len(self.point_cloud))
             self.Filtration = SimplicialFiltration(filtration_list=filtration)
-            self.Filtration.remove_low_dim_simplices(dim=self.dim)
             filtration_verification_time = time.perf_counter()-start
             if print_info:
                 print(f"Filtration order verified in {filtration}")
