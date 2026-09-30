@@ -7,6 +7,33 @@ import tempfile
 import warnings
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.offsetbox import AnchoredText
+
+
+_RADIUS_BOX_CORNERS = ("upper right", "upper left", "lower right", "lower left")
+
+
+def _validate_radius_box_corner(corner):
+    if corner not in _RADIUS_BOX_CORNERS:
+        raise ValueError(f"radius_box_corner must be one of {_RADIUS_BOX_CORNERS}.")
+
+
+def _add_radius_box(ax, text, corner="upper right"):
+    """Place the radius label eight points inside the selected axes corner."""
+    _validate_radius_box_corner(corner)
+    fontsize = 11
+    box = AnchoredText(
+        text, loc=corner, prop={"size": fontsize},
+        pad=0.3, borderpad=8 / fontsize, frameon=True,
+        bbox_to_anchor=(0, 0, 1, 1), bbox_transform=ax.transAxes,
+    )
+    box.patch.set_boxstyle("round,pad=0,rounding_size=0.15")
+    box.patch.set_facecolor((1, 1, 1, 0.9))
+    box.patch.set_edgecolor((0.8, 0.8, 0.8, 0.8))
+    box.patch.set_linewidth(0.6)
+    box.set_zorder(1000)
+    ax.add_artist(box)
+    return box
 
 
 def _animate_filtration_generic(
@@ -32,6 +59,7 @@ def _animate_filtration_generic(
         total_figsize: Optional[tuple[float, float]] = None,
         plot_kwargs: Optional[dict] = None,
         alpha_digits: Optional[int] = None,
+        radius_box_corner: Literal["upper right", "upper left", "lower right", "lower left"] = "upper right",
     ):
         """
         Create a Matplotlib animation across filtration values.
@@ -94,7 +122,6 @@ def _animate_filtration_generic(
                     max_bars=150,
                     min_bar_length=1e-3,
                     sort="length",
-                    title="Barcode",
                 )
         cloud_figsize, total_figsize : tuple[float, float] | None, optional
             Deprecated aliases used only when ``figsize`` is omitted.
@@ -103,6 +130,9 @@ def _animate_filtration_generic(
         alpha_digits : int | None, optional
             Number of decimal places in the filtration-value overlay. If None,
             uses compact formatting.
+
+        radius_box_corner : {"upper right", "upper left", "lower right", "lower left"}
+            Radius label corner (default: "upper right"), with an 8 pt inset.
 
         Returns
         -------
@@ -113,6 +143,8 @@ def _animate_filtration_generic(
             The figure on which the animation is drawn.
         """
         from matplotlib.animation import FuncAnimation, FFMpegWriter
+
+        _validate_radius_box_corner(radius_box_corner)
 
         if getattr(forest, "diff_only_mode", False):
             raise ValueError(
@@ -276,8 +308,7 @@ def _animate_filtration_generic(
             # Defaults for the barcode panel – user can override sort/title/xlabel
             barcode_kwargs = {
                 "sort": "length",
-                "title": "Barcode",
-                "xlabel": "filtration value",
+                "xlabel": "Radius r",
                 "tight_layout": False,
                 "coloring": coloring,
                 **barcode_kwargs,
@@ -333,22 +364,12 @@ def _animate_filtration_generic(
             # Delegate the heavy lifting to the existing helper
             forest.plot_at_filtration(filt_val=t, ax=ax_cloud, **local_plot_kwargs)
 
-            # Optional: overlay a small text box with the current filtration value.
-            # Comment this out if you prefer only the built-in title.
+            # Overlay the current radius with a fixed inset from the axes.
             if alpha_digits is None:
                 radius_text = rf"$r = {t:.3g}$"
             else:
                 radius_text = rf"$r = {t:.{alpha_digits}f}$"
-            ax_cloud.annotate(
-                radius_text,
-                xy=(0.02, 0.98),
-                xycoords="axes fraction",
-                va="top",
-                ha="left",
-                fontsize=11,
-                zorder=1000,
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.7),
-            )
+            _add_radius_box(ax_cloud, radius_text, radius_box_corner)
 
         # ---- Animation callbacks ----
         def init():
@@ -675,6 +696,7 @@ def _animate_filtration_generic_3d_matplotlib(
     camera_eye: Optional[Any] = None,
     dpi: int = 200,
     alpha_digits: Optional[int] = None,
+    radius_box_corner: Literal["upper right", "upper left", "lower right", "lower left"] = "upper right",
 ) -> None:
     """
     Animate a 3D filtration and export as MP4 using matplotlib.
@@ -730,11 +752,15 @@ def _animate_filtration_generic_3d_matplotlib(
     alpha_digits : int | None
         Number of digits shown in the filtration value overlay.
 
+    radius_box_corner : {"upper right", "upper left", "lower right", "lower left"}
+        Radius label corner (default: "upper right"), with an 8 pt inset.
+
     Returns
     -------
     None
         Writes the MP4 to ``filename``.
     """
+    _validate_radius_box_corner(radius_box_corner)
     from matplotlib import colors as mcolors
     from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 
@@ -785,8 +811,7 @@ def _animate_filtration_generic_3d_matplotlib(
     barcode_kwargs.pop("ax", None)
     barcode_kwargs = {
         "sort": "length",
-        "title": "Barcode",
-        "xlabel": "filtration value",
+        "xlabel": "Radius r",
         "tight_layout": False,
         "coloring": coloring,
         "min_bar_length": min_bar_length,
@@ -866,17 +891,7 @@ def _animate_filtration_generic_3d_matplotlib(
             radius_text = rf"$r = {float(t):.3g}$"
         else:
             radius_text = rf"$r = {float(t):.{alpha_digits}f}$"
-        ax_scene.text2D(
-            0.02,
-            0.98,
-            radius_text,
-            transform=ax_scene.transAxes,
-            va="top",
-            ha="left",
-            fontsize=11,
-            zorder=1000,
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.7),
-        )
+        _add_radius_box(ax_scene, radius_text, radius_box_corner)
 
         if camera_mode == "orbit":
             denom = max(1, len(frame_times) - 1)
@@ -930,6 +945,7 @@ def animate_filtration_pair(
     plot_kwargs_forest2: Optional[dict] = None,
     barcode_kwargs_forest1: Optional[dict] = None,
     barcode_kwargs_forest2: Optional[dict] = None,
+    radius_box_corner: Literal["upper right", "upper left", "lower right", "lower left"] = "upper right",
 ):
     """
     Animate two Forests side-by-side: for each forest, show the evolving
@@ -962,6 +978,9 @@ def animate_filtration_pair(
     barcode_kwargs_forest1, barcode_kwargs_forest2 : dict or None, optional
         Extra kwargs forwarded to `_plot_barcode` for each forest.
 
+    radius_box_corner : {"upper right", "upper left", "lower right", "lower left"}
+        Radius label corner (default: "upper right"), with an 8 pt inset.
+
     Returns
     -------
     anim : matplotlib.animation.FuncAnimation
@@ -970,6 +989,8 @@ def animate_filtration_pair(
     import numpy as np
     import matplotlib.pyplot as plt
     from matplotlib.animation import FuncAnimation, FFMpegWriter
+
+    _validate_radius_box_corner(radius_box_corner)
 
     # --- 1) Sanity checks -----------------------------------------------------
     for forest, name in ((forest1, "forest1"), (forest2, "forest2")):
@@ -1017,7 +1038,7 @@ def animate_filtration_pair(
     # Base kwargs to resemble your existing barcode style
     base_barcode_kwargs = {
         "sort": "length",
-        "xlabel": "filtration value",
+        "xlabel": "Radius r",
         "tight_layout": False,
     }
 
@@ -1028,11 +1049,6 @@ def animate_filtration_pair(
 
     kwargs_bar_1 = {**base_barcode_kwargs, **barcode_kwargs_forest1}
     kwargs_bar_2 = {**base_barcode_kwargs, **barcode_kwargs_forest2}
-
-    if "title" not in kwargs_bar_1:
-        kwargs_bar_1["title"] = "Barcode"
-    if "title" not in kwargs_bar_2:
-        kwargs_bar_2["title"] = "Barcode"
 
     forest1.plot_barcode(ax=ax_bar_1, **kwargs_bar_1)
     forest2.plot_barcode(ax=ax_bar_2, **kwargs_bar_2)
@@ -1071,28 +1087,12 @@ def animate_filtration_pair(
         # First forest
         ax_cloud_1.clear()
         forest1.plot_at_filtration(filt_val=t, ax=ax_cloud_1, **kwargs_cloud_1)
-        ax_cloud_1.text(
-            0.02, 0.98, rf"$r = {t:.3g}$",
-            transform=ax_cloud_1.transAxes,
-            va="top",
-            ha="left",
-            fontsize=11,
-            zorder=1000,
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.7),
-        )
+        _add_radius_box(ax_cloud_1, rf"$r = {t:.3g}$", radius_box_corner)
 
         # Second forest
         ax_cloud_2.clear()
         forest2.plot_at_filtration(filt_val=t, ax=ax_cloud_2, **kwargs_cloud_2)
-        ax_cloud_2.text(
-            0.02, 0.98, rf"$r = {t:.3g}$",
-            transform=ax_cloud_2.transAxes,
-            va="top",
-            ha="left",
-            fontsize=11,
-            zorder=1000,
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.7),
-        )
+        _add_radius_box(ax_cloud_2, rf"$r = {t:.3g}$", radius_box_corner)
 
     def _align_barcode_axes():
         # Make barcode axes have same left/right as their corresponding cloud axes

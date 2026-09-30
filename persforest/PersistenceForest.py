@@ -2609,8 +2609,9 @@ class PersistenceForest:
         sort : {"length","birth","death",None}
             Sort bars before plotting (None preserves current order).
             Default is "birth".
-        title : str
-            Plot title.
+        title : str | None
+            Plot title. Defaults to "$H_d$ Barcode", where d is the ambient
+            dimension of the point cloud minus one.
         orientation : {"horizontal", "vertical"}
             Direction of barcode intervals (default: horizontal).
         xlabel : str
@@ -2675,6 +2676,7 @@ class PersistenceForest:
         total_figsize: Optional[tuple[float, float]] = None,
         plot_kwargs: Optional[dict] = None,
         alpha_digits: Optional[int] = None,
+        radius_box_corner: Literal["upper right", "upper left", "lower right", "lower left"] = "upper right",
     ):
         """
         Animate the filtration with automatic 2D/3D backend dispatch.
@@ -2743,6 +2745,9 @@ class PersistenceForest:
             ``with_barcode=True``; ``cloud_figsize`` applies otherwise.
         plot_kwargs : dict | None
             Deprecated alias for ``filtration_kwargs``.
+        radius_box_corner : {"upper right", "upper left", "lower right", "lower left"}
+            Radius label corner for Matplotlib animations (default: "upper right").
+            Uses an 8 pt inset. Does not affect the interactive 3D HTML output.
         alpha_digits : int | None
             Number of digits shown in the filtration value overlay (matplotlib paths).
 
@@ -2760,7 +2765,11 @@ class PersistenceForest:
                 "Build the forest with diff_only_mode=False to animate it."
             )
         from pathlib import Path
-        from .simplicial_filtration_animation import _animate_filtration_generic
+        from .simplicial_filtration_animation import (
+            _animate_filtration_generic, _validate_radius_box_corner,
+        )
+
+        _validate_radius_box_corner(radius_box_corner)
 
         out_format = format
         if out_format is None and filename is not None:
@@ -2890,6 +2899,7 @@ class PersistenceForest:
                 filtration_kwargs=filtration_panel_kwargs,
                 barcode_kwargs=barcode_panel_kwargs,
                 alpha_digits=alpha_digits,
+                radius_box_corner=radius_box_corner,
             )
 
         if self.dim == 3:
@@ -2966,6 +2976,7 @@ class PersistenceForest:
                 filtration_kwargs=filtration_panel_kwargs,
                 barcode_kwargs=barcode_panel_kwargs,
                 alpha_digits=alpha_digits,
+                radius_box_corner=radius_box_corner,
             )
 
         raise ValueError("animate_filtration is only implemented for ambient dimensions 2 and 3.")

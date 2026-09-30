@@ -43,7 +43,7 @@ def _plot_barcode_generic(
         *,
         ax=None,
         sort: str | None = "birth",   # "length" | "birth" | "death" | None
-        title: str = "Barcode",
+        title: str | None = None,
         xlabel: str = "filtration value",
         coloring: Literal["forest", "bars","none","grey"] = "forest",
         max_bars: int = 0,
@@ -67,8 +67,9 @@ def _plot_barcode_generic(
     sort : {"length","birth","death",None}
         Sort bars before plotting (None preserves current order).
         Default is "birth".
-    title : str
-        Plot title.
+    title : str | None
+        Plot title. Defaults to "$H_d$ Barcode", where d is the ambient
+        dimension of the point cloud minus one.
     orientation : {"horizontal", "vertical"}
         Direction of barcode intervals; horizontal by default. With vertical
         bars the filtration axis is y, suitable for sharing with a forest plot.
@@ -217,7 +218,7 @@ def _plot_barcode_generic(
             ax.annotate("", xy=point(limit-0.15*pad, i),
                         xytext=point(start, i), arrowprops=arrowprops)
 
-    ax.set_title(title)
+    ax.set_title(f"$H_{{{forest.dim - 1}}}$ Barcode" if title is None else title)
     if vertical:
         ax.set_xticks([])
         ax.set_ylabel(xlabel if ylabel is None else ylabel)
