@@ -3,8 +3,9 @@ from copy import deepcopy
 import unittest
 import numpy as np
 from persforest import PersistenceForest
-from persforest.PersistenceForest import PFBar, SignedChain
-from persforest.cycle_rep_vectorisations import constant_one_functional
+from persforest.barcode import PFBar
+from persforest.chains import SignedChain
+from persforest.measurements.basic import constant_one_functional
 from fixtures_small_filtrations import triangle, split, fan, build, chain, positive_bars
 
 
@@ -104,7 +105,7 @@ class PublicAPITests(unittest.TestCase):
             self.assertEqual(positive_bars(forest), positive_bars(build(fan(), keep_simplex_diff=diffs)))
             with self.assertRaisesRegex(RuntimeError, 'already been called'):
                 forest.compute_barcode()
-            direct_method = forest.compute_barcode_diff if diffs else forest.compute_barcode_cycles
+            direct_method = forest._compute_barcode_diff if diffs else forest._compute_barcode_cycles
             with self.assertRaisesRegex(RuntimeError, 'already been called'):
                 direct_method()
 

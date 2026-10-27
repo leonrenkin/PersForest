@@ -1,11 +1,8 @@
 """K1–K7: independent interval-overlap integration and exact knot values."""
 import unittest
 import numpy as np
-from persforest.forest_landscapes import (
-    _build_convolution_with_indicator, compute_convolution_kernel_for_bar,
-    compute_landscape_kernel_for_bar, compute_measurement_interval_landscape,
-    compute_barcode_functionals,
-)
+from persforest.landscapes.kernels import _build_convolution_with_indicator, compute_convolution_kernel_for_bar, compute_landscape_kernel_for_bar, compute_measurement_interval_landscape
+from persforest.landscapes.profiles import compute_barcode_functionals
 from fixtures_small_filtrations import profile_forest, measured
 from oracle_landscapes import kernel, event_grid
 

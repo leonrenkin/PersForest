@@ -3,7 +3,8 @@ import copy
 import math
 import unittest
 import numpy as np
-from persforest import cycle_rep_vectorisations as measurements
+from persforest.measurements.basic import signed_chain_edge_length, signed_chain_area, signed_chain_interior_volume, signed_chain_connected_components
+from persforest.measurements.shape import signed_chain_circularity, signed_chain_excess_curvature_normalized, signed_chain_convex_hull_area_deficit, signed_chain_convex_hull_perimeter_deficit
 from fixtures_small_filtrations import (
     triangle, split, fan, disconnected, tetrahedra, annulus, build, chain,
     mode_options, positive_bars, reps, active_reps, simplex_tree,
@@ -38,11 +39,11 @@ class CustomFiltrationTests(unittest.TestCase):
         fixture = triangle()
         forest = build(fixture, keep_simplex_diff=True, compute_interior=True)
         rep = next(iter(forest.barcode)).cycle_reps[0]
-        for func, expected in [(measurements.signed_chain_edge_length, 12),
-                               (measurements.signed_chain_area, 6),
-                               (measurements.signed_chain_interior_volume, 6),
-                               (measurements.signed_chain_circularity, math.pi / 6),
-                               (measurements.signed_chain_excess_curvature_normalized, 0)]:
+        for func, expected in [(signed_chain_edge_length, 12),
+                               (signed_chain_area, 6),
+                               (signed_chain_interior_volume, 6),
+                               (signed_chain_circularity, math.pi / 6),
+                               (signed_chain_excess_curvature_normalized, 0)]:
             with self.subTest(function=func.__name__):
                 self.assertAlmostEqual(func(rep, fixture.points), expected, places=12)
         fixture.points = np.vstack((fixture.points, [[10, 0], [11, 0]]))
@@ -64,9 +65,9 @@ class CustomFiltrationTests(unittest.TestCase):
         self.assertEqual(doubled.only_double_simplices().signed_simplices, chain('+03 -03'))
         expected_lengths = [8 + 4 * math.sqrt(2), 8 + 6 * math.sqrt(2),
                             4 + 5 * math.sqrt(2) + math.sqrt(10), 4 + math.sqrt(2) + math.sqrt(10)]
-        np.testing.assert_allclose([measurements.signed_chain_edge_length(r, forest.point_cloud)
+        np.testing.assert_allclose([signed_chain_edge_length(r, forest.point_cloud)
                                     for r in bar.cycle_reps], expected_lengths, rtol=1e-12, atol=1e-12)
-        np.testing.assert_allclose([measurements.signed_chain_area(r, forest.point_cloud)
+        np.testing.assert_allclose([signed_chain_area(r, forest.point_cloud)
                                     for r in bar.cycle_reps], [8, 8, 6, 2])
         self.assertEqual(len(first.signed_simplices), 3)
         self.assertEqual(len(doubled.signed_simplices), 5)
@@ -75,7 +76,7 @@ class CustomFiltrationTests(unittest.TestCase):
         forest = build(tetrahedra(), keep_simplex_diff=True, compute_interior=True)
         for bar in forest.barcode:
             expected = [.5, 1 / 3] if bar.birth == 1 else [1 / 6]
-            np.testing.assert_allclose([measurements.signed_chain_interior_volume(r, forest.point_cloud)
+            np.testing.assert_allclose([signed_chain_interior_volume(r, forest.point_cloud)
                                         for r in bar.cycle_reps], expected, rtol=1e-12, atol=1e-12)
 
     def test_f6_annular_interior_and_simultaneous_eight_way_split(self):
@@ -90,13 +91,13 @@ class CustomFiltrationTests(unittest.TestCase):
                 self.assertEqual({s for s, _ in rep.interior},
                                  {(0, 1, 5), (0, 4, 5), (1, 2, 6), (1, 5, 6),
                                   (2, 3, 7), (2, 6, 7), (0, 3, 4), (3, 4, 7)})
-                for func, expected in [(measurements.signed_chain_area, 12),
-                                       (measurements.signed_chain_interior_volume, 12),
-                                       (measurements.signed_chain_edge_length, 24),
-                                       (measurements.signed_chain_connected_components, 2),
-                                       (measurements.signed_chain_circularity, math.pi / 12),
-                                       (measurements.signed_chain_convex_hull_area_deficit, .25),
-                                       (measurements.signed_chain_convex_hull_perimeter_deficit, 1 / 3)]:
+                for func, expected in [(signed_chain_area, 12),
+                                       (signed_chain_interior_volume, 12),
+                                       (signed_chain_edge_length, 24),
+                                       (signed_chain_connected_components, 2),
+                                       (signed_chain_circularity, math.pi / 12),
+                                       (signed_chain_convex_hull_area_deficit, .25),
+                                       (signed_chain_convex_hull_perimeter_deficit, 1 / 3)]:
                     self.assertAlmostEqual(func(rep, forest.point_cloud), expected, places=12)
                 self.assertEqual(len(active_reps(forest, 3)), 8)
                 self.assertEqual(active_reps(forest, 5), [])

@@ -3,8 +3,9 @@ from copy import deepcopy
 from unittest.mock import Mock
 import unittest
 import numpy as np
-from persforest.forest_landscapes import StepFunctionData, compute_barcode_functionals, _build_step_function_data
-from persforest.cycle_rep_vectorisations import signed_chain_area, signed_chain_edge_length
+from persforest.landscapes.functions import StepFunctionData
+from persforest.landscapes.profiles import compute_barcode_functionals, _build_step_function_data
+from persforest.measurements.basic import signed_chain_area, signed_chain_edge_length
 from fixtures_small_filtrations import split, fan, build, profile_forest, measured, reps
 
 

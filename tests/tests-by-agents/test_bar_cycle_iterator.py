@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from persforest.PersistenceForest import PersistenceForest
-from persforest.forest_landscapes import _build_step_function_data
+from persforest import PersistenceForest
+from persforest.landscapes.profiles import _build_step_function_data
 
 
 class BarCycleIteratorTests(unittest.TestCase):

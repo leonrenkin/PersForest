@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import contextlib
 import io
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -15,7 +16,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-BENCHMARK_DIR = Path(__file__).resolve().parents[2] / "examples" / "performance"
+BENCHMARK_DIR = Path(__file__).resolve().parents[2] / "benchmarks" / "performance"
 
 
 def _load(name, filename):
@@ -38,6 +39,16 @@ def _config(suite="barcode"):
 
 
 class PerformanceHarnessTests(unittest.TestCase):
+    def test_metadata_hashes_current_src_including_nested_modules(self):
+        with patch.dict(sys.modules, {"sampling": sampling}):
+            metadata = runner._metadata()
+        hashes = metadata["source_hashes"]
+        for name in ("src/persforest/forest.py",
+                     "src/persforest/plotting/animation/_export.py"):
+            self.assertEqual(hashes[name],
+                             hashlib.sha256((runner.ROOT / name).read_bytes()).hexdigest())
+        self.assertFalse(any(name.startswith("persforest/") for name in hashes))
+
     def test_preview_and_resume_without_launching_scientific_code(self):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "experiment"
@@ -74,11 +85,17 @@ class PerformanceHarnessTests(unittest.TestCase):
 
     def test_schedule_and_pairing(self):
         cases = runner.build_cases(_config())
-        self.assertEqual(len(cases), 504)
+        # Six 2D sizes and seven 3D sizes, each with three samplers,
+        # three repetitions and four storage modes.
+        self.assertEqual(len(cases), (6 + 7) * 3 * 3 * 4)
         self.assertEqual(len({case["case_id"] for case in cases}), len(cases))
         self.assertEqual(cases, runner.build_cases(_config()))
-        for dim, maximum in ((2, 150000), (3, 20000)):
-            self.assertEqual(max(case["n_points"] for case in cases if case["dim"] == dim), maximum)
+        expected_sizes = {
+            2: {1000, 5000, 10000, 25000, 50000, 100000},
+            3: {500, 1000, 2500, 5000, 10000, 15000, 20000},
+        }
+        for dim, sizes in expected_sizes.items():
+            self.assertEqual({case["n_points"] for case in cases if case["dim"] == dim}, sizes)
         cloud_seeds = {}
         for case in cases:
             key = (case["dim"], case["n_points"], case["sampler"], case["repeat"])
@@ -89,6 +106,11 @@ class PerformanceHarnessTests(unittest.TestCase):
         extension = runner.build_cases(_config("diff-scaling"))
         self.assertEqual({case["mode"] for case in extension}, {"diff_only_mode"})
         self.assertGreater(max(case["n_points"] for case in extension if case["dim"] == 3), 25000)
+
+        custom = runner.build_cases(dict(_config(), sizes_2d=[150000], sizes_3d=[25000]))
+        self.assertEqual(len(custom), 2 * 3 * 3 * 4)
+        self.assertEqual({(case["dim"], case["n_points"]) for case in custom},
+                         {(2, 150000), (3, 25000)})
 
     def test_sampler_shape_seed_and_global_rng(self):
         before = np.random.get_state()
@@ -138,7 +160,7 @@ class PerformanceHarnessTests(unittest.TestCase):
                 self._reduce_forest()
                 if not kwargs.get("diff_only_mode"):
                     self._compute_loop_activity()
-                self.compute_barcode_diff() if kwargs.get("keep_simplex_diff") else self.compute_barcode_cycles()
+                self._compute_barcode_diff() if kwargs.get("keep_simplex_diff") else self._compute_barcode_cycles()
                 if kwargs.get("compute_interior"):
                     self._add_interior_to_barcode()
                 self.barcode = [SimpleNamespace(birth=0.1, death=0.5)]
@@ -154,10 +176,10 @@ class PerformanceHarnessTests(unittest.TestCase):
             def _compute_loop_activity(self):
                 calls.append("activity")
 
-            def compute_barcode_cycles(self):
+            def _compute_barcode_cycles(self):
                 calls.append("cycles")
 
-            def compute_barcode_diff(self):
+            def _compute_barcode_diff(self):
                 calls.append("diff")
 
             def _add_interior_to_barcode(self):

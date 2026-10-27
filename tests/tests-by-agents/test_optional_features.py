@@ -13,9 +13,9 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
-from persforest.simplicial_filtration_animation import _ffmpeg_path_or_raise
-from persforest.forest_landscapes import animate_barcode_measurement_generic
-from persforest.cycle_rep_vectorisations import signed_chain_area
+from persforest.plotting.animation._export import _ffmpeg_path_or_raise
+from persforest.plotting.animation.measurements import animate_barcode_measurement_generic
+from persforest.measurements.basic import signed_chain_area
 from fixtures_small_filtrations import triangle, split, build
 
 HAS_PLOTLY = importlib.util.find_spec('plotly') is not None
@@ -55,7 +55,7 @@ assert not f.barcode
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_missing_ffmpeg_is_actionable(self):
-        with patch('persforest.simplicial_filtration_animation.shutil.which', return_value=None):
+        with patch('persforest.plotting.animation._export.shutil.which', return_value=None):
             with self.assertRaisesRegex(RuntimeError, 'Install ffmpeg'):
                 _ffmpeg_path_or_raise()
 

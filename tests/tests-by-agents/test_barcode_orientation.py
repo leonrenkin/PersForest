@@ -5,12 +5,13 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.colors import to_rgba
-from persforest.PersistenceForest import PFBar
-from persforest.forest_plotting import _plot_barcode_generic as plot
+from persforest.barcode import PFBar
+from persforest.plotting.barcode import _plot_barcode_generic as plot
 
 
 def forest_with(bars):
-    return SimpleNamespace(barcode=bars, color_map_bars=dict(zip(bars, ['red', 'blue', 'green'])))
+    return SimpleNamespace(dim=2, barcode=bars,
+                           color_map_bars=dict(zip(bars, ['red', 'blue', 'green'])))
 
 
 class BarcodeOrientationTests(unittest.TestCase):

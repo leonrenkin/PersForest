@@ -6,8 +6,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from persforest.PersistenceForest import PFNode
-from persforest.forest_plotting import _plot_persistence_forest_generic
+from persforest._forest.graph_model import PFNode
+from persforest.plotting.forest import _plot_persistence_forest_generic
 
 
 def _forest_with_distinct_tree_endpoints():

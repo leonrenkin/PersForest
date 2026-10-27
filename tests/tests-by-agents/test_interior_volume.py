@@ -3,9 +3,10 @@ import unittest
 
 import numpy as np
 
-from persforest.PersistenceForest import PersistenceForest, SignedChain
-from persforest.cycle_rep_vectorisations import signed_chain_interior_volume
-from persforest.forest_landscapes import compute_barcode_functionals
+from persforest import PersistenceForest
+from persforest.chains import SignedChain
+from persforest.measurements.basic import signed_chain_interior_volume
+from persforest.landscapes.profiles import compute_barcode_functionals
 
 
 class InteriorVolumeTests(unittest.TestCase):

@@ -1,7 +1,7 @@
 """Analytic polygons and signed graphs G1–G8, independent of forest output."""
 import math
 import numpy as np
-from persforest.PersistenceForest import SignedChain
+from persforest.chains import SignedChain
 
 
 def polygon_terms(indices):

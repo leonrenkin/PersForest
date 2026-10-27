@@ -8,12 +8,11 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection, PolyCollection
 from matplotlib.colors import is_color_like
-from persforest.cycle_rep_vectorisations import signed_chain_area, constant_one_functional
-from persforest.forest_landscapes import (plot_barcode_measurement_generic, plot_landscape_comparison,
-                                        plot_landscape_comparison_between_functionals)
-from persforest.interior_activity_plotting import _activity_rows_for_plotting
-from persforest.simplicial_filtration_animation import _compute_frame_times
-from persforest.color_scheme import build_color_scheme
+from persforest.measurements.basic import signed_chain_area, constant_one_functional
+from persforest.plotting.landscapes import plot_barcode_measurement_generic, plot_landscape_comparison, plot_landscape_comparison_between_functionals
+from persforest.plotting._scene import _activity_rows_for_plotting
+from persforest.plotting.animation._timing import _compute_frame_times
+from persforest.plotting.colors import build_color_scheme
 from fixtures_small_filtrations import triangle, split, fan, build
 
 

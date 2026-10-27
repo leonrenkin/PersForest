@@ -10,7 +10,7 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import numpy as np
 
 from fixtures_small_filtrations import build, split, tetrahedra
-from persforest.simplicial_filtration_animation import animate_filtration_pair
+from persforest.plotting.animation.filtration import animate_filtration_pair
 
 
 class DiffOnlyCycleQueryTests(unittest.TestCase):

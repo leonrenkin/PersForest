@@ -2,12 +2,11 @@
 from unittest.mock import Mock
 import unittest
 import numpy as np
-from persforest.forest_landscapes import (
-    compute_measurement_landscape_family as family, compute_barcode_functionals,
-    compute_landscape_kernel_for_bar, compute_convolution_kernel_for_bar,
-    PiecewiseLinearFunction,
-)
-from persforest.cycle_rep_vectorisations import signed_chain_area, signed_chain_edge_length, constant_one_functional
+from persforest.landscapes.family import compute_measurement_landscape_family as family
+from persforest.landscapes.profiles import compute_barcode_functionals
+from persforest.landscapes.kernels import compute_landscape_kernel_for_bar, compute_convolution_kernel_for_bar
+from persforest.landscapes.functions import PiecewiseLinearFunction
+from persforest.measurements.basic import signed_chain_area, signed_chain_edge_length, constant_one_functional
 from fixtures_small_filtrations import build, split, fan, disconnected, profile_forest, measured
 from oracle_landscapes import landscape
 

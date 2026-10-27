@@ -8,9 +8,10 @@ from unittest.mock import patch
 import gudhi
 import numpy as np
 
-from persforest.PersistenceForest import PFBar, SignedChain
+from persforest.barcode import PFBar
+from persforest.chains import SignedChain
 
-MODULE = importlib.import_module('persforest.PersistenceForest')
+MODULE = importlib.import_module('persforest.forest')
 Simplex = tuple[int, ...]
 SignedSet = frozenset[tuple[Simplex, int]]
 
@@ -149,7 +150,7 @@ def build(fixture: Fixture, *, order=None, **options):
                 raise ValueError('Order puts coface before face')
         tree = SimpleNamespace(get_filtration=lambda: iter(entries))
     fake_alpha = SimpleNamespace(create_simplex_tree=lambda **kwargs: tree)
-    with patch.object(MODULE.gd, 'AlphaComplex', return_value=fake_alpha):
+    with patch.object(gudhi, 'AlphaComplex', return_value=fake_alpha):
         return MODULE.PersistenceForest(fixture.points, **options)
 
 

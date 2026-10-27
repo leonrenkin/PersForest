@@ -2,7 +2,8 @@
 
 import unittest
 
-from persforest.PersistenceForest import PersistenceForest, PFNode
+from persforest import PersistenceForest
+from persforest._forest.graph_model import PFNode
 from fixtures_small_filtrations import build, disconnected, fan, split, tetrahedra
 
 
@@ -32,7 +33,7 @@ class BarcodeDiffAccumulationTests(unittest.TestCase):
         fields = ('_interior_diff', '_codim1_simplex_diff')
         sources = {(nid, field): getattr(node, field).copy()
                    for nid, node in forest.nodes.items() for field in fields}
-        forest.compute_barcode_diff()
+        forest._compute_barcode_diff()
 
         self.assertEqual(
             sorted((bar._node_progression, bar.birth, bar.death,
@@ -68,7 +69,7 @@ class BarcodeDiffAccumulationTests(unittest.TestCase):
         for nid in (1, 2, 7):
             forest.nodes[nid]._interior_diff = UnreadableDiff()
             forest.nodes[nid]._codim1_simplex_diff = UnreadableDiff()
-        forest.compute_barcode_diff()
+        forest._compute_barcode_diff()
         self.assertEqual(sum(bar.is_max_tree_bar for bar in forest.barcode), 2)
         self.assertIsNone(forest.nodes[9]._barcode_interior_diff)
         self.assertIsNone(forest.nodes[9]._barcode_codim1_simplex_diff)
@@ -79,7 +80,7 @@ class BarcodeDiffAccumulationTests(unittest.TestCase):
             node._interior_diff = None
             node._codim1_simplex_diff = None
         forest.nodes[4]._interior_diff = set()
-        forest.compute_barcode_diff()
+        forest._compute_barcode_diff()
         for nid in (7, 8):
             self.assertEqual(forest.nodes[nid]._barcode_interior_diff, set())
             self.assertIsNone(forest.nodes[nid]._barcode_codim1_simplex_diff)

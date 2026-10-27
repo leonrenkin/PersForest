@@ -8,8 +8,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import to_rgba
 
-from persforest.PersistenceForest import PFBar, PFNode
-from persforest.forest_plotting import _plot_persistence_forest_generic
+from persforest.barcode import PFBar
+from persforest._forest.graph_model import PFNode
+from persforest.plotting.forest import _plot_persistence_forest_generic
 
 
 class HorizontalForestPlotTests(unittest.TestCase):

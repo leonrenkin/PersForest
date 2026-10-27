@@ -7,9 +7,7 @@ import warnings
 import numpy as np
 
 from persforest import PersistenceForest
-from persforest.PersistenceForest import (
-    boundary_faces_from_tetrahedra, sign_of_determinant, simplex_orientation,
-)
+from persforest.geometry.simplicial import boundary_faces_from_tetrahedra, sign_of_determinant, simplex_orientation
 
 
 class OrientationNumericsTests(unittest.TestCase):

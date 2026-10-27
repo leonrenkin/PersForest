@@ -5,9 +5,11 @@ from contextlib import redirect_stdout
 from itertools import permutations
 import unittest
 import numpy as np
-from persforest.PersistenceForest import PersistenceForest, PFNode, SignedChain
-from persforest.cycle_rep_vectorisations import signed_chain_area, constant_one_functional
-from persforest.forest_landscapes import compute_landscape_kernel_for_bar
+from persforest import PersistenceForest
+from persforest._forest.graph_model import PFNode
+from persforest.chains import SignedChain
+from persforest.measurements.basic import signed_chain_area, constant_one_functional
+from persforest.landscapes.kernels import compute_landscape_kernel_for_bar
 from fixtures_small_filtrations import (
     triangle, split, fan, disconnected, annulus, build, chain, active_reps, positive_bars,
     mode_options, reps,

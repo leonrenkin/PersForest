@@ -2,11 +2,12 @@
 from itertools import permutations
 import unittest
 import numpy as np
-from persforest.PersistenceForest import (
-    SignedChain, signed_boundary, simplex_orientation, sign_of_determinant,
-    merge_at_simplex, update_chain_with_diff,
-    key, are_dict_keys_sorted, union_optional_sets,
-)
+from persforest.chains import SignedChain, merge_at_simplex
+from persforest.filtrations.simplicial import signed_boundary, key
+from persforest.geometry.simplicial import simplex_orientation, sign_of_determinant
+from persforest._forest.representatives import update_chain_with_diff
+from persforest._forest.compute_barcode import are_dict_keys_sorted
+from persforest._forest.reduction import union_optional_sets
 from fixtures_small_filtrations import chain, fan
 from oracle_chains import coefficients, boundary, canonical
 

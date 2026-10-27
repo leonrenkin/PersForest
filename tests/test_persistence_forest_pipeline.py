@@ -8,8 +8,8 @@ import unittest
 import numpy as np
 
 from persforest import PersistenceForest
-from persforest.cycle_rep_vectorisations import signed_chain_area, signed_chain_edge_length
-from persforest.forest_landscapes import compute_barcode_functionals
+from persforest.measurements.basic import signed_chain_area, signed_chain_edge_length
+from persforest.landscapes.profiles import compute_barcode_functionals
 
 
 point_cloud = [[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2]]

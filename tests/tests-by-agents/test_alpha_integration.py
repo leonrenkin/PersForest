@@ -7,7 +7,7 @@ import unittest
 import gudhi
 import numpy as np
 from persforest import PersistenceForest
-from persforest.cycle_rep_vectorisations import signed_chain_area, signed_chain_edge_length, signed_chain_interior_volume
+from persforest.measurements.basic import signed_chain_area, signed_chain_edge_length, signed_chain_interior_volume
 from fixtures_small_filtrations import positive_bars, active_reps
 from oracle_chains import coefficients, boundary, homology_data, rank, sample_times
 

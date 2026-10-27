@@ -4,7 +4,7 @@ import unittest
 import warnings
 
 from persforest import PersistenceForest
-from persforest.PersistenceForest import _validate_filtration
+from persforest.filtrations._validation import _validate_filtration
 from fixtures_small_filtrations import positive_bars, triangle
 
 

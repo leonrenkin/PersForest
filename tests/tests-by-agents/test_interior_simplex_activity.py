@@ -136,13 +136,20 @@ class InteriorSimplexActivityTests(unittest.TestCase):
         self.assertEqual(split_forest(shared_value=1, deaths=(1, 1),
                                       keep_simplex_diff=True).interior_simplex_activity(), {})
 
-    def test_missing_diffs_and_wrong_barcode_builder(self):
+    def test_missing_diffs_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "keep_simplex_diff=True"):
             split_forest().interior_simplex_activity()
+
+    def test_eager_barcode_builder_without_accumulated_diffs_is_rejected(self):
+        # The eager builder does not accumulate merged-branch interior diffs.
+        # Without rejection, this fixture silently loses the (0, 1, 2)
+        # triangle's [1, 3) interval on the bar with lifespan [1, 7).
         forest = split_forest(keep_simplex_diff=True, compute_barcode=False)
-        forest.compute_barcode_cycles()
+        forest._compute_barcode_cycles()
         with self.assertRaisesRegex(RuntimeError, "computed from simplex diffs"):
             forest.interior_simplex_activity()
+
+    def test_unavailable_node_diffs_are_rejected(self):
         forest = split_forest(keep_simplex_diff=True)
         bar = next(iter(forest.barcode))
         forest.nodes[bar._node_progression[-1]]._simplex_diff_available = False
