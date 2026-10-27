@@ -3,18 +3,57 @@ import unittest
 import numpy as np
 from persforest.landscapes.kernels import _build_convolution_with_indicator, convolve_profile, landscape_kernel
 from persforest.landscapes.profiles import compute_measurement_profiles
+from persforest.landscapes.family import landscapes_from_profiles
 from fixtures_small_filtrations import profile_forest, measured
 from oracle_landscapes import kernel, event_grid
 
 
 class LandscapeKernelTests(unittest.TestCase):
+    def test_tiny_amplitudes_survive_convolution_and_rank_sampling(self):
+        # atol=0 is intentional: an all-zero output must fail at tiny scales.
+        grid = np.linspace(0, 4, 33)
+        tent = np.maximum(0, np.minimum(grid, 4 - grid))
+        for value in (1e-13, 2. ** -80):
+            forest = profile_forest([(0, 4, [(0, 4, value)])])
+            profiles = compute_measurement_profiles(forest, measured, 'tiny', signed=True, cache=False)
+            for mode in ('raw', 'pyramid'):
+                sample_grid = 2 * grid if mode == 'raw' else grid
+                expected = (2 if mode == 'raw' else 1) * value * tent
+                actual = landscape_kernel(profiles, 0, mode=mode)
+                self.assertGreater(actual(sample_grid[16]), 0)
+                np.testing.assert_allclose(actual(sample_grid), expected, rtol=1e-12, atol=0)
+                family = landscapes_from_profiles(profiles, mode=mode, x_grid=sample_grid, max_k=2)
+                np.testing.assert_allclose(family.landscapes[1], expected, rtol=1e-12, atol=0)
+                np.testing.assert_array_equal(family.landscapes[2], np.zeros(grid.size))
+            negative = profile_forest([(0, 4, [(0, 4, -value)])])
+            step = compute_measurement_profiles(negative, measured, 'negative', signed=True, cache=False)[0]
+            np.testing.assert_allclose(convolve_profile(step, 0, 4)(2 * grid),
+                                       -2 * value * tent, rtol=1e-12, atol=0)
+
+    def test_measurement_unit_scaling_does_not_depend_on_coordinate_tolerance(self):
+        grid = np.linspace(0, 4, 33)
+        records = [(0, 1, 2), (1, 4, 1)]
+        forest = profile_forest([(0, 4, records)])
+        base = compute_measurement_profiles(forest, measured, 'base', signed=True, cache=False)
+        for scale in (2. ** -80, 2. ** 20):
+            scaled_forest = profile_forest([(0, 4, [(s, e, value * scale) for s, e, value in records])])
+            scaled = compute_measurement_profiles(scaled_forest, measured, 'scaled', signed=True, cache=False)
+            for tol in (0, 1e-12, 2. ** -8):
+                for mode in ('raw', 'pyramid'):
+                    query = 2 * grid if mode == 'raw' else grid
+                    expected = np.array([kernel(x, 0, 4, records, raw=mode == 'raw') for x in query]) * scale
+                    actual = landscape_kernel(scaled, 0, mode=mode, tol=tol)(query)
+                    np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=0)
+                    np.testing.assert_allclose(actual, scale * landscape_kernel(base, 0, mode=mode, tol=tol)(query),
+                                               rtol=1e-12, atol=0)
+
     def test_constant_profiles_reproduce_tents_and_raw_scaling(self):
         for birth, death in [(2, 6), (-3, 1), (0, 2)]:
             for value in (0, 1, 6):
                 forest = profile_forest([(birth, death, [(birth, death, value)])])
                 bar = forest.barcode[0]
-                pyramid = landscape_kernel(compute_measurement_profiles(forest, measured, "test", cache=False), bar)
-                raw = landscape_kernel(compute_measurement_profiles(forest, measured, "test", cache=False), bar, mode='raw')
+                pyramid = landscape_kernel(compute_measurement_profiles(forest, measured, "test", signed=True, cache=False), bar)
+                raw = landscape_kernel(compute_measurement_profiles(forest, measured, "test", signed=True, cache=False), bar, mode='raw')
                 grid = np.linspace(birth - 1, death + 1, 49)
                 expected = value * np.maximum(0, np.minimum(grid - birth, death - grid))
                 np.testing.assert_allclose(pyramid(grid), expected, atol=1e-12, rtol=1e-12)
@@ -25,7 +64,7 @@ class LandscapeKernelTests(unittest.TestCase):
         forest = profile_forest([(1, 7, [(1, 3, 6), (3, 7, 2)]), (3, 5, [(3, 5, 4)])])
         for index, xs, ys, integral in [(0, [1, 2, 4, 5, 7], [0, 6, 10, 4, 0], 30),
                                         (1, [3, 4, 5], [0, 4, 0], 4)]:
-            actual = landscape_kernel(compute_measurement_profiles(forest, measured, "test", cache=False), forest.barcode[index])
+            actual = landscape_kernel(compute_measurement_profiles(forest, measured, "test", signed=True, cache=False), forest.barcode[index])
             np.testing.assert_allclose(actual(xs), ys, atol=1e-12, rtol=1e-12)
             area = np.sum(np.diff(actual.xs) * (actual.ys[:-1] + actual.ys[1:]) / 2)
             self.assertAlmostEqual(area, integral)
@@ -42,7 +81,7 @@ class LandscapeKernelTests(unittest.TestCase):
                 grid = event_grid(birth, death, records)
                 if mode == 'raw':
                     grid *= 2
-                actual = landscape_kernel(compute_measurement_profiles(forest, measured, "test", cache=False), forest.barcode[0], mode=mode)
+                actual = landscape_kernel(compute_measurement_profiles(forest, measured, "test", signed=True, cache=False), forest.barcode[0], mode=mode)
                 expected = [kernel(t, birth, death, records, raw=mode == 'raw') for t in grid]
                 np.testing.assert_allclose(actual(grid), expected, atol=1e-12, rtol=1e-12)
                 self.assertTrue(np.all(actual(grid) >= -1e-12))
@@ -59,13 +98,13 @@ class LandscapeKernelTests(unittest.TestCase):
         grid = np.linspace(-1, 5, 65)
         for pieces in records:
             forest = profile_forest([(0, 4, pieces)])
-            actual = landscape_kernel(compute_measurement_profiles(forest, measured, "test", cache=False), forest.barcode[0])
+            actual = landscape_kernel(compute_measurement_profiles(forest, measured, "test", signed=True, cache=False), forest.barcode[0])
             np.testing.assert_allclose(actual(grid), 2 * np.maximum(0, np.minimum(grid, 4 - grid)))
 
     def test_empty_zero_and_zero_width_support_are_zero(self):
         for records, birth, death in [([], 1, 2), ([(1, 2, 0)], 1, 2), ([(1, 1, 5)], 1, 1)]:
             forest = profile_forest([(birth, death, records)])
-            actual = landscape_kernel(compute_measurement_profiles(forest, measured, "test", cache=False), forest.barcode[0])
+            actual = landscape_kernel(compute_measurement_profiles(forest, measured, "test", signed=True, cache=False), forest.barcode[0])
             self.assertTrue(np.isfinite(actual(np.arange(4.))).all())
             np.testing.assert_array_equal(actual(np.arange(4.)), 0)
         h, xs, ys = _build_convolution_with_indicator([], [], [], 1, 2)
@@ -95,7 +134,7 @@ class LandscapeKernelTests(unittest.TestCase):
 
     def test_raw_convolution_consumes_only_explicit_profile(self):
         forest = profile_forest([(2, 6, [(2, 6, 1)])])
-        profiles = compute_measurement_profiles(forest, measured, 'one', cache=False)
+        profiles = compute_measurement_profiles(forest, measured, 'one', signed=True, cache=False)
         raw = convolve_profile(profiles[0], 2, 6)
         np.testing.assert_array_equal(raw.xs, [4, 8, 12])
         np.testing.assert_array_equal(raw.ys, [0, 4, 0])
@@ -106,9 +145,9 @@ class LandscapeKernelTests(unittest.TestCase):
         first, second = [(0, 1, 1), (1, 4, 3)], [(0, 1, 4), (1, 4, 2)]
         together = [(s, e, a + b) for (s, e, a), (_, _, b) in zip(first, second)]
         forest = profile_forest([(0, 4, records) for records in (first, second, together)])
-        functions = [landscape_kernel(compute_measurement_profiles(forest, measured, "test", cache=False), b) for b in forest.barcode]
+        functions = [landscape_kernel(compute_measurement_profiles(forest, measured, "test", signed=True, cache=False), b) for b in forest.barcode]
         grid = np.linspace(-1, 5, 49)
         np.testing.assert_allclose(functions[2](grid), functions[0](grid) + functions[1](grid))
         translated = profile_forest([(7, 11, [(s + 7, e + 7, v) for s, e, v in first])])
-        shifted = landscape_kernel(compute_measurement_profiles(translated, measured, "test", cache=False), translated.barcode[0])
+        shifted = landscape_kernel(compute_measurement_profiles(translated, measured, "test", signed=True, cache=False), translated.barcode[0])
         np.testing.assert_allclose(shifted(grid + 7), functions[0](grid))

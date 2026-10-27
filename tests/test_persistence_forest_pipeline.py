@@ -154,7 +154,7 @@ def check_manual_case(test: unittest.TestCase, case: ManualCase, options: dict) 
             profiles = compute_measurement_profiles(
                 forest,
                 lambda chain, points: case.cycle_func(chain if signed else chain.unsigned(), points),
-                label, cache=False,
+                label, signed=True, cache=False,
             )
         test.assertEqual(len(profiles.bars), len(case.bars))
         for bar in forest.barcode:

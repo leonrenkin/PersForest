@@ -43,7 +43,7 @@ class InteriorVolumeTests(unittest.TestCase):
         diff = PersistenceForest(points, keep_simplex_diff=True, diff_only_mode=True)
         results = []
         for forest in (full, diff):
-            bf = compute_measurement_profiles(forest, signed_chain_interior_volume, "volume")
+            bf = compute_measurement_profiles(forest, signed_chain_interior_volume, "volume", signed=True)
             results.append({bar._node_progression: bf[bar] for bar in forest.barcode})
         self.assertEqual(results[0].keys(), results[1].keys())
         for key, expected in results[0].items():

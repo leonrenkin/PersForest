@@ -13,7 +13,7 @@ class MeasurementProfileTests(unittest.TestCase):
     def test_f2_exact_step_arrays_and_endpoint_samples(self):
         grid = np.arange(9, dtype=float)
         forest = build(split())
-        profiles = compute_measurement_profiles(forest, signed_chain_area, 'area')
+        profiles = compute_measurement_profiles(forest, signed_chain_area, 'area', signed=True)
         for index, bar in enumerate(profiles.bars):
             step = profiles[bar]
             self.assertIs(step, profiles[index])
@@ -40,19 +40,19 @@ class MeasurementProfileTests(unittest.TestCase):
 
     def test_baseline_empty_representatives_and_empty_barcode_shapes(self):
         forest = profile_forest([(1, 2, []), (3, 5, [(3, 5, 4)])])
-        profiles = compute_measurement_profiles(forest, measured, 'custom', baseline=9)
+        profiles = compute_measurement_profiles(forest, measured, 'custom', signed=True, baseline=9)
         np.testing.assert_array_equal(profiles.evaluate_on_grid(np.arange(7.)),
                                       [[9] * 7, [9, 9, 9, 4, 4, 9, 9]])
         self.assertEqual(profiles[0].domain, (1, 2))
         self.assertEqual(profiles[0].starts.size, 0)
-        empty = compute_measurement_profiles(profile_forest([]), measured, 'empty')
+        empty = compute_measurement_profiles(profile_forest([]), measured, 'empty', signed=True)
         self.assertEqual(empty.evaluate_on_grid(np.array([0., 1.])).shape, (0, 2))
 
     def test_spy_is_called_once_per_representative_without_mutation(self):
         forest = build(fan())
         snapshots = [deepcopy(bar.cycle_reps) for bar in forest.barcode]
         spy = Mock(side_effect=signed_chain_edge_length)
-        profiles = compute_measurement_profiles(forest, spy, 'length')
+        profiles = compute_measurement_profiles(forest, spy, 'length', signed=True)
         self.assertEqual(spy.call_count, sum(len(b.cycle_reps) for b in forest.barcode))
         self.assertTrue(all(call.args[1] is forest.point_cloud for call in spy.call_args_list))
         self.assertEqual(snapshots, [b.cycle_reps for b in forest.barcode])
@@ -63,25 +63,25 @@ class MeasurementProfileTests(unittest.TestCase):
     def test_zero_and_numpy_scalar_measurements(self):
         forest = profile_forest([(1, 3, [(1, 2, 4), (2, 3, 7)])])
         for func, expected in [(lambda *_: 0, [0, 0]), (lambda r, _: np.float64(r.value), [4, 7])]:
-            profile = compute_measurement_profiles(forest, func, 'test')[0]
+            profile = compute_measurement_profiles(forest, func, 'test', signed=True)[0]
             np.testing.assert_array_equal(profile.vals, expected)
             self.assertEqual(profile.vals.dtype, np.dtype(float))
 
     def test_filters_are_inclusive_cache_is_explicit_and_label_overwrites(self):
         forest = build(split())
-        uncached = compute_measurement_profiles(forest, signed_chain_area, 'area', cache=False)
+        uncached = compute_measurement_profiles(forest, signed_chain_area, 'area', signed=True, cache=False)
         self.assertEqual(forest.measurement_profiles, {})
-        saved = compute_measurement_profiles(forest, signed_chain_area, 'area', min_bar_length=2)
+        saved = compute_measurement_profiles(forest, signed_chain_area, 'area', signed=True, min_bar_length=2)
         self.assertIs(forest.measurement_profiles['area'], saved)
         self.assertEqual(len(saved.bars), 2)
-        only_long = compute_measurement_profiles(forest, signed_chain_area, 'area', min_bar_length=np.nextafter(2, np.inf))
+        only_long = compute_measurement_profiles(forest, signed_chain_area, 'area', signed=True, min_bar_length=np.nextafter(2, np.inf))
         self.assertIs(forest.measurement_profiles['area'], only_long)
         self.assertEqual([(b.birth, b.death) for b in only_long.bars], [(1, 7)])
         self.assertEqual(len(uncached.bars), 2)
 
     def test_missing_bars_indices_and_invalid_grids(self):
         forest = profile_forest([(1, 2, [(1, 2, 1)])])
-        profiles = compute_measurement_profiles(forest, measured, 'test')
+        profiles = compute_measurement_profiles(forest, measured, 'test', signed=True)
         with self.assertRaises(ValueError):
             _build_step_function_data(forest, object(), measured)
         for reference in (5, object()):
@@ -97,7 +97,7 @@ class MeasurementProfileTests(unittest.TestCase):
 
     def test_diff_only_profile_order_matches_literal_intervals(self):
         forest = build(fan(), diff_only_mode=True, keep_simplex_diff=True)
-        profiles = compute_measurement_profiles(forest, signed_chain_area, 'area')
+        profiles = compute_measurement_profiles(forest, signed_chain_area, 'area', signed=True)
         bar = next(b for b in forest.barcode if b.birth == 1)
         np.testing.assert_array_equal(profiles[bar].starts, [1, 2, 3, 4])
         np.testing.assert_array_equal(profiles[bar].ends, [2, 3, 4, 7])
@@ -106,5 +106,5 @@ class MeasurementProfileTests(unittest.TestCase):
 
     def test_infinite_bar_profile_at_finite_times(self):
         forest = profile_forest([(1, np.inf, [(1, np.inf, 2)])])
-        profiles = compute_measurement_profiles(forest, measured, 'infinite')
+        profiles = compute_measurement_profiles(forest, measured, 'infinite', signed=True)
         np.testing.assert_array_equal(profiles.evaluate_on_grid([0, 1, 100]), [[0, 2, 2]])

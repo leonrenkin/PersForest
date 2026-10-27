@@ -492,8 +492,8 @@ for convolution_index, bar in enumerate(length_profiles.bars):
 landscape_colors = plt.get_cmap("viridis")(np.linspace(0.1, 0.9, n_layers))
 for landscape_index, landscape in length_landscapes.landscapes.items():
     ax_length_landscapes.plot(
-        landscape.xs,
-        landscape.ys,
+        length_landscapes.x_grid,
+        landscape,
         label=rf"$\lambda_{{{landscape_index}}}$",
         color=landscape_colors[landscape_index - 1],
         linewidth=1.4,
@@ -509,7 +509,7 @@ ax_length_landscapes.legend(
 )
 
 landscape_max = max(
-    float(np.max(landscape.ys))
+    float(np.max(landscape))
     for landscape in length_landscapes.landscapes.values()
 )
 ax_length_barcode.set_xlim(length_x_range)

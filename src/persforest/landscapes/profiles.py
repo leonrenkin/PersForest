@@ -57,7 +57,7 @@ class MeasurementProfiles:
     baseline: float
     bars: tuple[ProfileBar, ...]
     step_functions: Mapping[int, StepFunctionData]
-    signed: bool = True
+    signed: bool = False
     measurement_name: str | None = None
     measurement_params: Mapping[str, Any] = field(default_factory=dict)
     extra_meta: Mapping[str, Any] = field(default_factory=dict)
@@ -185,7 +185,7 @@ def _build_step_function_data(
 
 def compute_measurement_profiles(
     forest: object, cycle_func: CycleValueFunc, label: str, *,
-    signed: bool = True, min_bar_length: float = 0.0, baseline: float = 0.0,
+    signed: bool = False, min_bar_length: float = 0.0, baseline: float = 0.0,
     cache: bool = True, measurement_name: str | None = None,
     measurement_params: Mapping[str, Any] | None = None,
 ) -> MeasurementProfiles:
@@ -200,9 +200,9 @@ def compute_measurement_profiles(
         Read-only ``(chain, point_cloud) -> real scalar`` measurement.
     label : str
         Result label and optional forest registry key; overwrites on success.
-    signed : bool, default True
-        Measure representatives as stored. False cancels opposing simplices.
-        The public forest convenience method defaults to False.
+    signed : bool, default False
+        Cancel opposing simplices before measurement, matching the public
+        forest method. True measures representatives as stored.
     min_bar_length : float, default 0
         Inclusive finite, nonnegative length threshold.
     baseline : float, default 0

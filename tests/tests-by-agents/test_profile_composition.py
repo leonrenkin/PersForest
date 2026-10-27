@@ -8,16 +8,67 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 from persforest import PersistenceForest
-from persforest.landscapes.family import landscapes_from_profiles
+from persforest.landscapes.family import MeasurementLandscapeFamily, landscapes_from_profiles
 from persforest.landscapes.functions import StepFunctionData, PiecewiseLinearFunction
 from persforest.landscapes.kernels import convolve_profile, landscape_kernel
 from persforest.landscapes.profiles import compute_measurement_profiles, MeasurementProfiles, ProfileBar
 from persforest.measurements.basic import constant_one_functional, signed_chain_edge_length
-from fixtures_small_filtrations import build, split, disconnected, profile_forest, measured
+from fixtures_small_filtrations import build, split, fan, disconnected, profile_forest, measured
 from oracle_landscapes import landscape
 
 
 class ProfileCompositionTests(unittest.TestCase):
+    def test_landscape_levels_are_samples_and_cannot_interpolate(self):
+        profiles = MeasurementProfiles('synthetic', 'one', 0, (ProfileBar(0, 0, 4),),
+            {0: StepFunctionData([0], [4], [1], 0, (0, 4))})
+        family = landscapes_from_profiles(profiles, x_grid=[0, 4], max_k=1)
+        samples = family.landscapes[1]
+        self.assertIsInstance(samples, np.ndarray)
+        self.assertEqual(samples.shape, family.x_grid.shape)
+        np.testing.assert_array_equal(samples, [0, 0])
+        self.assertFalse(callable(samples))
+        with self.assertRaises(TypeError):
+            samples(2)
+        with self.assertRaisesRegex(ValueError, 'Recompute landscapes'):
+            family.evaluate_on_grid([2])
+        self.assertEqual(family.bar_kernels[0](2), 2)
+        refined = landscapes_from_profiles(profiles, x_grid=[0, 2, 4], max_k=1)
+        np.testing.assert_array_equal(refined.evaluate_on_grid([2]), [[2]])
+
+    def test_sample_constructor_validates_alignment_and_owns_values(self):
+        values = np.array([1., 2., 3.])
+        family = MeasurementLandscapeFamily('synthetic', 'samples', 'pyramid',
+            [0, 1, 2], {}, {1: values})
+        values[1] = 99
+        np.testing.assert_array_equal(family.landscapes[1], [1, 2, 3])
+        with self.assertRaises(ValueError):
+            family.landscapes[1][1] = 99
+        for invalid in ([0, 1], [[0, 1, 2]], [0, np.nan, 2], [0, np.inf, 2]):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                MeasurementLandscapeFamily('synthetic', 'bad', 'pyramid',
+                    [0, 1, 2], {}, {1: invalid})
+
+    def test_signed_false_defaults_match_across_measurement_entry_points(self):
+        forest = build(fan())
+        standalone = compute_measurement_profiles(forest, signed_chain_edge_length, 'standalone', cache=False)
+        unsigned = forest.compute_measurement_profiles(signed_chain_edge_length, 'unsigned', signed=False, cache=False)
+        default = forest.compute_measurement_profiles(signed_chain_edge_length, 'default', cache=False)
+        legacy = forest.compute_barcode_functionals(signed_chain_edge_length, 'legacy', cache=False)
+        signed = compute_measurement_profiles(forest, signed_chain_edge_length, 'signed', signed=True, cache=False)
+        for result in (standalone, unsigned, default, legacy):
+            self.assertFalse(result.signed)
+            for bar in forest.barcode:
+                np.testing.assert_array_equal(result[bar].vals, unsigned[bar].vals)
+        long = next(bar for bar in forest.barcode if bar.birth == 1)
+        self.assertTrue(signed.signed)
+        np.testing.assert_allclose(signed[long].vals - unsigned[long].vals,
+                                   [0, 2 * np.sqrt(2), 0, 0], atol=1e-12)
+        grid = np.linspace(0, 8, 65)
+        final = forest.compute_measurement_landscapes(signed_chain_edge_length, 'final', x_grid=grid, cache=False)
+        np.testing.assert_array_equal(final.evaluate_on_grid(),
+            landscapes_from_profiles(standalone, x_grid=grid).evaluate_on_grid())
+        self.assertFalse(final.extra_meta['signed'])
+
     def test_arrays_are_owned_and_read_only_at_every_result_boundary(self):
         starts, ends, vals = np.array([0.]), np.array([4.]), np.array([1.])
         profile = StepFunctionData(starts, ends, vals, 0, (0, 4))
@@ -31,7 +82,7 @@ class ProfileCompositionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'subset'):
             family.evaluate_on_grid([1.5])
         for array in (profile.starts, profile.ends, profile.vals, family.x_grid,
-                      family.landscapes[1].xs, family.landscapes[1].ys,
+                      family.landscapes[1],
                       family.bar_kernels[0].xs, family.bar_kernels[0].ys):
             with self.subTest(array=array), self.assertRaises(ValueError):
                 array[0] = 99
@@ -45,7 +96,7 @@ class ProfileCompositionTests(unittest.TestCase):
     def test_containers_and_endpoint_snapshots_cannot_desynchronize(self):
         forest = profile_forest([(0, 4, [(0, 4, 1)]), (1, 5, [(1, 5, 3)])])
         source = forest.barcode[0]
-        profiles = compute_measurement_profiles(forest, measured, 'values')
+        profiles = compute_measurement_profiles(forest, measured, 'values', signed=True)
         with self.assertRaises(FrozenInstanceError):
             profiles.bars = tuple(reversed(profiles.bars))
         with self.assertRaises(FrozenInstanceError):
@@ -63,12 +114,12 @@ class ProfileCompositionTests(unittest.TestCase):
 
     def test_selection_order_identity_missing_and_duplicate_ids(self):
         forest = profile_forest([(0, 4, [(0, 4, 1)]), (0, 4, [(0, 4, 3)])])
-        profiles = compute_measurement_profiles(forest, measured, 'values', cache=False)
+        profiles = compute_measurement_profiles(forest, measured, 'values', signed=True, cache=False)
         selected = landscapes_from_profiles(profiles, bar_ids=[1, 0], x_grid=[0, 2, 4], max_k=3)
         self.assertEqual(selected.bar_ids, (1, 0))
         self.assertEqual(tuple(selected.bar_kernels), (1, 0))
         np.testing.assert_array_equal(selected.evaluate_on_grid(), [[0, 6, 0], [0, 2, 0], [0, 0, 0]])
-        foreign = compute_measurement_profiles(forest, measured, 'other', cache=False).bars[0]
+        foreign = compute_measurement_profiles(forest, measured, 'other', signed=True, cache=False).bars[0]
         for selection in ([2], [-1], [True], [0.5], [foreign], [object()]):
             with self.subTest(selection=selection), self.assertRaises(ValueError):
                 landscapes_from_profiles(profiles, bar_ids=selection)
@@ -101,7 +152,7 @@ class ProfileCompositionTests(unittest.TestCase):
 
     def test_direct_invalid_modes_tolerances_and_levels_raise(self):
         forest = profile_forest([(0, 4, [(0, 4, 1)])])
-        profiles = compute_measurement_profiles(forest, measured, 'one')
+        profiles = compute_measurement_profiles(forest, measured, 'one', signed=True)
         for mode in ('typo', None):
             with self.assertRaisesRegex(ValueError, 'mode'):
                 landscape_kernel(profiles, 0, mode=mode)
@@ -126,7 +177,7 @@ class ProfileCompositionTests(unittest.TestCase):
         for endpoints in ((np.nan, 1), (2, 1)):
             forest = profile_forest([(*endpoints, [])])
             with self.assertRaises(ValueError):
-                compute_measurement_profiles(forest, forbidden, 'bad', min_bar_length=100)
+                compute_measurement_profiles(forest, forbidden, 'bad', signed=True, min_bar_length=100)
         forbidden.assert_not_called()
 
     def test_gaps_and_zero_width_records_preserve_half_open_values(self):
@@ -141,7 +192,7 @@ class ProfileCompositionTests(unittest.TestCase):
     def test_nonzero_baseline_is_never_silently_discarded(self):
         for specs in ([], [(0, 4, [(0, 4, 1)])]):
             forest = profile_forest(specs)
-            profiles = compute_measurement_profiles(forest, measured, 'baseline', baseline=9)
+            profiles = compute_measurement_profiles(forest, measured, 'baseline', signed=True, baseline=9)
             with self.assertRaisesRegex(ValueError, 'baseline=0'):
                 landscapes_from_profiles(profiles)
             if specs:
@@ -213,7 +264,7 @@ class ProfileRenderingTests(unittest.TestCase):
     def test_explicit_family_plot_and_comparison_fail_before_artists(self):
         import matplotlib.pyplot as plt
         from persforest.plotting.landscapes import plot_landscape_family, plot_landscape_comparison
-        profiles = compute_measurement_profiles(profile_forest([(0, 4, [(0, 4, 1)])]), measured, 'one')
+        profiles = compute_measurement_profiles(profile_forest([(0, 4, [(0, 4, 1)])]), measured, 'one', signed=True)
         family = landscapes_from_profiles(profiles, max_k=1, x_grid=[0, 2, 4])
         ax = plot_landscape_family(family, show=False)
         np.testing.assert_array_equal(ax.lines[0].get_ydata(), [0, 2, 0])

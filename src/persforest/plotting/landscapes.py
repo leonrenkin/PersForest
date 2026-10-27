@@ -168,7 +168,7 @@ def plot_landscape_family(
         )
     }
     for k in ks:
-        plf = family.landscapes[k]
+        samples = family.landscapes[k]
         plot_kwargs = {
             "label": fr"$\lambda_{{{k}}}$",
             "zorder": zorders[k],
@@ -177,7 +177,7 @@ def plot_landscape_family(
             plot_kwargs["linewidth"] = linewidth
         if cmap is not None:
             plot_kwargs["color"] = colors_by_k[k]
-        ax.plot(plf.xs, plf.ys, **plot_kwargs)
+        ax.plot(family.x_grid, samples, **plot_kwargs)
 
     ax.set_xlabel("filtration value")
     ax.set_ylabel("landscape value")
@@ -234,7 +234,7 @@ def plot_landscape_comparison(
     if ax is None:
         _, ax = plt.subplots()
     for family, label in zip(families, labels):
-        ax.plot(family.x_grid, family.landscapes[k].ys, label=label, **kwargs)
+        ax.plot(family.x_grid, family.landscapes[k], label=label, **kwargs)
     ax.set_xlabel("filtration value")
     ax.set_ylabel(fr"$\lambda_{k}$")
     ax.set_title(fr"Comparison of $\lambda_{k}$" if title is None else title)

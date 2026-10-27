@@ -122,8 +122,8 @@ class FiltrationTieTests(unittest.TestCase):
                 order[-2:] = reversed(order[-2:])
             forest = build(fixture, order=order)
             bar = next(b for b in forest.barcode if b.birth == 1)
-            results.append(landscape_kernel(compute_measurement_profiles(forest, signed_chain_area, "test", cache=False), bar)(3))
-            ones.append(landscape_kernel(compute_measurement_profiles(forest, constant_one_functional, "test", cache=False), bar)(3))
+            results.append(landscape_kernel(compute_measurement_profiles(forest, signed_chain_area, "test", signed=True, cache=False), bar)(3))
+            ones.append(landscape_kernel(compute_measurement_profiles(forest, constant_one_functional, "test", signed=True, cache=False), bar)(3))
         self.assertEqual(sorted(results), [8, 10])
         self.assertEqual(ones, [2, 2])
 
@@ -138,7 +138,7 @@ class FiltrationTieTests(unittest.TestCase):
                 rep = bar.cycle_reps[-1]
                 self.assertEqual(rep.signed_simplices,
                                  chain('-01 +03 -13') if sign == 1 else chain('+01 -02 +12'))
-                values.append(landscape_kernel(compute_measurement_profiles(forest, signed_chain_area, "test", cache=False), bar)(3))
+                values.append(landscape_kernel(compute_measurement_profiles(forest, signed_chain_area, "test", signed=True, cache=False), bar)(3))
             np.testing.assert_allclose(values, [10, 8], rtol=0, atol=1e-12)
 
 

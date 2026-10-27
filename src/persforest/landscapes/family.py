@@ -19,16 +19,17 @@ from .profiles import MeasurementProfiles, ProfileBar
 class MeasurementLandscapeFamily:
     """Sampled landscape levels, with exact kernels and captured bar identities.
 
-    Landscape rows are samples, not an exact piecewise-linear representation of
-    their rank crossings. ``evaluate_on_grid`` retrieves stored coordinates
-    only. Recompute from profiles to obtain ranks at new coordinates.
+    ``landscapes[k]`` is a read-only one-dimensional array aligned with the
+    shared ``x_grid``. These samples cannot be called or interpolated as exact
+    functions. ``evaluate_on_grid`` retrieves stored coordinates only; recompute
+    from profiles to obtain ranks at new coordinates. Kernels remain callable.
     """
     forest_id: str
     label: str
     rescaling: str
     x_grid: NDArray[np.float64]
     bar_kernels: Mapping[int, PiecewiseLinearFunction]
-    landscapes: Mapping[int, PiecewiseLinearFunction]
+    landscapes: Mapping[int, NDArray[np.float64]]
     bars: tuple[ProfileBar, ...] = ()
     extra_meta: Mapping[str, Any] = field(default_factory=dict)
 
@@ -39,10 +40,12 @@ class MeasurementLandscapeFamily:
         bars = tuple(self.bars)
         if len({bar.bar_id for bar in bars}) != len(bars) or set(kernels) != {bar.bar_id for bar in bars}:
             raise ValueError("Captured bars and kernel IDs must align without duplicates")
-        for level, landscape in landscapes.items():
+        for level, samples in landscapes.items():
             positive_integer(level, "landscape level")
-            if not isinstance(landscape, PiecewiseLinearFunction) or not np.array_equal(landscape.xs, grid):
-                raise ValueError("Every landscape level must use the stored x_grid")
+            samples = _readonly_vector(samples, "landscape samples")
+            if samples.size != grid.size or not np.isfinite(samples).all():
+                raise ValueError("Every landscape level must contain one finite sample per x_grid coordinate")
+            landscapes[level] = samples
         if not landscapes or set(landscapes) != set(range(1, max(landscapes) + 1)):
             raise ValueError("Landscape levels must be consecutive starting at 1")
         if any(not isinstance(kernel, PiecewiseLinearFunction) for kernel in kernels.values()):
@@ -98,7 +101,7 @@ class MeasurementLandscapeFamily:
                 f"Landscape levels {missing} were not computed. Recompute landscapes "
                 f"with max_k >= {max(missing)} or request only computed levels."
             )
-        return np.array([self.landscapes[k].ys[indices] for k in ks], dtype=float).reshape(len(ks), query.size)
+        return np.array([self.landscapes[k][indices] for k in ks], dtype=float).reshape(len(ks), query.size)
 
 
 def landscapes_from_profiles(
@@ -128,7 +131,9 @@ def landscapes_from_profiles(
     x_grid : array-like, optional
         Shared finite strictly increasing construction grid, copied on input.
     tol : float, default 1e-12
-        Convolution event tolerance, independent of source filtration_tol.
+        Convolution coordinate tolerance for event quantization and ignoring
+        intervals narrower than tol, independent of source filtration_tol.
+        Measurement amplitudes are not thresholded.
 
     Returns
     -------
@@ -164,10 +169,7 @@ def landscapes_from_profiles(
     levels = {}
     for k in range(1, max_k + 1):
         ys = values[-k] if k <= len(kernels) else np.zeros(grid.size)
-        levels[k] = PiecewiseLinearFunction(
-            grid, ys, (float(grid[0]), float(grid[-1])),
-            metadata={"k": k, "mode": mode},
-        )
+        levels[k] = ys
     return MeasurementLandscapeFamily(
         forest_id=profiles.forest_id, label=profiles.label if label is None else label,
         rescaling=mode, x_grid=grid, bar_kernels=kernels, landscapes=levels,

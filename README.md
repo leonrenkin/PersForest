@@ -165,6 +165,8 @@ preserve their requested order. A missing or duplicate landscape bar selection
 raises an error. Results describe the source at measurement time; later source
 mutation requires explicit remeasurement if fresh data is wanted. Measurement
 callbacks borrow chains and coordinates and must not modify them.
+Both the forest method and standalone `compute_measurement_profiles` default
+to `signed=False`; use `signed=True` to measure stored signed representatives.
 
 `forest.measurement_profiles[label]` and `forest.landscape_families[label]` are
 optional result registries. The one-call method accepts `cache_profiles=True`
@@ -180,8 +182,15 @@ bar deaths. Landscapes require finite bar/profile endpoints, finite nonnegative
 measurements and a zero baseline. Raw signed convolution is available separately
 as `convolve_profile(profile, birth, death)`. Invalid modes, malformed intervals,
 noninteger levels and unavailable selections raise errors.
+Convolution `tol` has coordinate units: it quantizes event coordinates and
+ignores intervals narrower than `tol`, but never discards a measurement because
+its amplitude is small. Set `tol=0` to disable coordinate quantization and the
+narrow-interval cutoff.
 
-Landscape levels are stored samples. `family.evaluate_on_grid()` retrieves all
+Landscape levels are read-only sample arrays: `family.landscapes[k]` contains
+values aligned with the single shared `family.x_grid`. Levels are not callable;
+only the per-bar kernels remain piecewise-linear callable functions.
+`family.evaluate_on_grid()` retrieves all
 levels on the stored grid; query coordinates must be exact stored coordinates.
 Use `landscapes_from_profiles` to recompute on a new grid. Plot explicit results
 with `persforest.plotting.landscapes.plot_landscape_family(family)` or compare a

@@ -37,6 +37,8 @@ def _build_convolution_with_indicator(
             Bounds of the indicator kernel; must satisfy a <= b.
         tol : float, default 1e-12
             Quantisation tolerance for merging nearly coincident event points.
+            Intervals narrower than tol are ignored. Measurement amplitudes
+            are never thresholded by this coordinate tolerance.
 
         Returns
         -------
@@ -76,8 +78,8 @@ def _build_convolution_with_indicator(
         for s, e, v in zip(starts, ends, vals):
             if e < s:
                 raise ValueError(f"Encountered interval with end < start: [{s}, {e}].")
-            if abs(v) < tol or abs(e - s) < tol:
-                # Zero value or degenerate interval contributes nothing
+            if v == 0 or abs(e - s) < tol:
+                # tol has coordinate units; it must not discard small values.
                 continue
             add_event(a + s, +v)
             add_event(a + e, -v)
@@ -133,7 +135,8 @@ def convolve_profile(
     birth, death : float
         Finite, ordered indicator endpoints.
     tol : float, default 1e-12
-        Finite nonnegative event quantization and small-contribution tolerance.
+        Finite nonnegative coordinate tolerance for event quantization and
+        ignoring intervals narrower than tol. Does not threshold values.
 
     Returns
     -------
@@ -175,8 +178,9 @@ def landscape_kernel(
     mode : {'raw', 'pyramid'}, default 'pyramid'
         Raw convolution g(x), or lambda(x) = 0.5 * g(2x).
     tol : float, default 1e-12
-        Event quantization and small-contribution tolerance, distinct from the
-        source forest's filtration reduction tolerance.
+        Coordinate tolerance for event quantization and ignoring intervals
+        narrower than tol, distinct from the source forest's filtration
+        reduction tolerance. Does not threshold measurement amplitudes.
 
     Returns
     -------

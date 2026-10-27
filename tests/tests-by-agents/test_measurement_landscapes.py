@@ -14,7 +14,7 @@ from oracle_landscapes import landscape
 def family(forest, cycle_func, label, *, min_bar_length=0.0, **kwargs):
     """Feed independent synthetic profiles through the numerical public API."""
     profiles = compute_measurement_profiles(
-        forest, cycle_func, label, min_bar_length=min_bar_length, cache=False)
+        forest, cycle_func, label, signed=True, min_bar_length=min_bar_length, cache=False)
     return landscapes_from_profiles(profiles, **kwargs)
 
 
@@ -180,7 +180,7 @@ class CacheAndWrapperTests(unittest.TestCase):
     def test_reordered_and_filtered_selections_keep_identity_and_report_missing(self):
         specs = [(1, 7, [(1, 3, 6), (3, 7, 2)]), (3, 5, [(3, 5, 4)])]
         forest = profile_forest(specs)
-        profiles = compute_measurement_profiles(forest, measured, 'profiles')
+        profiles = compute_measurement_profiles(forest, measured, 'profiles', signed=True)
         forest.barcode.reverse()
         grid = np.arange(9.)
         actual = landscapes_from_profiles(profiles, bar_ids=forest.barcode, x_grid=grid, max_k=2)
@@ -188,7 +188,7 @@ class CacheAndWrapperTests(unittest.TestCase):
         np.testing.assert_allclose(actual.evaluate_on_grid(), landscape(grid, specs, 2))
         filtered = landscapes_from_profiles(profiles, bar_ids=[0], x_grid=grid, max_k=1)
         np.testing.assert_allclose(filtered.evaluate_on_grid(), landscape(grid, specs[:1], 1))
-        partial = compute_measurement_profiles(forest, measured, 'partial', min_bar_length=6)
+        partial = compute_measurement_profiles(forest, measured, 'partial', signed=True, min_bar_length=6)
         with self.assertRaisesRegex(ValueError, 'Recompute profiles including the requested bar'):
             landscapes_from_profiles(partial, bar_ids=forest.barcode, x_grid=grid)
 
@@ -230,7 +230,7 @@ class InvalidLandscapeContractTests(unittest.TestCase):
     def test_d8_infinite_kernel_has_actionable_error(self):
         forest = profile_forest([(1, np.inf, [(1, np.inf, 1)])])
         with self.assertRaisesRegex(ValueError, 'finite'):
-            landscape_kernel(compute_measurement_profiles(forest, measured, "test", cache=False), 0)
+            landscape_kernel(compute_measurement_profiles(forest, measured, "test", signed=True, cache=False), 0)
 
 
     def test_d8_infinite_family_has_actionable_error(self):
@@ -259,9 +259,9 @@ class InvalidLandscapeContractTests(unittest.TestCase):
         forest = profile_forest([(0, 2, [(0, 2, -1)])])
         bar = forest.barcode[0]
         with self.assertRaisesRegex(ValueError, 'finite and nonnegative'):
-            landscape_kernel(compute_measurement_profiles(forest, measured, "test", cache=False), bar)
+            landscape_kernel(compute_measurement_profiles(forest, measured, "test", signed=True, cache=False), bar)
 
-        profiles = compute_measurement_profiles(forest, measured, 'signed')
+        profiles = compute_measurement_profiles(forest, measured, 'signed', signed=True)
         self.assertEqual(profiles[bar].vals.tolist(), [-1])
         self.assertEqual(convolve_profile(profiles[bar], bar.birth, bar.death)(2), -2)
         for mode in ('raw', 'pyramid'):

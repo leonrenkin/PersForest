@@ -1692,7 +1692,9 @@ class PersistenceForest:
         mode : {'raw', 'pyramid'}, default 'pyramid'
             Raw convolution or lambda(x) = 0.5 * g(2x).
         tol : float, default 1e-12
-            Convolution tolerance, distinct from filtration_tol.
+            Coordinate tolerance for convolution event quantization and ignoring
+            intervals narrower than tol, distinct from filtration_tol.
+            Measurement amplitudes are not thresholded.
         measurement_name : str, optional
             Descriptive name, defaulting to label.
         measurement_params : dict, optional
