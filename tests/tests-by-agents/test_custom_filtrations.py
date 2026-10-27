@@ -29,15 +29,14 @@ class CustomFiltrationTests(unittest.TestCase):
                                       and signature == [(r.start, r.end, r.simplices) for r in e[2]]), None)
                         self.assertIsNotNone(match, signature)
                         unmatched.remove(match)
-                        if options.get('compute_interior') or options.get('diff_only_mode'):
-                            for observed, expected in zip(actual, match[2]):
-                                self.assertTrue(observed.interior_available)
-                                self.assertEqual(observed.interior, expected.interior)
+                        for observed, expected in zip(actual, match[2]):
+                            self.assertTrue(observed.interior_available)
+                            self.assertEqual(observed.interior, expected.interior)
                     self.assertFalse(unmatched)
 
     def test_f1_measurements_and_irrelevant_edge(self):
         fixture = triangle()
-        forest = build(fixture, keep_simplex_diff=True, compute_interior=True)
+        forest = build(fixture, storage="cycles")
         rep = next(iter(forest.barcode)).cycle_reps[0]
         for func, expected in [(signed_chain_edge_length, 12),
                                (signed_chain_area, 6),
@@ -51,14 +50,14 @@ class CustomFiltrationTests(unittest.TestCase):
         self.assertEqual(positive_bars(build(fixture)), [(2, 6)])
 
     def test_f2_interior_activity_preserves_bar_ownership(self):
-        forest = build(split(), keep_simplex_diff=True, compute_interior=True)
+        forest = build(split(), storage="cycles")
         actual = {s: sorted((b.birth, b.death, start, end) for b, start, end in rows)
                   for s, rows in forest.interior_simplex_activity().items()}
         self.assertEqual(actual, {(0, 1, 2): [(1, 7, 1, 3), (3, 5, 3, 5)],
                                   (0, 1, 3): [(1, 7, 1, 7)]})
 
     def test_f3_doubled_edge_changes_length_but_not_projection_or_area(self):
-        forest = build(fan())
+        forest = build(fan(), storage="cycles")
         bar = next(b for b in forest.barcode if b.birth == 1)
         first, doubled, remaining, last = bar.cycle_reps
         self.assertEqual(doubled.unsigned().signed_simplices, first.signed_simplices)
@@ -73,7 +72,7 @@ class CustomFiltrationTests(unittest.TestCase):
         self.assertEqual(len(doubled.signed_simplices), 5)
 
     def test_f5_exact_interior_volumes(self):
-        forest = build(tetrahedra(), keep_simplex_diff=True, compute_interior=True)
+        forest = build(tetrahedra(), storage="cycles")
         for bar in forest.barcode:
             expected = [.5, 1 / 3] if bar.birth == 1 else [1 / 6]
             np.testing.assert_allclose([signed_chain_interior_volume(r, forest.point_cloud)
@@ -81,8 +80,6 @@ class CustomFiltrationTests(unittest.TestCase):
 
     def test_f6_annular_interior_and_simultaneous_eight_way_split(self):
         for mode, options in mode_options():
-            if not (options.get('compute_interior') or options.get('diff_only_mode')):
-                continue
             with self.subTest(mode=mode):
                 forest = build(annulus(), **options)
                 self.assertEqual(positive_bars(forest), [(2, 5)] + [(3, 5)] * 7)
@@ -116,7 +113,7 @@ class CustomFiltrationTests(unittest.TestCase):
             build(fixture, order=list(reversed(list(tree.get_filtration()))))
 
     def test_diff_iterator_sets_are_independent_and_repeatable(self):
-        forest = build(fan(), keep_simplex_diff=True, diff_only_mode=True)
+        forest = build(fan(), storage="diffs")
         bar = next(b for b in forest.barcode if b.birth == 1)
         before = copy.deepcopy(bar.cycle_reps)
         first = list(forest.iter_bar_cycle_reps(bar))
@@ -132,12 +129,12 @@ class CustomFiltrationTests(unittest.TestCase):
         self.assertTrue(first[1].signed_simplices)
 
     def test_normal_iterator_identity_and_missing_diff_errors(self):
-        forest = build(fan())
+        forest = build(fan(), storage="cycles")
         for bar in forest.barcode:
             self.assertTrue(all(a is b for a, b in zip(forest.iter_bar_cycle_reps(bar), reversed(bar.cycle_reps))))
         with self.assertRaisesRegex(ValueError, 'not in barcode'):
             next(forest.iter_bar_cycle_reps(object()))
-        forest = build(fan(), keep_simplex_diff=True, diff_only_mode=True)
+        forest = build(fan(), storage="diffs")
         bar = next(iter(forest.barcode))
         forest.nodes[bar._node_progression[-1]]._simplex_diff_available = False
         with self.assertRaisesRegex(ValueError, 'simplex_diff'):

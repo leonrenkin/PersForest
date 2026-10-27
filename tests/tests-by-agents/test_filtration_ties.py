@@ -133,7 +133,7 @@ class FiltrationTieTests(unittest.TestCase):
             values = []
             for sign in (-1, 1):
                 fixture = split().changed({(0, 1, 2): 7, (0, 1, 3): 7 + sign * epsilon})
-                forest = build(fixture, filtration_tol=0)
+                forest = build(fixture, filtration_tol=0, storage="cycles")
                 bar = next(b for b in forest.barcode if b.birth == 1)
                 rep = bar.cycle_reps[-1]
                 self.assertEqual(rep.signed_simplices,
@@ -145,7 +145,6 @@ class FiltrationTieTests(unittest.TestCase):
 class ReductionToleranceTests(unittest.TestCase):
     def two_node_forest(self, gap, tol):
         forest = object.__new__(PersistenceForest)
-        forest.keep_simplex_diff = False
         forest.filtration_tol = tol
         forest.nodes = {1: PFNode(1, 1 + gap, SignedChain(set()), set(), 2),
                         2: PFNode(2, 1, SignedChain(set()), {1})}
@@ -172,7 +171,7 @@ class ReductionToleranceTests(unittest.TestCase):
 
     def test_reduction_idempotent_and_ancestry_consistent_for_ties(self):
         for _, fixture, _ in variants():
-            forest = build(fixture, keep_simplex_diff=True)
+            forest = build(fixture, storage="cycles")
             before = copy.deepcopy(forest.nodes)
             with redirect_stdout(io.StringIO()):
                 forest._reduce_forest()
@@ -212,7 +211,7 @@ class ReductionToleranceTests(unittest.TestCase):
         tau = 2. ** -20
         for gap in (tau / 2, tau, 2 * tau):
             forest = build(fan().changed({(1, 3): 2 + gap}), filtration_tol=tau,
-                           keep_simplex_diff=True, diff_only_mode=True)
+                           storage="diffs")
             for bar in forest.barcode:
                 actual = reps(forest, bar)
                 self.assertEqual(actual[0].active_start, bar.birth)

@@ -71,7 +71,7 @@ with warnings.catch_warnings():
     forest = PersistenceForest(points, filtration=filtration)
 bar, = forest.barcode
 assert (bar.birth, bar.death) == (2, 6)
-assert signed_chain_edge_length(bar.cycle_at_filtration_value(3), forest.point_cloud) == 12
+assert signed_chain_edge_length(forest.cycle_for_bar_at(bar, 3), forest.point_cloud) == 12
 family = forest.compute_measurement_landscapes(
     cycle_func=signed_chain_edge_length, max_k=1, x_grid=[2, 3, 4, 5, 6], label='length')
 assert family.evaluate_on_grid().shape == (1, 5)

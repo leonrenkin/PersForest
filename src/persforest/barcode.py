@@ -66,7 +66,7 @@ class PFBar:
         ------
         ValueError
             If ``filt_val`` lies outside the lifespan, no representative is
-            active, or representatives were not stored (as in diff-only mode).
+            active, or representatives were not stored (``storage="diffs"``).
         """
 
         if filt_val < self.birth:
@@ -76,7 +76,7 @@ class PFBar:
         if not self.cycle_reps or any(cycle is None for cycle in self.cycle_reps):
             raise ValueError(
                 "This bar has no stored cycle representative (possibly because "
-                "PersistenceForest was built with diff_only_mode=True). "
+                'PersistenceForest was built with storage="diffs"). '
                 "Use forest.cycle_for_bar_at(bar, filt_val) instead."
             )
 

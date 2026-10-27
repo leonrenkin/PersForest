@@ -49,7 +49,7 @@ class MeasurementProfileTests(unittest.TestCase):
         self.assertEqual(empty.evaluate_on_grid(np.array([0., 1.])).shape, (0, 2))
 
     def test_spy_is_called_once_per_representative_without_mutation(self):
-        forest = build(fan())
+        forest = build(fan(), storage="cycles")
         snapshots = [deepcopy(bar.cycle_reps) for bar in forest.barcode]
         spy = Mock(side_effect=signed_chain_edge_length)
         profiles = compute_measurement_profiles(forest, spy, 'length', signed=True)
@@ -96,7 +96,7 @@ class MeasurementProfileTests(unittest.TestCase):
             StepFunctionData(np.array([0., 1.]), np.array([1.]), np.array([1., 2.]), 0, (0, 2))
 
     def test_diff_only_profile_order_matches_literal_intervals(self):
-        forest = build(fan(), diff_only_mode=True, keep_simplex_diff=True)
+        forest = build(fan(), storage="diffs")
         profiles = compute_measurement_profiles(forest, signed_chain_area, 'area', signed=True)
         bar = next(b for b in forest.barcode if b.birth == 1)
         np.testing.assert_array_equal(profiles[bar].starts, [1, 2, 3, 4])

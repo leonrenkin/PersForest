@@ -93,7 +93,7 @@ class PlottingContractTests(unittest.TestCase):
         np.testing.assert_allclose(ax.lines[1].get_ydata(), 2 * ax.lines[0].get_ydata())
 
     def test_interior_activity_rows_faces_and_real_artists(self):
-        forest = build(split(), keep_simplex_diff=True, compute_interior=True)
+        forest = build(split(), storage="cycles")
         rows = _activity_rows_for_plotting(forest, 'layer', 0)
         self.assertEqual(sorted((s, b.birth, length) for s, b, length in rows),
                          [((0, 1, 2), 1, 2), ((0, 1, 2), 3, 2), ((0, 1, 3), 1, 6)])

@@ -10,7 +10,7 @@ from fixtures_small_filtrations import build, disconnected, fan, split, tetrahed
 def nested_forest() -> PersistenceForest:
     """Build a bookkeeping tree with unary paths and a three-child merge."""
     forest = object.__new__(PersistenceForest)
-    forest.keep_simplex_diff = True
+    forest.storage = "diffs"
     forest._barcode_computed = False
     forest.barcode = set()
     parents = {1: 8, 2: 7, 3: 5, 4: 6, 5: 7, 6: 7, 7: 8, 8: 9, 9: None}
@@ -88,9 +88,9 @@ class BarcodeDiffAccumulationTests(unittest.TestCase):
     def test_literal_representatives_and_interiors_across_modes(self):
         for fixture in (split(), fan(), disconnected(shift_time=1), tetrahedra()):
             for reduce in (False, True):
-                for options in ({'diff_only_mode': True}, {}, {'compute_interior': True}):
-                    with self.subTest(fixture=fixture.points.tolist(), reduce=reduce, options=options):
-                        forest = build(fixture, reduce=reduce, keep_simplex_diff=True, **options)
+                for storage in ('diffs', 'cycles'):
+                    with self.subTest(fixture=fixture.points.tolist(), reduce=reduce, storage=storage):
+                        forest = build(fixture, reduce=reduce, storage=storage)
                         actual = sorted(forest.barcode, key=lambda bar: (bar.birth, bar.death))
                         expected = sorted(fixture.expected, key=lambda bar: (bar[0], bar[1]))
                         self.assertEqual(len(actual), len(expected))
@@ -102,8 +102,7 @@ class BarcodeDiffAccumulationTests(unittest.TestCase):
                                 self.assertEqual((rep.active_start, rep.active_end),
                                                  (expected_rep.start, expected_rep.end))
                                 self.assertEqual(rep.signed_simplices, expected_rep.simplices)
-                                if options:
-                                    self.assertEqual(rep.interior, expected_rep.interior)
+                                self.assertEqual(rep.interior, expected_rep.interior)
 
 
 if __name__ == '__main__':

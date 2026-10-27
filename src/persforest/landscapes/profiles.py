@@ -158,20 +158,27 @@ class MeasurementProfiles:
             raise ValueError("Measurement profiles do not match this forest and bar; recompute profiles")
 
 
+def _measurement_geometry(forest):
+    """Return the second measurement argument: ``forest.geometry`` or, for generic
+    forest-like inputs without it, ``forest.point_cloud``."""
+    geometry = getattr(forest, "geometry", None)
+    return forest.point_cloud if geometry is None else geometry
+
+
 def _build_step_function_data(
     forest: object, bar: Any, cycle_func: CycleValueFunc, baseline: float = 0.0,
 ) -> StepFunctionData:
     """Measure descending representatives once and store ascending [start,end) data.
 
     Callbacks borrow representatives and coordinates and must not mutate them.
-    Only scalar records are retained, including in diff-only reconstruction.
+    Only scalar records are retained, including when representatives are reconstructed from diffs.
     """
     require_computed_barcode(forest)
     if bar not in forest.barcode:
         raise ValueError("Bar is not in barcode of forest")
     records = []
     for cycle in forest.iter_bar_cycle_reps(bar):
-        value = cycle_func(cycle, forest.point_cloud)
+        value = cycle_func(cycle, _measurement_geometry(forest))
         if not np.isscalar(value) or np.iscomplexobj(value):
             raise ValueError("Measurements must return a real scalar")
         records.append((cycle.active_start, cycle.active_end, float(value)))

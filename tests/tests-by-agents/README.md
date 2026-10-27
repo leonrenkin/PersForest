@@ -58,10 +58,17 @@ outside the checkout and checks minimum direct dependency versions on Python 3.1
   filtration ties, and half-open activity intervals.
 - Custom-filtration canonical vertex order and rejection of simplices above the
   ambient dimension (`test_manual_filtration_validation.py`).
-- The internal cell-filtration contract: simplicial boundaries, engine imports
-  limited to cell-neutral modules, and a test-only cubical grid whose barcodes
-  match `gudhi.CubicalComplex` and whose representatives are bounded cycles in
-  every storage mode (`test_cell_interface.py`).
+- The internal cell-filtration contract: simplicial and cubical boundaries and
+  engine imports limited to cell-neutral modules (`test_cell_interface.py`).
+- Construction factories, their equivalence with the shorthand constructor, and
+  Delaunay–Čech barcodes against GUDHI's own persistence (`test_construction_factories.py`).
+- Cubical grids in 1D–4D for both conventions against `gudhi.CubicalComplex`,
+  bounded representatives, hand cases, transposition, geometry and validation
+  (`test_cubical_grid.py`); cubical measurements, landscapes, supported plots
+  and explicit plot gating (`test_cubical_capabilities.py`).
+- Both storage options (`storage="diffs"` default, `"cycles"`), including
+  animations rendered from reconstructed representatives
+  (`test_diff_only_cycle_queries.py`, `test_barcode_readiness.py`).
 - Golden snapshots of bars, representatives, interiors and interior activity for
   small fixtures and seeded alpha clouds in every storage mode
   (`test_engine_golden.py`). Regenerate `data/engine_golden.json` with

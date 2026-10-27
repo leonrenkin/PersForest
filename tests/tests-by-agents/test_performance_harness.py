@@ -7,6 +7,7 @@ import contextlib
 import io
 import hashlib
 import json
+import math
 from pathlib import Path
 import sys
 import tempfile
@@ -27,6 +28,7 @@ def _load(name, filename):
 
 
 runner = _load("performance_runner_test", "run.py")
+cubical = _load("performance_cubical_test", "cubical.py")
 sampling = _load("performance_sampling_test", "sampling.py")
 with patch.dict(sys.modules, {"run": runner}):
     plotting = _load("performance_plotting_test", "plot.py")
@@ -74,10 +76,10 @@ class PerformanceHarnessTests(unittest.TestCase):
                  contextlib.redirect_stdout(io.StringIO()):
                 with patch.object(sys, "argv", arguments + ["--run"]):
                     runner.main()
-                self.assertEqual(supervisor.call_count, 4)
+                self.assertEqual(supervisor.call_count, 2)
                 with patch.object(sys, "argv", arguments + ["--run", "--resume"]):
                     runner.main()
-                self.assertEqual(supervisor.call_count, 4)
+                self.assertEqual(supervisor.call_count, 2)
                 with patch.object(sys, "argv", arguments + ["--run", "--resume", "--grid-points", "256"]), \
                      contextlib.redirect_stderr(io.StringIO()):
                     with self.assertRaises(SystemExit):
@@ -86,8 +88,8 @@ class PerformanceHarnessTests(unittest.TestCase):
     def test_schedule_and_pairing(self):
         cases = runner.build_cases(_config())
         # Six 2D sizes and seven 3D sizes, each with three samplers,
-        # three repetitions and four storage modes.
-        self.assertEqual(len(cases), (6 + 7) * 3 * 3 * 4)
+        # three repetitions and two storage modes.
+        self.assertEqual(len(cases), (6 + 7) * 3 * 3 * 2)
         self.assertEqual(len({case["case_id"] for case in cases}), len(cases))
         self.assertEqual(cases, runner.build_cases(_config()))
         expected_sizes = {
@@ -104,13 +106,33 @@ class PerformanceHarnessTests(unittest.TestCase):
         landscape = runner.build_cases(_config("landscapes"))
         self.assertTrue(all(case["functional"] != "edge_length" for case in landscape if case["dim"] == 3))
         extension = runner.build_cases(_config("diff-scaling"))
-        self.assertEqual({case["mode"] for case in extension}, {"diff_only_mode"})
+        self.assertEqual({case["mode"] for case in extension}, {"diffs"})
         self.assertGreater(max(case["n_points"] for case in extension if case["dim"] == 3), 25000)
 
         custom = runner.build_cases(dict(_config(), sizes_2d=[150000], sizes_3d=[25000]))
-        self.assertEqual(len(custom), 2 * 3 * 3 * 4)
+        self.assertEqual(len(custom), 2 * 3 * 3 * 2)
         self.assertEqual({(case["dim"], case["n_points"]) for case in custom},
                          {(2, 150000), (3, 25000)})
+
+    def test_cubical_benchmark_cases_and_preview(self):
+        cases = cubical.build_cases(cubical.SHAPES, repeats=2, base_seed=12345)
+        self.assertEqual(cases, cubical.build_cases(cubical.SHAPES, repeats=2, base_seed=12345))
+        self.assertTrue(all(math.prod(c["shape"]) <= cubical.CYCLES_MAX_CELLS
+                            for c in cases if c["storage"] == "cycles"))
+        self.assertEqual(len({(tuple(c["shape"]), c["noise"], c["repeat"], c["seed"]) for c in cases}),
+                         len(cubical.SHAPES) * 2 * 2)
+        values = np.random.default_rng(0).random((12, 9))
+        smooth = cubical.smoothed(values)
+        self.assertEqual(smooth.shape, values.shape)
+        self.assertLess(smooth.std(), values.std())
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "out"
+            with patch.object(sys, "argv", ["cubical.py", "--output", str(output)]), \
+                 patch.object(cubical.subprocess, "run") as launched, \
+                 contextlib.redirect_stdout(io.StringIO()):
+                cubical.main()
+            launched.assert_not_called()
+            self.assertFalse(output.exists())
 
     def test_sampler_shape_seed_and_global_rng(self):
         before = np.random.get_state()
@@ -158,10 +180,10 @@ class PerformanceHarnessTests(unittest.TestCase):
                 self.simplex_tree = gudhi.AlphaComplex(points).create_simplex_tree(output_squared_values=False)
                 self._compute_forest()
                 self._reduce_forest()
-                if not kwargs.get("diff_only_mode"):
+                if kwargs["storage"] == "cycles":
                     self._compute_loop_activity()
-                self._compute_barcode_diff() if kwargs.get("keep_simplex_diff") else self._compute_barcode_cycles()
-                if kwargs.get("compute_interior"):
+                self._compute_barcode_diff()
+                if kwargs["storage"] == "cycles":
                     self._add_interior_to_barcode()
                 self.barcode = [SimpleNamespace(birth=0.1, death=0.5)]
                 self.nodes = {1: None}
@@ -175,9 +197,6 @@ class PerformanceHarnessTests(unittest.TestCase):
 
             def _compute_loop_activity(self):
                 calls.append("activity")
-
-            def _compute_barcode_cycles(self):
-                calls.append("cycles")
 
             def _compute_barcode_diff(self):
                 calls.append("diff")
@@ -207,8 +226,8 @@ class PerformanceHarnessTests(unittest.TestCase):
                 self.assertEqual(result["status"], "ok")
                 self.assertEqual(calls.count("forest"), 1)
                 self.assertEqual(calls.count("landscape"), 1)
-                self.assertEqual("interior" in calls, case["mode"] == "compute_interior")
-                self.assertEqual("activity" in calls, case["mode"] != "diff_only_mode")
+                self.assertEqual("interior" in calls, case["mode"] == "cycles")
+                self.assertEqual("activity" in calls, case["mode"] == "cycles")
                 self.assertAlmostEqual(result["time_to_barcode_s"], result["time_alpha_s"] +
                                        result["time_forest_s"] + result["time_barcode_with_interior_s"])
                 self.assertAlmostEqual(result["time_pipeline_s"], result["time_to_barcode_s"] + result["time_landscape_s"])
@@ -254,7 +273,7 @@ class PerformanceHarnessTests(unittest.TestCase):
         self.assertEqual(sum(row["n_incomplete"] for row in plotting.summarize(rows)), 1)
         paired = plotting.paired_ratios(rows)
         self.assertEqual(len(paired), 2)
-        self.assertTrue(all(row["time_forest_s_standard_over_diff"] == 1 for row in paired))
+        self.assertTrue(all(row["time_forest_s_cycles_over_diffs"] == 1 for row in paired))
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)
             paths = plotting.make_plots(rows, output, 32)

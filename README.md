@@ -101,34 +101,93 @@ Run the script quickstart with:
 python examples/pers_forest_example.py
 ```
 
-## Filtrations and activity intervals
+## Filtrations
 
-The default filtration for a point cloud is the alpha filtration with radius values.
+Every filtration is created through a factory on `PersistenceForest`; all
+factories accept the same options (`storage`, `reduce`, `compute_barcode`,
+`filtration_tol`, `print_info`) and return the same type.
 
-To supply a custom filtration, 
-use `PersistenceForest(point_cloud, filtration=ordered_pairs)`, 
-where each pair is `(simplex_vertex_indices, filtration_value)`. 
-Vertex indices refer to rows of `point_cloud`. 
-Simplices are stored with increasing vertex order; orientations come from the
-point coordinates, so the vertex order of the input does not matter.
-Simplices of higher dimension than the ambient space are rejected.
-The algorithm requires geometric embeddedness and a terminal
-complex with trivial homology groups. 
-These geometric and topological conditions are not checked for custom filtrations; 
-the constructor emits a warning that results are meaningless if they fail.
+| Input | Factory | `filtration_type` | Units |
+| --- | --- | --- | --- |
+| Point cloud | `PersistenceForest.from_points(points)` | `"alpha"` (default), `"delaunay_cech"` | radius |
+| Point cloud + simplices | `PersistenceForest.from_simplicial_filtration(points, filtration)` | `"custom_simplicial"` | as given |
+| Grid values | `PersistenceForest.from_cubical_grid(values)` | `"top_cells"` (default), `"vertices"` | grid values |
 
-## Difference storage and interior activity
+`PersistenceForest(points, ...)` is shorthand for `from_points(points)` with
+the alpha filtration, or for `from_simplicial_filtration` when `filtration=` is
+given. Each forest records `forest.filtration_type` and `forest.filtration_units`.
+The tracked homology has dimension `dim - 1`: H1 of a 2D point cloud or image,
+H2 of a 3D point cloud or volume.
 
-Use `keep_simplex_diff=True` to retain simplex additions and removals.
-`diff_only_mode=True` stores simplex additions and removals, which drastically reduces memory usage.
-Forest-level cycle queries and static filtration and barcode-cycle plots support diff-only mode.
-Animation methods raise an error in diff-only mode because reconstructing cycles for every frame can be slow.
-With `compute_interior=True`, interior simplices are stored for all cycle representatives.
-Both `diff_only_mode=True` and `compute_interior=True` set  `keep_simplex_diff=True`.
+**Delaunay–Čech** uses the Delaunay complex of the alpha filtration, but a
+simplex enters at the radius of its minimal enclosing ball instead of its
+smallest empty circumscribing ball.
 
-With `keep_simplex_diff=True`,
-`forest.interior_simplex_activity()` returns the active interior intervals for each full-dimensional simplex. 
-Visualize them with
+**Custom simplicial filtrations** are ordered `(simplex_vertex_indices,
+filtration_value)` pairs with finite, nondecreasing values and every face before
+its cofaces. Vertex indices refer to rows of `points`. Simplices are stored with
+increasing vertex order; orientations come from the point coordinates, so the
+vertex order of the input does not matter. Simplices of higher dimension than
+the ambient space are rejected. The algorithm requires geometric embeddedness and
+a terminal complex with trivial homology groups. These conditions are not
+checked; a warning states that results are meaningless if they fail.
+
+**Cubical grids** accept finite arrays with any number of axes on a full
+rectangular grid:
+
+- `filtration_type="top_cells"` (default, GUDHI's `top_dimensional_cells`):
+  each entry is a pixel or voxel, and a face enters at the minimum of its
+  incident top cells.
+- `filtration_type="vertices"` (GUDHI's `vertices`): each entry is a vertex, and
+  a cell enters at the maximum of its vertices (lower-star filtration).
+
+Cells are tuples of doubled coordinates in array-axis order: odd entries mark the
+axes a cell extends along, so `(3, 3)` is pixel `(1, 1)` and `(2, 3)` the edge
+between pixels `(0, 1)` and `(1, 1)`. Orientations follow the array-axis frame,
+so transposing an image reverses signed orientations. `spacing` and `origin`
+place the grid physically in `forest.geometry`. Masks, missing values and
+periodic grids are not supported.
+
+```python
+forest = PersistenceForest.from_cubical_grid(image, spacing=(0.5, 0.5))
+from persforest.measurements.cubical import cubical_chain_volume, cubical_chain_interior_volume
+family = forest.compute_measurement_landscapes(cubical_chain_interior_volume, "area")
+```
+
+| Capability | Point clouds | Cubical grids |
+| --- | --- | --- |
+| Barcode, representatives, interiors, interior activity | yes | yes |
+| Measurement profiles and landscapes | `persforest.measurements.basic`, `.shape` | `persforest.measurements.cubical`, `constant_one_functional` |
+| `plot_barcode`, `plot_persistence_forest`, measurement plots | yes | yes |
+| Filtration, cycle and interior plots; animations | 2D and 3D | not yet (raise `NotImplementedError`) |
+
+Measurements are callables `(chain, geometry)`, where `geometry` is
+`forest.geometry`: the point array for point clouds, a `CubicalGeometry` for
+grids. Point-cloud measurements raise a `TypeError` when given a grid.
+
+Representatives use half-open activity intervals `[active_start, active_end)`:
+birth is included and death is excluded.
+
+## Representative storage and interior activity
+
+`storage="diffs"` (the default) stores, for every forest node, the cells that
+enter or leave its cycle representative. Representatives and their interiors are
+reconstructed on demand. This is faster to build and uses less memory than
+storing every representative.
+
+`storage="cycles"` additionally stores every representative with its interior.
+Use it when you query many single filtration values or render long animations:
+`cycle_for_bar_at` and `active_cycles_at` replay a bar's diffs from its birth
+with `storage="diffs"`, whereas iterating all representatives of a bar (as
+measurement landscapes do) costs little extra.
+
+Obtain representatives with `forest.iter_bar_cycle_reps(bar)` or
+`forest.cycle_for_bar_at(bar, value)`; these work with either storage. The
+attributes `bar.cycle_reps` and `node.cycle` are only filled with
+`storage="cycles"`.
+
+`forest.interior_simplex_activity()` returns the active interior intervals for
+each full-dimensional simplex. Visualize them with
 `forest.plot_interior_simplex_activity()` or
 `forest.plot_interior_simplex_activity_plotly()`.
 
@@ -204,7 +263,7 @@ methods remain convenient label-based entry points.
 - `src/persforest/forest.py` - public facade, construction orchestration and delegates.
 - `src/persforest/chains.py`, `barcode.py`, `_forest/graph_model.py` - canonical domain objects.
 - `src/persforest/_forest/` - construction, queries, reduction, barcode extraction and representative access.
-- `src/persforest/filtrations/` - input adapters behind the internal cell-filtration interface (`_interface.py`); `geometry/` - orientation and geometry.
+- `src/persforest/filtrations/` - input adapters behind the internal cell-filtration interface (`_interface.py`): `delaunay.py`, `simplicial.py`, `cubical.py`; `geometry/` - simplicial orientation, planar and cubical geometry.
 - `src/persforest/measurements/`, `landscapes/` - measurements and numerical landscapes.
 - `src/persforest/plotting/` - rendering, shared scenes, colors and animation.
 - `src/persforest/plotting/animation/` - animation dispatch, filtration and measurement renderers, timing, layout and export.

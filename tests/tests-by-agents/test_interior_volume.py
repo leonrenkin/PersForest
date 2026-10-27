@@ -31,7 +31,7 @@ class InteriorVolumeTests(unittest.TestCase):
     def test_missing_interior_and_wrong_dimension(self):
         for available, interior in ((False, None), (False, set()), (True, None)):
             chain = SignedChain(set(), interior_available=available, interior=interior)
-            with self.assertRaisesRegex(ValueError, "compute_interior=True.*diff_only_mode=True"):
+            with self.assertRaisesRegex(ValueError, "iter_bar_cycle_reps"):
                 signed_chain_interior_volume(chain, np.eye(3))
         chain = SignedChain(set(), interior_available=True, interior={((0, 1), 1)})
         with self.assertRaisesRegex(ValueError, "full-dimensional"):
@@ -39,8 +39,8 @@ class InteriorVolumeTests(unittest.TestCase):
 
     def test_measurement_profiles_match_in_both_modes(self):
         points = np.random.default_rng(42).random((30, 3))
-        full = PersistenceForest(points, keep_simplex_diff=True, compute_interior=True)
-        diff = PersistenceForest(points, keep_simplex_diff=True, diff_only_mode=True)
+        full = PersistenceForest(points, storage="cycles")
+        diff = PersistenceForest(points, storage="diffs")
         results = []
         for forest in (full, diff):
             bf = compute_measurement_profiles(forest, signed_chain_interior_volume, "volume", signed=True)

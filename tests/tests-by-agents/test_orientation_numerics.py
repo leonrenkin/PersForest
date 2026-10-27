@@ -50,8 +50,8 @@ class OrientationNumericsTests(unittest.TestCase):
                       for simplex in combinations(range(3), size)]
         for height in (0., 1e-14):
             points = np.array([[0., 0], [1, 0], [2, height]])
-            for options in ({}, {'keep_simplex_diff': True},
-                            {'diff_only_mode': True, 'keep_simplex_diff': True}):
+            for options in ({}, {'storage': 'cycles'},
+                            {'storage': 'diffs'}):
                 with self.subTest(height=height, options=options), warnings.catch_warnings():
                     warnings.simplefilter('ignore', UserWarning)
                     with self.assertRaisesRegex(ValueError, r'simplex \(0, 1, 2\)'):

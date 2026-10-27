@@ -50,10 +50,8 @@ def _collapse_parent_child(self, parent: PFNode, child: PFNode):
     del self.nodes[child.id]
 
     #update node simplex diffs
-    if self.keep_simplex_diff:
-
-        parent._interior_diff = union_optional_sets(parent._interior_diff, child._interior_diff)
-        parent._codim1_simplex_diff = union_optional_sets(parent._codim1_simplex_diff, child._codim1_simplex_diff)
+    parent._interior_diff = union_optional_sets(parent._interior_diff, child._interior_diff)
+    parent._codim1_simplex_diff = union_optional_sets(parent._codim1_simplex_diff, child._codim1_simplex_diff)
 
     #if parent is now isolated point in forest, delete it from forest completely
     if len(parent.children)==0 and parent.parent == None:
@@ -139,7 +137,7 @@ def _normalize_roots(self) -> None:
         Non-root node order is preserved for barcode tie-breaking.
 
         Root diffs are empty because a root represents exactly its child,
-        including in diff-only mode, where both stored cycles are ``None``.
+        including with ``storage="diffs"``, where both stored cycles are ``None``.
         Existing unary roots are normalized too, since collapse can change
         their child. Repeating this operation leaves the forest unchanged.
         """
@@ -161,7 +159,7 @@ def _normalize_roots(self) -> None:
 
             child_root.children = {child_id}
             child_root.cycle = child.cycle
-            child_root._simplex_diff_available = self.keep_simplex_diff
+            child_root._simplex_diff_available = True
             child_root._interior_diff = None
             child_root._codim1_simplex_diff = None
             child_root._barcode_interior_diff = None

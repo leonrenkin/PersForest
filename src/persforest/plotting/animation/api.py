@@ -113,12 +113,6 @@ def animate_filtration(
             - 3D MP4 path: output filename string.
             - 3D HTML path: Plotly figure.
         """
-    if self.diff_only_mode:
-        raise ValueError(
-            "Animations are unavailable with diff_only_mode=True because "
-            "reconstructing cycles for every frame can be slow. "
-            "Build the forest with diff_only_mode=False to animate it."
-        )
     from pathlib import Path
     from persforest.plotting.animation.filtration import _animate_filtration_generic
     from persforest.plotting.animation._layout import _validate_radius_box_corner
@@ -387,12 +381,6 @@ def animate_barcode_measurement(
             :class:`matplotlib.animation.FuncAnimation` and ``fig`` is the
             underlying figure.
         """
-    if self.diff_only_mode:
-        raise ValueError(
-            "Animations are unavailable with diff_only_mode=True because "
-            "reconstructing cycles for every frame can be slow. "
-            "Build the forest with diff_only_mode=False to animate it."
-        )
     from persforest.plotting.animation.measurements import animate_barcode_measurement_generic
     from copy import deepcopy
 

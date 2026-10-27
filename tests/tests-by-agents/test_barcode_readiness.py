@@ -10,79 +10,68 @@ from test_interior_simplex_activity import split_forest
 
 
 class BarcodeReadinessTests(unittest.TestCase):
-    def test_dispatch_marks_only_completed_diff_barcodes_ready(self):
-        for options in ({}, {"keep_simplex_diff": True}, {"diff_only_mode": True},
-                        {"keep_simplex_diff": True, "compute_interior": True}):
-            with self.subTest(options=options):
-                forest = split_forest(**options)
+    def test_dispatch_marks_completed_barcodes_ready(self):
+        for storage in ("diffs", "cycles"):
+            with self.subTest(storage=storage):
+                forest = split_forest(storage=storage)
                 self.assertTrue(forest._barcode_computed)
-                self.assertEqual(forest._barcode_diffs_ready, forest.keep_simplex_diff)
-                before = forest._barcode_diffs_ready
+                self.assertTrue(forest._barcode_diffs_ready)
                 with self.assertRaisesRegex(RuntimeError, "already been called"):
                     forest.compute_barcode()
-                self.assertEqual(forest._barcode_diffs_ready, before)
+                self.assertTrue(forest._barcode_diffs_ready)
 
     def test_empty_and_delayed_results_have_explicit_readiness(self):
-        forest = PersistenceForest(np.empty((0, 2)), keep_simplex_diff=True,
-                                   compute_barcode=False)
-        self.assertFalse(forest._barcode_diffs_ready)
-        for query in (forest.interior_simplex_activity, forest._add_interior_to_barcode):
-            with self.assertRaisesRegex(RuntimeError, "call compute_barcode"):
-                query()
-        forest.compute_barcode()
-        self.assertTrue(forest._barcode_diffs_ready)
-        self.assertEqual(forest.interior_simplex_activity(), {})
-        forest._add_interior_to_barcode()
+        for storage in ("diffs", "cycles"):
+            with self.subTest(storage=storage):
+                forest = PersistenceForest(np.empty((0, 2)), storage=storage, compute_barcode=False)
+                self.assertFalse(forest._barcode_diffs_ready)
+                with self.assertRaisesRegex(RuntimeError, "call compute_barcode"):
+                    forest.interior_simplex_activity()
+                forest.compute_barcode()
+                self.assertTrue(forest._barcode_diffs_ready)
+                self.assertEqual(forest.interior_simplex_activity(), {})
 
-        eager = PersistenceForest(np.empty((0, 2)), keep_simplex_diff=True,
-                                  compute_barcode=False)
-        eager._compute_barcode_cycles()
-        with self.assertRaisesRegex(RuntimeError, "computed from simplex diffs"):
-            eager.interior_simplex_activity()
-
-    def test_eager_builder_rejects_interior_consumers_before_mutation(self):
-        forest = split_forest(keep_simplex_diff=True, compute_barcode=False)
-        forest._compute_barcode_cycles()
-        bar = next(iter(forest.barcode))
-        reps = list(forest.iter_bar_cycle_reps(bar))
-        self.assertTrue(reps)  # Stored boundary representatives remain usable.
-        before = [(rep.interior_available, rep.interior) for rep in reps]
-        for query in (forest.interior_simplex_activity, forest._add_interior_to_barcode,
-                      lambda: forest._add_interior_to_bar(bar)):
-            with self.assertRaisesRegex(RuntimeError, "computed from simplex diffs"):
-                query()
-        self.assertEqual([(rep.interior_available, rep.interior) for rep in reps], before)
-
-    def test_diff_only_reconstruction_rejects_eager_builder(self):
-        forest = split_forest(diff_only_mode=True, compute_barcode=False)
-        forest._compute_barcode_cycles()
-        bar = next(iter(forest.barcode))
-        with self.assertRaisesRegex(RuntimeError, "computed from simplex diffs"):
-            list(forest.iter_bar_cycle_reps(bar))
-        with self.assertRaisesRegex(RuntimeError, "computed from simplex diffs"):
-            forest.cycle_for_bar_at(bar, bar.birth)
+    def test_delayed_cycles_storage_attaches_interiors(self):
+        delayed = split_forest(storage="cycles", compute_barcode=False)
+        with self.assertRaisesRegex(RuntimeError, "call compute_barcode"):
+            delayed._add_interior_to_barcode()
+        delayed.compute_barcode()
+        eager = split_forest(storage="cycles")
+        snapshot = lambda forest: sorted(
+            (bar.birth, bar.death, [(r.active_start, r.active_end, frozenset(r.interior))
+                                    for r in bar.cycle_reps])
+            for bar in forest.barcode)
+        self.assertTrue(all(r.interior_available for bar in delayed.barcode for r in bar.cycle_reps))
+        self.assertEqual(snapshot(delayed), snapshot(eager))
 
     def test_failed_builder_does_not_publish_readiness(self):
-        forest = split_forest(keep_simplex_diff=True, compute_barcode=False)
+        forest = split_forest(storage="cycles", compute_barcode=False)
         with patch.object(forest, "get_root", side_effect=RuntimeError("interrupted")):
             with self.assertRaisesRegex(RuntimeError, "interrupted"):
                 forest.compute_barcode()
         self.assertFalse(forest._barcode_computed)
         self.assertFalse(forest._barcode_diffs_ready)
 
-    def test_only_internal_builders_are_available_and_used_by_dispatch(self):
-        for diffs, name in ((False, "_compute_barcode_cycles"), (True, "_compute_barcode_diff")):
-            with self.subTest(diffs=diffs):
-                self.assertFalse(hasattr(PersistenceForest, name[1:]))
-                original = getattr(PersistenceForest, name)
-                with patch.object(PersistenceForest, name, autospec=True,
+    def test_only_internal_builder_is_available_and_used_by_dispatch(self):
+        self.assertFalse(hasattr(PersistenceForest, "_compute_barcode_cycles"))
+        self.assertFalse(hasattr(PersistenceForest, "compute_barcode_diff"))
+        for storage in ("diffs", "cycles"):
+            with self.subTest(storage=storage):
+                original = PersistenceForest._compute_barcode_diff
+                with patch.object(PersistenceForest, "_compute_barcode_diff", autospec=True,
                                   side_effect=original) as internal:
-                    forest = split_forest(keep_simplex_diff=diffs)
+                    forest = split_forest(storage=storage)
                     internal.assert_called_once_with(forest, print_info=False)
-                delayed = split_forest(keep_simplex_diff=diffs, compute_barcode=False)
-                with patch.object(delayed, name, wraps=getattr(delayed, name)) as internal:
+                delayed = split_forest(storage=storage, compute_barcode=False)
+                with patch.object(delayed, "_compute_barcode_diff",
+                                  wraps=delayed._compute_barcode_diff) as internal:
                     delayed.compute_barcode()
                     internal.assert_called_once_with(print_info=False)
+
+    def test_invalid_storage_is_rejected(self):
+        for storage in ("stored", None, "diff_only"):
+            with self.subTest(storage=storage), self.assertRaisesRegex(ValueError, "storage must be"):
+                PersistenceForest(np.empty((0, 2)), storage=storage)
 
 
 if __name__ == "__main__":

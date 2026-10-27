@@ -8,9 +8,9 @@ only prints a plan.** No calibration or warm-up benchmark runs implicitly.
 
 | Suite | Modes | 2D sizes | 3D sizes |
 | --- | --- | --- | --- |
-| `barcode` | all four | 1k, 5k, 10k, 25k, 50k, 100k | 500, 1k, 2.5k, 5k, 10k, 15k, 20k |
-| `diff-scaling` | diff-only | 150k, 200k, 300k, 400k | 20k, 25k, 50k, 75k |
-| `landscapes` | all four × two functionals | 500, 1k, 2.5k, 5k, 10k, 20k | 250, 500, 1k, 2.5k, 5k |
+| `barcode` | both | 1k, 5k, 10k, 25k, 50k, 100k | 500, 1k, 2.5k, 5k, 10k, 15k, 20k |
+| `diff-scaling` | `diffs` | 150k, 200k, 300k, 400k | 20k, 25k, 50k, 75k |
+| `landscapes` | both × two functionals | 500, 1k, 2.5k, 5k, 10k, 20k | 250, 500, 1k, 2.5k, 5k |
 
 The old benchmark used maxima of 200k / 50k with 10 repeats. The new common
 schedule is smaller to accommodate interiors, especially in 3D. These are
@@ -23,12 +23,15 @@ your machine's results.
 Modes use the production constructor, with `reduce=True`, radius-unit alpha
 filtration values, `filtration_tol=1e-12`, and normal barcode dispatch:
 
-| Name | Constructor flags |
+| Name | Constructor option |
 | --- | --- |
-| `standard` | defaults |
-| `keep_simplex_diff` | `keep_simplex_diff=True` |
-| `compute_interior` | `keep_simplex_diff=True, compute_interior=True` |
-| `diff_only_mode` | `keep_simplex_diff=True, diff_only_mode=True` |
+| `diffs` | `storage="diffs"` (default) |
+| `cycles` | `storage="cycles"` |
+
+Results saved before the storage option was introduced use the former mode
+names (`standard`, `keep_simplex_diff`, `compute_interior`, `diff_only_mode`).
+`compute_interior` corresponds to `cycles` and `diff_only_mode` to `diffs`;
+`compare_runs.py` pairs cases by mode name, so it does not pair old and new runs.
 
 All suites default to three independently seeded repetitions and three cloud
 families per dimension: uniform unit cube, noisy unit circle/sphere (coordinate
@@ -49,7 +52,7 @@ with bounded rejection batches. The old files are unchanged.
 
 ## Run from the repository root
 
-Preview the complete comparison (468 cases by default):
+Preview the complete comparison (234 cases by default):
 
 ```sh
 .venv/bin/python benchmarks/performance/run.py --suite barcode
@@ -76,11 +79,11 @@ Then run the experiments separately:
   --output benchmarks/performance/results/diff-scaling --run
 ```
 
-For 2D only, add `--dimensions 2`. To extend the four-mode comparison to your
+For 2D only, add `--dimensions 2`. To extend the two-mode comparison to your
 upper requested sizes, use `--sizes-2d 100000 150000 200000 --sizes-3d 20000 25000`
 in a **new output directory**. `--modes`, `--samplers`, `--repeats`,
 `--base-seed`, `--grid-points`, and `--max-k` are configurable; see `--help`.
-The diff-scaling suite always selects diff-only, regardless of `--modes`.
+The diff-scaling suite always selects `diffs`, regardless of `--modes`.
 
 Resume using the **same command and configuration**, adding `--resume`.
 Completed and failed/skipped records are retained. Add `--retry-failed` to
@@ -219,12 +222,12 @@ MPLCONFIGDIR=/tmp/persforest-benchmark-mpl .venv/bin/python benchmarks/performan
 
 Each run gets a `plots/` directory containing PDF/PNG runtime and memory scaling,
 phase times, alpha/landscape percentages, completion fractions, and matched
-standard/diff-only ratios (values above one favor diff-only). Landscape plots
+cycles/diffs ratios (values above one favor diffs). Landscape plots
 also compare functionals directly. `summary.csv` contains median/min/max and
 success counts; `paired_ratios.csv` contains ratios for identical successful
 cloud/functional/repeat pairs; `failures.csv` lists unsuccessful cases when any
-exist. Plots never pool distinct manifests or mix the extended diff-only
-schedule into four-mode aggregates. Diff-scaling overlaps the common schedule
+exist. Plots never pool distinct manifests or mix the extended `diffs`
+schedule into two-mode aggregates. Diff-scaling overlaps the common schedule
 at its endpoints to support later comparisons.
 
 Review completion plots and sample counts with timing curves: successful-only
@@ -249,3 +252,18 @@ MPLBACKEND=Agg MPLCONFIGDIR=/tmp/persforest-benchmark-mpl \
 These tests use small sampler arrays, mocked scientific stages, and synthetic
 plot records. They do not construct a real alpha complex or PersistenceForest,
 and they do not provide empirical benchmark results.
+
+## Cubical grids
+
+`cubical.py` measures `PersistenceForest.from_cubical_grid` on 2D grids of
+256², 512² and 1024² and 3D grids of 32³, 64³ and 96³, for uniform and
+Gaussian-smoothed (σ = 2 pixels) noise, with seeded repeats. Preparation of the
+cell filtration is timed separately from the sweep and barcode. Each case runs
+in a fresh interpreter, so peak RSS is per case. `storage="cycles"` is limited
+to grids of at most 512² top cells because stored cycles grow superlinearly in
+memory. Like the main harness, it only previews without `--run`:
+
+```sh
+.venv/bin/python benchmarks/performance/cubical.py
+.venv/bin/python benchmarks/performance/cubical.py --run --output benchmarks/performance/results/cubical
+```

@@ -58,19 +58,15 @@ class InteriorSimplexActivityTests(unittest.TestCase):
                 for reduce in (False, True):
                     with self.subTest(dim=dim, seed=seed, reduce=reduce):
                         stored = PersistenceForest(points, reduce=reduce,
-                                                   keep_simplex_diff=True, compute_interior=True)
+                                                   storage="cycles")
                         expected = normalized(stored_activity(stored))
                         self.assertEqual(normalized(stored.interior_simplex_activity()), expected)
-                        for mode in ({}, {"diff_only_mode": True}):
-                            forest = PersistenceForest(points, reduce=reduce,
-                                                       keep_simplex_diff=True, **mode)
-                            self.assertEqual(normalized(forest.interior_simplex_activity()), expected)
+                        forest = PersistenceForest(points, reduce=reduce, storage="diffs")
+                        self.assertEqual(normalized(forest.interior_simplex_activity()), expected)
 
     def test_explicit_merge_ownership_in_all_diff_modes(self):
         for dim in (2, 3):
-            for options in ({"keep_simplex_diff": True},
-                            {"keep_simplex_diff": True, "compute_interior": True},
-                            {"keep_simplex_diff": True, "diff_only_mode": True}):
+            for options in ({"storage": "cycles"}, {"storage": "diffs"}):
                 with self.subTest(dim=dim, options=options):
                     forest = split_forest(dim, **options)
                     actual = {simplex: sorted((bar.birth, bar.death, start, end)
@@ -88,21 +84,20 @@ class InteriorSimplexActivityTests(unittest.TestCase):
                 for shared, deaths in ((3, (5, 7)), (1, (5, 7)), (3, (3, 7)),
                                        (3, (7, 7)), (7, (7, 7)), (1, (1, 1))):
                     with self.subTest(dim=dim, reduce=reduce, shared=shared, deaths=deaths):
-                        options = dict(dim=dim, shared_value=shared, deaths=deaths,
-                                       reduce=reduce, keep_simplex_diff=True)
-                        stored = split_forest(**options, compute_interior=True)
+                        options = dict(dim=dim, shared_value=shared, deaths=deaths, reduce=reduce)
+                        stored = split_forest(**options, storage="cycles")
                         expected = normalized(stored_activity(stored))
-                        for mode in ({}, {"diff_only_mode": True}):
-                            forest = split_forest(**options, **mode)
+                        for storage in ("cycles", "diffs"):
+                            forest = split_forest(**options, storage=storage)
                             self.assertEqual(normalized(forest.interior_simplex_activity()), expected)
 
     def test_near_tie_uses_reduced_node_endpoints(self):
         tolerance = 2.0 ** -20
         for gap in (tolerance / 2, tolerance, 2 * tolerance):
-            for mode in ({}, {"compute_interior": True}, {"diff_only_mode": True}):
-                with self.subTest(gap=gap, mode=mode):
+            for storage in ("cycles", "diffs"):
+                with self.subTest(gap=gap, storage=storage):
                     forest = split_forest(shared_value=3, deaths=(3 + gap, 7),
-                                          filtration_tol=tolerance, keep_simplex_diff=True, **mode)
+                                          filtration_tol=tolerance, storage=storage)
                     intervals = sorted((bar.birth, bar.death, start, end)
                                        for bar, start, end in forest.interior_simplex_activity()[(0, 1, 2)])
                     expected = [(1, 7, 1, 3)]
@@ -111,7 +106,7 @@ class InteriorSimplexActivityTests(unittest.TestCase):
                     self.assertEqual(intervals, expected)
 
     def test_intervals_match_half_open_representative_membership(self):
-        forest = split_forest(keep_simplex_diff=True, diff_only_mode=True)
+        forest = split_forest(storage="diffs")
         activity = forest.interior_simplex_activity()
         for bar in forest.barcode:
             reps = list(forest.iter_bar_cycle_reps(bar))
@@ -125,39 +120,26 @@ class InteriorSimplexActivityTests(unittest.TestCase):
                 self.assertEqual(actual, expected)
 
     def test_delayed_and_empty_barcodes(self):
-        forest = split_forest(keep_simplex_diff=True, compute_barcode=False)
+        forest = split_forest(storage="cycles", compute_barcode=False)
         with self.assertRaisesRegex(RuntimeError, "compute_barcode"):
             forest.interior_simplex_activity()
         forest.compute_barcode()
         self.assertEqual(normalized(forest.interior_simplex_activity()),
-                         normalized(split_forest(keep_simplex_diff=True).interior_simplex_activity()))
-        empty = PersistenceForest(np.empty((0, 2)), keep_simplex_diff=True)
+                         normalized(split_forest(storage="cycles").interior_simplex_activity()))
+        empty = PersistenceForest(np.empty((0, 2)), storage="cycles")
         self.assertEqual(empty.interior_simplex_activity(), {})
         self.assertEqual(split_forest(shared_value=1, deaths=(1, 1),
-                                      keep_simplex_diff=True).interior_simplex_activity(), {})
-
-    def test_missing_diffs_are_rejected(self):
-        with self.assertRaisesRegex(ValueError, "keep_simplex_diff=True"):
-            split_forest().interior_simplex_activity()
-
-    def test_eager_barcode_builder_without_accumulated_diffs_is_rejected(self):
-        # The eager builder does not accumulate merged-branch interior diffs.
-        # Without rejection, this fixture silently loses the (0, 1, 2)
-        # triangle's [1, 3) interval on the bar with lifespan [1, 7).
-        forest = split_forest(keep_simplex_diff=True, compute_barcode=False)
-        forest._compute_barcode_cycles()
-        with self.assertRaisesRegex(RuntimeError, "computed from simplex diffs"):
-            forest.interior_simplex_activity()
+                                      storage="cycles").interior_simplex_activity(), {})
 
     def test_unavailable_node_diffs_are_rejected(self):
-        forest = split_forest(keep_simplex_diff=True)
+        forest = split_forest(storage="cycles")
         bar = next(iter(forest.barcode))
         forest.nodes[bar._node_progression[-1]]._simplex_diff_available = False
         with self.assertRaisesRegex(ValueError, "diffs are unavailable"):
             forest.interior_simplex_activity()
 
     def test_query_is_repeatable_without_representative_reconstruction(self):
-        forest = split_forest(keep_simplex_diff=True, diff_only_mode=True)
+        forest = split_forest(storage="diffs")
         before = {node_id: (None if node._interior_diff is None else node._interior_diff.copy(),
                             None if node._barcode_interior_diff is None else node._barcode_interior_diff.copy())
                   for node_id, node in forest.nodes.items()}

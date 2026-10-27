@@ -13,15 +13,11 @@ import time
 
 def _require_barcode_diffs(self) -> None:
     """Reject queries without a completed barcode and accumulated simplex diffs."""
-    if not self.keep_simplex_diff:
-        raise ValueError("Construct with keep_simplex_diff=True to query interior activity")
     if not self._barcode_computed:
         raise RuntimeError("Barcode has not been computed; call compute_barcode() first")
     if not self._barcode_diffs_ready:
         raise RuntimeError(
-            "Barcode must be computed from simplex diffs for this operation. "
-            "Rebuild with keep_simplex_diff=True and use compute_barcode() "
-            "instead of _compute_barcode_cycles()."
+            "Accumulated barcode diffs are unavailable; the barcode build did not complete."
         )
 
 def update_chain_with_diff(cells: CellFiltration, signed_simplices: Set[tuple], interior_diff: Set[tuple] | None, codim1_simplex_diff: Set[tuple] | None):
@@ -75,7 +71,7 @@ def iter_bar_cycle_reps(self, bar: PFBar) -> Iterator[SignedChain]:
     """Yield iterator of representatives of a bar in descending filtration order.
 
         Normal mode yields stored representatives; 
-        diff-only mode reconstructs boundaries and interiors with independent simplex sets.
+        ``storage="diffs"`` reconstructs boundaries and interiors with independent cell sets.
 
         Raises
         ------
@@ -85,7 +81,7 @@ def iter_bar_cycle_reps(self, bar: PFBar) -> Iterator[SignedChain]:
     if bar not in self.barcode:
         raise ValueError("Bar is not in barcode of forest")
 
-    if not self.diff_only_mode:
+    if self.storage == "cycles":
         yield from reversed(bar.cycle_reps)
         return
 
@@ -126,7 +122,7 @@ def iter_bar_cycle_reps(self, bar: PFBar) -> Iterator[SignedChain]:
 def cycle_for_bar_at(self, bar: PFBar, filt_val: float) -> SignedChain:
     """Return a bar's representative active at a filtration value.
 
-        Stored representatives are used in normal mode. In diff-only mode,
+        Stored representatives are used with ``storage="cycles"``. With ``storage="diffs"``,
         replay the bar's simplex diffs from death toward birth and return the
         first representative active on ``[active_start, active_end)``.
 
@@ -146,7 +142,7 @@ def cycle_for_bar_at(self, bar: PFBar, filt_val: float) -> SignedChain:
         raise ValueError("Bar is not in barcode of forest")
     if filt_val < bar.birth or filt_val >= bar.death:
         raise ValueError(f"Filtration value {filt_val} is not in the bar's lifespan")
-    if not self.diff_only_mode:
+    if self.storage == "cycles":
         return bar.cycle_at_filtration_value(filt_val)
 
     for cycle_rep in self.iter_bar_cycle_reps(bar):
@@ -165,8 +161,8 @@ def _add_interior_to_bar(self, bar: PFBar):
             If any node in the progression does not have simplex diffs.
         """
 
-    if self.diff_only_mode:
-        raise ValueError("Saving interiors is not possible with diff_only_mode=True")
+    if self.storage == "diffs":
+        raise ValueError('Saving interiors requires storage="cycles"')
 
     _require_barcode_diffs(self)
     interior = set()
@@ -176,7 +172,7 @@ def _add_interior_to_bar(self, bar: PFBar):
         node = self.nodes[nid]
 
         if not node._simplex_diff_available:
-            raise ValueError("set PersistenceForest(..., keep_simplex_diff=True)")
+            raise ValueError(f"Simplex diffs are unavailable for node {nid}")
 
         if node._interior_diff is not None:
             interior.update(node._interior_diff)
@@ -202,8 +198,7 @@ def _add_interior_to_barcode(self,print_info: bool =False):
 
         Notes
         -----
-        Requires the forest to have been built with ``keep_simplex_diff=True``.
-        The reconstructed representatives carry accumulated interior simplex
+        Requires ``storage="cycles"``. The reconstructed representatives carry accumulated interior simplex
         data used by ``interior_simplex_activity``.
         """
     _require_barcode_diffs(self)
@@ -236,7 +231,7 @@ def interior_simplex_activity(self) -> dict[tuple[int, ...], list[tuple[PFBar, f
 
         Notes
         -----
-        Requires ``keep_simplex_diff=True``.
+        Requires a computed barcode.
         """
     _require_barcode_diffs(self)
 

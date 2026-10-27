@@ -216,9 +216,8 @@ def _require_chain_interior(signed_chain: SignedChain) -> None:
     """
     if not signed_chain.interior_available or signed_chain.interior is None:
         raise ValueError(
-            "Interior is unavailable. Set compute_interior=True or "
-            "diff_only_mode=True on PersistenceForest and obtain the chain "
-            "through forest.iter_bar_cycle_reps(bar)."
+            "Interior is unavailable. Obtain the chain through "
+            "forest.iter_bar_cycle_reps(bar) or forest.cycle_for_bar_at(bar, value)."
         )
 
 def signed_chain_interior_volume(

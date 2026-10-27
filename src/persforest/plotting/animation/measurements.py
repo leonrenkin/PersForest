@@ -98,12 +98,6 @@ def animate_barcode_measurement_generic(
         raise ValueError("Supply exactly one of cycle_func or profiles")
     if profiles is not None and not isinstance(profiles, MeasurementProfiles):
         raise TypeError("profiles must be MeasurementProfiles")
-    if getattr(forest, "diff_only_mode", False):
-        raise ValueError(
-            "Animations are unavailable with diff_only_mode=True because "
-            "reconstructing cycles for every frame can be slow. "
-            "Build the forest with diff_only_mode=False to animate it."
-        )
     if not hasattr(forest, "filtration") or not forest.filtration:
         raise ValueError("Forest has no filtration data to animate.")
 

@@ -11,7 +11,7 @@ class PFNode:
 
     Each node stores a cycle representative and links to its parent and
     children in the forest. Optional diff fields store how to reconstruct cycle
-    representatives and interiors when ``keep_simplex_diff=True``.
+    representatives and interiors.
     """
     id: int # unique node identifier
     filt_val: float

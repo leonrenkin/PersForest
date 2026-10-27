@@ -136,12 +136,6 @@ def _animate_filtration_generic(
 
         _validate_radius_box_corner(radius_box_corner)
 
-        if getattr(forest, "diff_only_mode", False):
-            raise ValueError(
-                "Animations are unavailable with diff_only_mode=True because "
-                "reconstructing cycles for every frame can be slow. "
-                "Build the forest with diff_only_mode=False to animate it."
-            )
         if not hasattr(forest, "filtration") or not forest.filtration:
             raise ValueError("Forest has no filtration data to animate.")
         is_3d = (getattr(forest, "dim", None) == 3)
@@ -712,12 +706,8 @@ def animate_filtration_pair(
 
     # --- 1) Sanity checks -----------------------------------------------------
     for forest, name in ((forest1, "forest1"), (forest2, "forest2")):
-        if getattr(forest, "diff_only_mode", False):
-            raise ValueError(
-                f"{name} uses diff_only_mode=True; animations are unavailable "
-                "because reconstructing cycles for every frame can be slow. "
-                "Build the forest with diff_only_mode=False to animate it."
-            )
+        if getattr(forest, "point_cloud", ()) is None:
+            raise NotImplementedError(f"{name} has no point cloud; cubical forests cannot be animated yet.")
         if not hasattr(forest, "filtration") or not forest.filtration:
             raise ValueError(f"{name} has no filtration data to animate.")
         if not getattr(forest, "barcode", None):

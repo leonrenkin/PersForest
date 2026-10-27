@@ -15,7 +15,7 @@ class PublicAPITests(unittest.TestCase):
         self.assertIsInstance(PersistenceForest([[0, 0], [1, 0], [0, 1]]), PersistenceForest)
 
     def test_half_open_bar_and_cycle_queries_at_all_endpoint_sides(self):
-        forest = build(split())
+        forest = build(split(), storage="cycles")
         for event in (1., 3., 5., 7.):
             for time in (np.nextafter(event, -np.inf), event, np.nextafter(event, np.inf)):
                 with self.subTest(time=time):
@@ -97,17 +97,16 @@ class PublicAPITests(unittest.TestCase):
             forest.leaf_to_node_path(a, b)
 
     def test_delayed_barcode_matches_eager_and_repeats_are_rejected(self):
-        for diffs in (False, True):
-            forest = build(fan(), keep_simplex_diff=diffs, compute_barcode=False)
+        for storage in ('diffs', 'cycles'):
+            forest = build(fan(), storage=storage, compute_barcode=False)
             self.assertEqual(forest.barcode, set())
             forest.compute_barcode()
             self.assertEqual(positive_bars(forest), [(1, 7), (3, 5), (4, 6)])
-            self.assertEqual(positive_bars(forest), positive_bars(build(fan(), keep_simplex_diff=diffs)))
+            self.assertEqual(positive_bars(forest), positive_bars(build(fan(), storage=storage)))
             with self.assertRaisesRegex(RuntimeError, 'already been called'):
                 forest.compute_barcode()
-            direct_method = forest._compute_barcode_diff if diffs else forest._compute_barcode_cycles
             with self.assertRaisesRegex(RuntimeError, 'already been called'):
-                direct_method()
+                forest._compute_barcode_diff()
 
     def test_d9_empty_computed_barcode_still_rejects_repeat(self):
         forest = PersistenceForest(np.empty((0, 2)))
@@ -131,22 +130,20 @@ class PublicAPITests(unittest.TestCase):
         self.assertEqual(empty.compute_measurement_landscapes(
             constant_one_functional, 'one').bar_kernels, {})
 
-    def test_missing_interior_dependency_and_diff_only_bar_access_error(self):
-        forest_with_interior = build(triangle(), compute_interior=True)
-        self.assertTrue(forest_with_interior.keep_simplex_diff)
-        self.assertTrue(forest_with_interior.compute_interior)
-        forest = build(fan(), diff_only_mode=True, keep_simplex_diff=True)
+    def test_storage_default_and_diff_bar_access_error(self):
+        self.assertEqual(build(triangle()).storage, 'diffs')
+        forest_with_interior = build(triangle(), storage="cycles")
+        self.assertTrue(all(rep.interior_available for bar in forest_with_interior.barcode
+                            for rep in bar.cycle_reps))
+        forest = build(fan(), storage="diffs")
         bar = forest.max_bar()
-        with self.assertRaisesRegex(ValueError, 'diff_only_mode'):
+        self.assertEqual(bar.cycle_reps, [None] * len(bar.cycle_reps))
+        with self.assertRaisesRegex(ValueError, 'storage="diffs"'):
             bar.cycle_at_filtration_value(bar.birth)
         self.assertIsInstance(forest.cycle_for_bar_at(bar, bar.birth), SignedChain)
-        with self.assertRaisesRegex(ValueError, 'diff_only_mode'):
-            build(triangle(), compute_interior=True, diff_only_mode=True, keep_simplex_diff=True)
-
-    def test_d9_missing_interior_activity_error_is_actionable(self):
-        forest = build(triangle())
-        with self.assertRaisesRegex(ValueError, 'keep_simplex_diff=True'):
-            forest.interior_simplex_activity()
+        for removed in ('keep_simplex_diff', 'compute_interior', 'diff_only_mode'):
+            with self.subTest(removed=removed), self.assertRaises(TypeError):
+                build(triangle(), **{removed: True})
 
     def test_infinite_pfbar_finite_time_queries(self):
         rep = SignedChain(set(chain('+01 -02 +12')), 1, np.inf)

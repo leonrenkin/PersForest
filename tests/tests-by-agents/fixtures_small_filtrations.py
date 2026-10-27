@@ -169,10 +169,8 @@ def active_reps(forest, time: float) -> list[SignedChain]:
 
 def mode_options():
     for reduced in (False, True):
-        for name, options in [('stored', {}), ('diffs', {'keep_simplex_diff': True}),
-                              ('interiors', {'keep_simplex_diff': True, 'compute_interior': True}),
-                              ('diff_only', {'keep_simplex_diff': True, 'diff_only_mode': True})]:
-            yield f'{name}/reduce={reduced}', {'reduce': reduced, **options}
+        for storage in ('diffs', 'cycles'):
+            yield f'{storage}/reduce={reduced}', {'reduce': reduced, 'storage': storage}
 
 
 def profile_forest(specs):

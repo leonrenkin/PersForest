@@ -15,7 +15,7 @@ from oracle_chains import coefficients, boundary, homology_data, rank, sample_ti
 class AlphaIntegrationTests(unittest.TestCase):
     def test_a1_equilateral_triangle_radius_units_and_geometry(self):
         points = np.array([[0, 0], [2, 0], [1, math.sqrt(3)]])
-        forest = PersistenceForest(points, keep_simplex_diff=True, compute_interior=True)
+        forest = PersistenceForest(points, storage="cycles")
         np.testing.assert_allclose(positive_bars(forest), [(1, 2 / math.sqrt(3))], rtol=1e-12, atol=1e-12)
         [bar] = forest.barcode
         [rep] = bar.cycle_reps
@@ -33,7 +33,7 @@ class AlphaIntegrationTests(unittest.TestCase):
     def test_a3_square_tie_preserves_square_boundary_not_diagonal(self):
         points = np.array([[0, 0], [1, 0], [1, 1], [0, 1]])
         for permutation in ([0, 1, 2, 3], [2, 0, 3, 1], [3, 2, 1, 0]):
-            forest = PersistenceForest(points[permutation])
+            forest = PersistenceForest(points[permutation], storage="cycles")
             np.testing.assert_allclose(positive_bars(forest), [(.5, 1 / math.sqrt(2))], rtol=1e-12, atol=1e-12)
             [bar] = forest.barcode
             for rep in bar.cycle_reps:
@@ -44,7 +44,7 @@ class AlphaIntegrationTests(unittest.TestCase):
     def test_a4_regular_tetrahedron_radius_barcode_and_volume(self):
         points = np.array([[0, 0, 0], [1, 0, 0], [.5, math.sqrt(3) / 2, 0],
                            [.5, math.sqrt(3) / 6, math.sqrt(2 / 3)]])
-        forest = PersistenceForest(points, keep_simplex_diff=True, compute_interior=True)
+        forest = PersistenceForest(points, storage="cycles")
         np.testing.assert_allclose(positive_bars(forest), [(1 / math.sqrt(3), math.sqrt(3 / 8))], rtol=1e-12, atol=1e-12)
         [bar] = forest.barcode
         [rep] = bar.cycle_reps
@@ -55,7 +55,7 @@ class AlphaIntegrationTests(unittest.TestCase):
     def test_a5_seeded_barcode_matches_gudhi_over_two_fields(self):
         for count, dim in [(12, 2), (10, 3)]:
             points = np.random.default_rng(17).random((count, dim))
-            forest = PersistenceForest(points, keep_simplex_diff=True, compute_interior=True)
+            forest = PersistenceForest(points, storage="cycles")
             for field in (2, 3):
                 # Keep the owner alive while its iterators or persistence data are used.
                 alpha = gudhi.AlphaComplex(points=points)

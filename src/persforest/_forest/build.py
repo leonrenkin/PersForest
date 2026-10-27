@@ -35,21 +35,18 @@ def add_leaf(self, cell: Hashable, boundary: tuple, filt_val: float, orientation
 
     nid = next(self._node_id)
 
-    if not self.diff_only_mode:
+    if self.storage == "cycles":
         new_cycle = SignedChain(signed_simplices=set(boundary))
     else:
         new_cycle = None
 
-    if self.keep_simplex_diff:
-        new_node = PFNode(id=nid,
-                          filt_val=filt_val, 
-                          children=set(), 
-                          cycle=new_cycle, 
-                          _simplex_diff_available = True,
-                          _interior_diff = {(cell, orientation)},
-                          _codim1_simplex_diff = None)
-    else: 
-        new_node = PFNode(id=nid,filt_val=filt_val, children=set(), cycle=new_cycle, _simplex_diff_available = False)
+    new_node = PFNode(id=nid,
+                      filt_val=filt_val, 
+                      children=set(), 
+                      cycle=new_cycle, 
+                      _simplex_diff_available = True,
+                      _interior_diff = {(cell, orientation)},
+                      _codim1_simplex_diff = None)
 
     self.nodes[nid]=new_node
     self._active_node_ids.add(nid)  # roots are active nodes; at termination they are the roots of the forest
@@ -77,16 +74,13 @@ def make_root(self, node: PFNode, filt_val: float):
     self._active_node_ids.remove(node.id)
     node.parent = nid #new root node is parent of input node
 
-    if self.keep_simplex_diff:
-        root_node = PFNode(id=nid, 
-                           filt_val=filt_val, 
-                           cycle=node.cycle, 
-                           children={node.id},
-                           _simplex_diff_available = True,
-                           _interior_diff = None,
-                           _codim1_simplex_diff = None)
-    else:
-        root_node = PFNode(id=nid, filt_val=filt_val, cycle=node.cycle, children={node.id}, _simplex_diff_available = False)
+    root_node = PFNode(id=nid, 
+                       filt_val=filt_val, 
+                       cycle=node.cycle, 
+                       children={node.id},
+                       _simplex_diff_available = True,
+                       _interior_diff = None,
+                       _codim1_simplex_diff = None)
 
 
     self.nodes[nid]=root_node
@@ -123,21 +117,18 @@ def merge_nodes(self, node1: PFNode, node2: PFNode, cell: Hashable, filt_val: fl
     node1.parent = nid
     node2.parent = nid
 
-    if not self.diff_only_mode:
+    if self.storage == "cycles":
         parent_cycle = merge_at_simplex(cycle1 = node1.cycle, cycle2=node2.cycle,  simplex=cell) 
     else:
         parent_cycle = None
 
-    if self.keep_simplex_diff:
-        parent_node = PFNode(id=nid, 
-                             filt_val=filt_val, 
-                             children={node1.id,node2.id}, 
-                             cycle=parent_cycle,
-                             _simplex_diff_available = True,
-                             _interior_diff = None,
-                             _codim1_simplex_diff = {(cell,1),(cell,-1)})
-    else:
-        parent_node = PFNode(id=nid, filt_val=filt_val, children={node1.id,node2.id}, cycle=parent_cycle, _simplex_diff_available = False)
+    parent_node = PFNode(id=nid, 
+                         filt_val=filt_val, 
+                         children={node1.id,node2.id}, 
+                         cycle=parent_cycle,
+                         _simplex_diff_available = True,
+                         _interior_diff = None,
+                         _codim1_simplex_diff = {(cell,1),(cell,-1)})
     self.nodes[nid]=parent_node
     
     self._active_node_ids.add(nid)
@@ -165,23 +156,20 @@ def update_node(self, node: PFNode, cell: Hashable, filt_val:float):
             Filtration value of the update event.
         """
 
-    if not self.diff_only_mode:
+    if self.storage == "cycles":
         updated_cycle = node.cycle.cancel_simplex(simplex=cell)
     else: updated_cycle = None
 
     nid = next(self._node_id)
     node.parent=nid
 
-    if self.keep_simplex_diff:
-        update_node = PFNode(id=nid, 
-                             filt_val=filt_val, 
-                             children={node.id},
-                             cycle = updated_cycle,
-                             _simplex_diff_available = True,
-                             _interior_diff = None,
-                             _codim1_simplex_diff = {(cell,1),(cell,-1)})
-    else:
-        update_node = PFNode(id=nid, filt_val=filt_val, children={node.id},cycle = updated_cycle, _simplex_diff_available = False)
+    update_node = PFNode(id=nid, 
+                         filt_val=filt_val, 
+                         children={node.id},
+                         cycle = updated_cycle,
+                         _simplex_diff_available = True,
+                         _interior_diff = None,
+                         _codim1_simplex_diff = {(cell,1),(cell,-1)})
 
     self.nodes[nid]=update_node
 

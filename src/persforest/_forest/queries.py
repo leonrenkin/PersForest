@@ -43,9 +43,9 @@ def active_nodes_at(self, filt_val: float) -> List[PFNode]:
 
 def active_cycles_at(self, filt_val: float) -> List[SignedChain]:
     """Return active cycle representatives at ``filt_val``."""
-    if self.diff_only_mode:
+    if self.storage == "diffs":
         if not self._barcode_computed:
-            raise RuntimeError("Call compute_barcode() before querying cycles in diff_only_mode")
+            raise RuntimeError('Call compute_barcode() before querying cycles with storage="diffs"')
         return [
             self.cycle_for_bar_at(bar, filt_val)
             for bar in self.active_bars_at(filt_val)

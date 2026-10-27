@@ -61,7 +61,7 @@ def summarize(rows: list[dict]) -> list[dict]:
 
 
 def paired_ratios(rows: list[dict]) -> list[dict]:
-    """Compare diff-only with standard on the same cloud and functional.
+    """Compare storage="cycles" with storage="diffs" on the same cloud and functional.
 
     Parameters
     ----------
@@ -81,18 +81,18 @@ def paired_ratios(rows: list[dict]) -> list[dict]:
             groups.setdefault(key, {})[row["mode"]] = row
     output = []
     for group in groups.values():
-        if "standard" not in group or "diff_only_mode" not in group:
+        if "cycles" not in group or "diffs" not in group:
             continue
-        standard, diff = group["standard"], group["diff_only_mode"]
+        cycles, diff = group["cycles"], group["diffs"]
         row = {field: diff[field] for field in
                ("dim", "sampler", "n_points", "repeat", "seed", "functional")}
         for metric in ("time_to_barcode_excluding_alpha_s", "time_forest_s",
                        "time_barcode_with_interior_s", "time_landscape_s",
                        "time_pipeline_s", "peak_rss_to_barcode_bytes", "peak_rss_bytes"):
-            if standard.get(metric, 0) > 0 and diff.get(metric, 0) > 0:
-                row[metric + "_standard_over_diff"] = standard[metric] / diff[metric]
-        row["same_point_cloud"] = standard.get("point_cloud_sha256") == diff.get("point_cloud_sha256")
-        row["same_barcode_endpoints"] = standard.get("barcode_endpoints_sha256") == diff.get("barcode_endpoints_sha256")
+            if cycles.get(metric, 0) > 0 and diff.get(metric, 0) > 0:
+                row[metric + "_cycles_over_diffs"] = cycles[metric] / diff[metric]
+        row["same_point_cloud"] = cycles.get("point_cloud_sha256") == diff.get("point_cloud_sha256")
+        row["same_barcode_endpoints"] = cycles.get("barcode_endpoints_sha256") == diff.get("barcode_endpoints_sha256")
         output.append(row)
     return output
 
@@ -231,14 +231,14 @@ def make_plots(rows: list[dict], output: Path, memory_limit_gib: float) -> list[
                 ("time_barcode_with_interior_s", "Barcode time"),
                 ("peak_rss_to_barcode_bytes", "Peak RSS through barcode"),
             ]
-            if any("time_landscape_s_standard_over_diff" in row for row in ratios):
+            if any("time_landscape_s_cycles_over_diffs" in row for row in ratios):
                 metrics += [("time_landscape_s", "Landscape time"),
                             ("peak_rss_bytes", "Full pipeline peak RSS")]
             fig, axes = plt.subplots(1, len(metrics), figsize=(4 * len(metrics), 4), squeeze=False)
             for axis, (metric, title) in zip(axes.flat, metrics):
                 for functional in functionals:
                     grouped = {}
-                    field = metric + "_standard_over_diff"
+                    field = metric + "_cycles_over_diffs"
                     for row in ratios:
                         if row["functional"] == functional and field in row:
                             grouped.setdefault(row["n_points"], []).append(row[field])
@@ -249,7 +249,7 @@ def make_plots(rows: list[dict], output: Path, memory_limit_gib: float) -> list[
                                           [max(grouped[x]) for x in xs], alpha=0.12)
                 axis.axhline(1, color="gray", linestyle=":")
                 axis.set(xscale="log", yscale="log", xlabel="number of points", title=title,
-                         ylabel="standard / diff-only (higher favors diff-only)")
+                         ylabel="cycles / diffs (higher favors diffs)")
             axes.flat[0].legend(fontsize=8)
             fig.suptitle(f"Matched repeats: {dim}D · {sampler}")
             fig.tight_layout()

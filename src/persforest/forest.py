@@ -1,4 +1,4 @@
-"""forest: mechanically extracted reference implementation."""
+"""forest: the public PersistenceForest facade and its construction factories."""
 
 from __future__ import annotations
 
@@ -24,7 +24,9 @@ import numpy as np
 import time
 import warnings
 
-from .filtrations.alpha import prepare_alpha_filtration
+from .filtrations.cubical import prepare_cubical_filtration
+from .filtrations.delaunay import prepare_point_filtration
+from .geometry.cubical import make_cubical_geometry
 from .filtrations.simplicial import prepare_simplicial_filtration
 
 if TYPE_CHECKING:
@@ -32,13 +34,36 @@ if TYPE_CHECKING:
     from persforest.landscapes.profiles import CycleValueFunc, MeasurementProfiles
     from persforest.landscapes.family import MeasurementLandscapeFamily
 
+Storage = Literal["diffs", "cycles"]
+
+
+def _validated_options(reduce, compute_barcode, print_info, storage, filtration_tol) -> dict:
+    """Validate the shared forest options before any input preparation."""
+    if storage not in ("diffs", "cycles"):
+        raise ValueError(f'storage must be "diffs" or "cycles", not {storage!r}')
+    filtration_tol = float(filtration_tol)
+    if filtration_tol < 0 or not math.isfinite(filtration_tol):
+        raise ValueError("filtration_tol must be a finite non-negative number")
+    return dict(reduce=reduce, compute_barcode=compute_barcode, print_info=print_info,
+                storage=storage, filtration_tol=filtration_tol)
+
+
 class PersistenceForest:
     """
     Compute and store cycle progressions in forest format.
 
-    For an ambient ``dim``-dimensional point cloud, the forest tracks
-    codimension-one cycle representatives and their barcode. The default
-    filtration is the alpha complex; an ordered filtration can also be supplied.
+    The forest tracks codimension-one cycle representatives and their barcode
+    for a filtered complex. Create it with one of the factories:
+
+    - ``PersistenceForest.from_points(points, filtration_type="alpha")``, or
+      ``filtration_type="delaunay_cech"``;
+    - ``PersistenceForest.from_simplicial_filtration(points, filtration)``;
+    - ``PersistenceForest.from_cubical_grid(values, filtration_type="top_cells")``,
+      or ``filtration_type="vertices"``.
+
+    ``PersistenceForest(points, ...)`` is shorthand for ``from_points`` with the
+    alpha filtration, or for ``from_simplicial_filtration`` when ``filtration``
+    is given.
     """
 
     def __init__(self, 
@@ -46,9 +71,7 @@ class PersistenceForest:
                  reduce: bool = True,
                  compute_barcode: bool = True,
                  print_info: bool = False,
-                 keep_simplex_diff: bool = False,
-                 compute_interior: bool = False,
-                 diff_only_mode: bool = False,
+                 storage: Storage = "diffs",
                  filtration_tol: float = 1e-12,
                  filtration: Iterable[tuple[Sequence[int], float]] | None = None,
                  ):
@@ -67,34 +90,213 @@ class PersistenceForest:
             If True, compute and store the barcode after building the forest.
         print_info : bool
             If True, print timing information during construction.
-        keep_simplex_diff : bool
-            If True, store simplex additions/removals on nodes so cycle
-            representatives and interiors can be reconstructed from diffs.
-        compute_interior : bool
-            If True, reconstruct cycle representatives with their interior
-            simplices. Requires ``keep_simplex_diff=True``.
-        diff_only_mode : bool
-            If True, represent cycle progressions using stored simplex
-            additions and removals. This enables ``keep_simplex_diff``
-            automatically and is incompatible with ``compute_interior=True``.
+        storage : {"diffs", "cycles"}
+            How cycle representatives are stored. ``"diffs"`` (default) stores
+            per-node cell additions and removals and reconstructs
+            representatives with their interiors on demand; it is faster to
+            build and uses less memory. ``"cycles"`` additionally stores every
+            representative with its interior, which makes point-in-time
+            queries and animations faster at the cost of memory.
         filtration_tol : float
             Absolute numerical resolution for parent-child reduction. 
             Differences at or below this tolerance are ignored and short bars may disappear.
         filtration : iterable of (sequence of int, float), optional
-            Ordered simplex-filtration pairs.
+            Ordered simplex-filtration pairs; see ``from_simplicial_filtration``.
             If None, construct the alpha filtration from ``point_cloud``.
-            Simplices are stored with increasing vertex order; simplices above the
-            ambient dimension are rejected. Geometric embeddedness and contractibility
-            of the terminal complex are required by the algorithm but are not verified
-            for a supplied filtration; if they fail, results are meaningless.
         """
-        self.point_cloud = validate_point_cloud(point_cloud)
-        self.filtration_tol = float(filtration_tol)
-        if self.filtration_tol < 0 or not math.isfinite(self.filtration_tol):
-            raise ValueError("filtration_tol must be a finite non-negative number")
+        options = _validated_options(reduce, compute_barcode, print_info, storage, filtration_tol)
+        points = validate_point_cloud(point_cloud)
+        if filtration is None:
+            self._prepare_point_input(points, "alpha", print_info)
+        else:
+            self._prepare_simplicial_input(points, filtration, print_info)
+        self._build(**options)
 
-        #check if point cloud has correct shape
-        self.dim = self.point_cloud.shape[1]
+    @classmethod
+    def from_points(cls,
+                    points,
+                    *,
+                    filtration_type: Literal["alpha", "delaunay_cech"] = "alpha",
+                    reduce: bool = True,
+                    compute_barcode: bool = True,
+                    print_info: bool = False,
+                    storage: Storage = "diffs",
+                    filtration_tol: float = 1e-12,
+                    ) -> "PersistenceForest":
+        """
+        Build a forest from a Delaunay-based filtration of a point cloud.
+
+        Parameters
+        ----------
+        points : array-like, shape (n_points, dim)
+            Coordinates of the input point set.
+        filtration_type : {"alpha", "delaunay_cech"}
+            ``"alpha"`` (default) enters each Delaunay simplex at the radius of
+            its smallest empty circumscribing ball; ``"delaunay_cech"`` at the
+            radius of its minimal enclosing ball. Both use radius units.
+        reduce, compute_barcode, print_info, storage, filtration_tol
+            See ``PersistenceForest``.
+
+        Returns
+        -------
+        PersistenceForest
+        """
+        options = _validated_options(reduce, compute_barcode, print_info, storage, filtration_tol)
+        forest = object.__new__(cls)
+        forest._prepare_point_input(validate_point_cloud(points), filtration_type, print_info)
+        forest._build(**options)
+        return forest
+
+    @classmethod
+    def from_simplicial_filtration(cls,
+                                   points,
+                                   filtration: Iterable[tuple[Sequence[int], float]],
+                                   *,
+                                   reduce: bool = True,
+                                   compute_barcode: bool = True,
+                                   print_info: bool = False,
+                                   storage: Storage = "diffs",
+                                   filtration_tol: float = 1e-12,
+                                   ) -> "PersistenceForest":
+        """
+        Build a forest from an ordered, custom simplicial filtration.
+
+        Parameters
+        ----------
+        points : array-like, shape (n_points, dim)
+            Vertex coordinates; simplices index its rows.
+        filtration : iterable of (sequence of int, float)
+            Simplex-filtration pairs with finite, nondecreasing values, every
+            face before its cofaces. Ties keep the given order. Simplices are
+            stored with increasing vertex order; simplices above the ambient
+            dimension are rejected. Geometric embeddedness and contractibility
+            of the terminal complex are required by the algorithm but are not
+            verified; if they fail, results are meaningless, and a warning says so.
+        reduce, compute_barcode, print_info, storage, filtration_tol
+            See ``PersistenceForest``.
+
+        Returns
+        -------
+        PersistenceForest
+        """
+        options = _validated_options(reduce, compute_barcode, print_info, storage, filtration_tol)
+        forest = object.__new__(cls)
+        forest._prepare_simplicial_input(validate_point_cloud(points), filtration, print_info)
+        forest._build(**options)
+        return forest
+
+    @classmethod
+    def from_cubical_grid(cls,
+                          values,
+                          *,
+                          filtration_type: Literal["top_cells", "vertices"] = "top_cells",
+                          spacing=None,
+                          origin=None,
+                          reduce: bool = True,
+                          compute_barcode: bool = True,
+                          print_info: bool = False,
+                          storage: Storage = "diffs",
+                          filtration_tol: float = 1e-12,
+                          ) -> "PersistenceForest":
+        """
+        Build a forest from values on a full rectangular grid.
+
+        The tracked homology has dimension ``values.ndim - 1``: H0 of a 1D
+        signal, H1 of an image, H2 of a volume. Cells are tuples of doubled
+        coordinates in array-axis order, and orientations follow the
+        array-axis frame.
+
+        Parameters
+        ----------
+        values : array-like
+            Finite grid values with at least one axis.
+        filtration_type : {"top_cells", "vertices"}
+            ``"top_cells"`` (default, as GUDHI's ``top_dimensional_cells``):
+            each entry is a pixel or voxel and a face enters at the minimum of
+            its incident top cells. ``"vertices"`` (as GUDHI's ``vertices``):
+            each entry is a vertex and a cell enters at the maximum of its
+            vertices; this needs at least two entries per axis.
+        spacing : float or sequence of float, optional
+            Positive cell size per array axis; defaults to 1.
+        origin : float or sequence of float, optional
+            Position of the first pixel corner (``"top_cells"``) or first
+            vertex (``"vertices"``); defaults to 0.
+        reduce, compute_barcode, print_info, storage, filtration_tol
+            See ``PersistenceForest``.
+
+        Returns
+        -------
+        PersistenceForest
+            With ``point_cloud`` and ``simplex_tree`` set to None, the
+            physical grid in ``geometry`` and a read-only copy of the values in
+            ``grid_values``.
+        """
+        options = _validated_options(reduce, compute_barcode, print_info, storage, filtration_tol)
+        forest = object.__new__(cls)
+        start = time.perf_counter()
+        grid, forest._cells = prepare_cubical_filtration(values, filtration_type)
+        if print_info:
+            print(f"Cubical filtration generated in {time.perf_counter() - start}")
+        forest.geometry = make_cubical_geometry(grid.shape, spacing, origin, filtration_type)
+        grid.setflags(write=False)
+        forest.grid_values = grid
+        forest.point_cloud = None
+        forest.simplex_tree = None
+        forest.dim = grid.ndim
+        forest.filtration_type = filtration_type
+        forest.filtration_units = "grid values"
+        forest._build(**options)
+        return forest
+
+    # ----- input preparation ----------
+
+    def _require_point_cloud(self, method: str) -> None:
+        """Reject point-cloud renderers for forests without a point cloud."""
+        if self.point_cloud is None:
+            raise NotImplementedError(
+                f"{method} draws a point-cloud complex and is not available for forests "
+                f"built with from_cubical_grid. plot_barcode, plot_persistence_forest and "
+                f"the measurement plots work for every forest.")
+
+    def _prepare_point_input(self, points: NDArray, filtration_type: str, print_info: bool) -> None:
+        """Set point-cloud attributes and the Delaunay-based cell filtration."""
+        self.point_cloud = points
+        self.dim = points.shape[1]
+        start = time.perf_counter()
+        self.simplex_tree, self._cells = prepare_point_filtration(points, filtration_type)
+        self.geometry = points
+        if print_info:
+            print(f"{filtration_type} filtration generated in {time.perf_counter() - start}")
+        self.filtration_type = filtration_type
+        self.filtration_units = "radius"
+
+    def _prepare_simplicial_input(self, points: NDArray, filtration, print_info: bool) -> None:
+        """Set point-cloud attributes and validate a custom simplicial filtration."""
+        self.point_cloud = points
+        self.dim = points.shape[1]
+        start = time.perf_counter()
+        self._cells = prepare_simplicial_filtration(filtration, points)
+        self.geometry = points
+        if print_info:
+            print(f"Filtration order verified in {time.perf_counter() - start}")
+        # stacklevel=3 points at the caller of __init__ or of the factory.
+        warnings.warn(
+            "A custom filtration must be a simplicial complex geometrically embedded in "
+            f"R^{self.dim} with top simplices of dimension {self.dim} and a contractible "
+            "terminal complex. These conditions are not checked; if they do not hold, "
+            "the barcode and cycle representatives are meaningless.",
+            UserWarning,
+            stacklevel=3,
+        )
+        self.simplex_tree = None
+        self.filtration_type = "custom_simplicial"
+        self.filtration_units = "custom"
+
+    def _build(self, *, reduce: bool, compute_barcode: bool, print_info: bool,
+               storage: Storage, filtration_tol: float) -> None:
+        """Run the sweep, reduction and barcode extraction on ``self._cells``."""
+        self.filtration_tol = filtration_tol
+        self.storage = storage
         if print_info:
             print(f'dimension = {self.dim}')
 
@@ -108,28 +310,7 @@ class PersistenceForest:
 
         self.levels: list[float] = []               #Critical filtration values, might give duplicates in current implementation
 
-        if filtration is None:
-            start = time.perf_counter()
-            self.simplex_tree, self._cells = prepare_alpha_filtration(self.point_cloud)
-            alpha_complex_time = time.perf_counter()-start
-            if print_info:
-                print(f"Alpha filtration generated in {alpha_complex_time}")
-        else:
-            start = time.perf_counter()
-            self._cells = prepare_simplicial_filtration(filtration, self.point_cloud)
-            filtration_verification_time = time.perf_counter()-start
-            if print_info:
-                print(f"Filtration order verified in {filtration_verification_time}")
-            warnings.warn(
-                "A custom filtration must be a simplicial complex geometrically embedded in "
-                f"R^{self.dim} with top simplices of dimension {self.dim} and a contractible "
-                "terminal complex. These conditions are not checked; if they do not hold, "
-                "the barcode and cycle representatives are meaningless.",
-                UserWarning,
-                stacklevel=2,
-            )
-
-        # Top simplices and their facets; shared with the engine's cell filtration.
+        # Top cells and their facets; shared with the engine's cell filtration.
         self.filtration = self._cells.events
 
         self.barcode: set[PFBar] = set()
@@ -139,18 +320,6 @@ class PersistenceForest:
         self.landscape_families: Dict[str, Any] = {}
         self.measurement_profiles: Dict[str, Any] = {}
 
-        if diff_only_mode and compute_interior:
-            raise ValueError("Cannot set diff_only_mode=True and compute_interior=True at the same time.")
-        if diff_only_mode and not keep_simplex_diff:
-            print("Setting keep_simplex_diff=True since diff_only_mode=True ")
-            keep_simplex_diff=True
-        if compute_interior and not keep_simplex_diff:
-            print("Setting keep_simplex_diff=True since compute_interior=True ")
-            keep_simplex_diff=True
-        self.keep_simplex_diff = keep_simplex_diff
-        self.diff_only_mode = diff_only_mode
-        self.compute_interior = compute_interior
-
         self._compute_forest(print_info = print_info)
 
         self.reduced = reduce
@@ -158,21 +327,12 @@ class PersistenceForest:
         if reduce:
             self._reduce_forest(print_info = print_info)
    
-        # Compute where each cycle is active.
-        if not self.diff_only_mode:
+        # Compute where each stored cycle is active.
+        if self.storage == "cycles":
             self._compute_loop_activity()
 
         if compute_barcode:
-            if self.keep_simplex_diff:
-                self._compute_barcode_diff(print_info=print_info)
-            else:
-                self._compute_barcode_cycles(print_info = print_info)
-
-        if compute_interior: #we should probably remove that feature, the interior can be very quickly collected from the barcode interior diff sequence
-            self._add_interior_to_barcode(print_info = print_info)
-
-
-        return
+            self.compute_barcode(print_info=print_info)
 
     # ----- compute the forest ----------
 
@@ -289,7 +449,7 @@ class PersistenceForest:
         Non-root node order is preserved for barcode tie-breaking.
 
         Root diffs are empty because a root represents exactly its child,
-        including in diff-only mode, where both stored cycles are ``None``.
+        including with ``storage="diffs"``, where both stored cycles are ``None``.
         Existing unary roots are normalized too, since collapse can change
         their child. Repeating this operation leaves the forest unchanged.
         """
@@ -310,19 +470,8 @@ class PersistenceForest:
 
     # ----- Compute barcode sequence ---------
 
-    def _compute_barcode_cycles(self, print_info: bool = False) -> None:
-        """Build bars from stored representatives without accumulating diffs.
-
-        Parameters
-        ----------
-        print_info : bool
-            If True, print timing information.
-        """
-        from persforest._forest.compute_barcode import compute_barcode_cycles
-        return compute_barcode_cycles(self, print_info)
-
     def _compute_barcode_diff(self, print_info: bool = False) -> None:
-        """Build bars and accumulate barcode diffs when node diffs are stored.
+        """Build bars and accumulate barcode diffs.
 
         Parameters
         ----------
@@ -333,7 +482,7 @@ class PersistenceForest:
         return compute_barcode_diff(self, print_info)
 
     def compute_barcode(self,  print_info: bool = False):
-        """Compute bars using the builder appropriate for the storage mode.
+        """Compute bars; with ``storage="cycles"``, also attach interiors.
 
         Parameters
         ----------
@@ -345,19 +494,15 @@ class PersistenceForest:
         RuntimeError
             If the barcode has already been computed.
         """
-
-        if self.keep_simplex_diff:
-            self._compute_barcode_diff(print_info=print_info)
-        else:
-            self._compute_barcode_cycles(print_info=print_info)
-
-        return
+        self._compute_barcode_diff(print_info=print_info)
+        if self.storage == "cycles":
+            self._add_interior_to_barcode(print_info=print_info)
 
     def iter_bar_cycle_reps(self, bar: PFBar) -> Iterator[SignedChain]:
         """Yield iterator of representatives of a bar in descending filtration order.
 
-        Normal mode yields stored representatives; 
-        diff-only mode reconstructs boundaries and interiors with independent simplex sets.
+        ``storage="cycles"`` yields stored representatives; ``storage="diffs"``
+        reconstructs boundaries and interiors with independent cell sets.
 
         Raises
         ------
@@ -370,8 +515,8 @@ class PersistenceForest:
     def cycle_for_bar_at(self, bar: PFBar, filt_val: float) -> SignedChain:
         """Return a bar's representative active at a filtration value.
 
-        Stored representatives are used in normal mode. In diff-only mode,
-        replay the bar's simplex diffs from death toward birth and return the
+        Stored representatives are used with ``storage="cycles"``. With
+        ``storage="diffs"``, replay the bar's simplex diffs from death toward birth and return the
         first representative active on ``[active_start, active_end)``.
 
         Parameters
@@ -415,8 +560,7 @@ class PersistenceForest:
 
         Notes
         -----
-        Requires the forest to have been built with ``keep_simplex_diff=True``.
-        The reconstructed representatives carry accumulated interior simplex
+        Requires ``storage="cycles"``. The reconstructed representatives carry accumulated interior simplex
         data used by ``interior_simplex_activity``.
         """
         from persforest._forest.representatives import _add_interior_to_barcode
@@ -438,7 +582,7 @@ class PersistenceForest:
 
         Notes
         -----
-        Requires ``keep_simplex_diff=True``.
+        Requires a computed barcode.
         """
         from persforest._forest.representatives import interior_simplex_activity
         return interior_simplex_activity(self)
@@ -588,6 +732,7 @@ class PersistenceForest:
         matplotlib.axes.Axes
             Axes containing the activity plot.
         """
+        self._require_point_cloud("plot_interior_simplex_activity")
         from persforest.plotting.interior_mpl import plot_interior_simplex_activity
 
         return plot_interior_simplex_activity(
@@ -628,6 +773,7 @@ class PersistenceForest:
         matplotlib.axes.Axes
             Axes containing the activity gradient.
         """
+        self._require_point_cloud("plot_interior_simplex_activity_gradient")
         from persforest.plotting.interior_mpl import plot_interior_simplex_activity_gradient
 
         return plot_interior_simplex_activity_gradient(
@@ -722,6 +868,7 @@ class PersistenceForest:
         plotly.graph_objects.Figure
             Interactive 3D figure.
         """
+        self._require_point_cloud("plot_interior_simplex_activity_plotly")
         from persforest.plotting.interior_plotly import plot_interior_simplex_activity_plotly
 
         return plot_interior_simplex_activity_plotly(
@@ -866,6 +1013,7 @@ class PersistenceForest:
         -------
         matplotlib.axes.Axes
         """
+        self._require_point_cloud("plot_at_filtration")
         from persforest.plotting.filtration_mpl import _plot_at_filtration_generic
 
         return _plot_at_filtration_generic(
@@ -940,6 +1088,7 @@ class PersistenceForest:
         -------
         matplotlib.axes.Axes
         """
+        self._require_point_cloud("plot_at_filtration_with_dual")
         from persforest.plotting.filtration_mpl import _plot_at_filtration_with_dual_2d
 
         return _plot_at_filtration_with_dual_2d(
@@ -1021,6 +1170,7 @@ class PersistenceForest:
         -------
         matplotlib.axes.Axes
         """
+        self._require_point_cloud("plot_barcode_cycle_reps")
         from persforest.plotting.filtration_mpl import plot_barcode_cycle_reps
 
         return plot_barcode_cycle_reps(
@@ -1097,6 +1247,7 @@ class PersistenceForest:
         -------
         plotly.graph_objects.Figure
         """
+        self._require_point_cloud("plot_at_filtration_plotly")
         from persforest.plotting.filtration_plotly import plot_at_filtration_plotly
 
         return plot_at_filtration_plotly(
@@ -1177,12 +1328,7 @@ class PersistenceForest:
         -------
         plotly.graph_objects.Figure
         """
-        if self.diff_only_mode:
-            raise ValueError(
-                "Animations are unavailable with diff_only_mode=True because "
-                "reconstructing cycles for every frame can be slow. "
-                "Build the forest with diff_only_mode=False to animate it."
-            )
+        self._require_point_cloud("plot_filtration_interactive")
         from persforest.plotting.filtration_plotly import plot_filtration_interactive
 
         return plot_filtration_interactive(
@@ -1386,6 +1532,7 @@ class PersistenceForest:
             - 3D MP4 path: output filename string.
             - 3D HTML path: Plotly figure.
         """
+        self._require_point_cloud("animate_filtration")
         from persforest.plotting.animation.api import animate_filtration
         return animate_filtration(self, filename, format, with_barcode, fps, frames, t_min, t_max, coloring, signed, show_cycles, show_complex, dpi, figsize, pixel_size, panel_width_ratios, panel_spacing, figure_margins, filtration_kwargs, barcode_kwargs, camera_mode, cloud_figsize, total_figsize, plot_kwargs, alpha_digits, radius_box_corner)
 
@@ -1439,6 +1586,7 @@ class PersistenceForest:
             :class:`matplotlib.animation.FuncAnimation` and ``fig`` is the
             underlying figure.
         """
+        self._require_point_cloud("animate_barcode_measurement")
         from persforest.plotting.animation.api import animate_barcode_measurement
         return animate_barcode_measurement(self, cycle_func, signed, bar, *args, **kwargs)
 

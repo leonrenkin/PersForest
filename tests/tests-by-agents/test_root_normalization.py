@@ -38,7 +38,7 @@ class RootNormalizationTests(unittest.TestCase):
             child = forest.nodes[next(iter(root.children))]
             self.assertEqual(child.parent, root_id)
             self.assertIs(root.cycle, child.cycle)
-            self.assertEqual(root._simplex_diff_available, forest.keep_simplex_diff)
+            self.assertTrue(root._simplex_diff_available)
             self.assertIsNone(root._interior_diff)
             self.assertIsNone(root._codim1_simplex_diff)
             self.assertIsNone(root._barcode_interior_diff)
@@ -80,7 +80,7 @@ class RootNormalizationTests(unittest.TestCase):
 
     def test_literal_signed_cycles_and_interiors_at_birth(self):
         forest = build_split(split().changed({(0, 1): 1}),
-                       keep_simplex_diff=True, compute_interior=True)
+                       storage="cycles")
         expected = {5: (chain('+01 -02 +12'), chain('+012')),
                     7: (chain('-01 +03 -13'), chain('-013'))}
         for bar in forest.barcode:
@@ -117,7 +117,7 @@ class RootNormalizationTests(unittest.TestCase):
 
     def test_normalization_is_idempotent_and_deterministic(self):
         fixture = fan().changed({(0, 3): 1, (1, 3): 1, (2, 3): 1})
-        forest = build(fixture, keep_simplex_diff=True, compute_barcode=False)
+        forest = build(fixture, storage="cycles", compute_barcode=False)
         def topology(forest):
             return [(n.id, n.parent, tuple(sorted(n.children)), n.filt_val)
                     for n in forest.nodes.values()]

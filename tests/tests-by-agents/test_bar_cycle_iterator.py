@@ -14,10 +14,9 @@ class BarCycleIteratorTests(unittest.TestCase):
                 with self.subTest(dim=dim, reduce=reduce):
                     points = np.random.default_rng(42).random((30, dim))
                     forest = PersistenceForest(
-                        points, reduce=reduce, diff_only_mode=True,
-                        keep_simplex_diff=True,
+                        points, reduce=reduce, storage="diffs",
                     )
-                    full = PersistenceForest(points, reduce=reduce)
+                    full = PersistenceForest(points, reduce=reduce, storage="cycles")
                     full_bars = {b._node_progression: b for b in full.barcode}
                     self.assertTrue(any(
                         n._barcode_interior_diff for n in forest.nodes.values()
@@ -72,7 +71,7 @@ class BarCycleIteratorTests(unittest.TestCase):
         self.assertEqual(sf.baseline, 3.)
 
     def test_normal_mode_yields_existing_objects_in_descending_order(self):
-        forest = PersistenceForest(np.random.default_rng(42).random((15, 2)))
+        forest = PersistenceForest(np.random.default_rng(42).random((15, 2)), storage="cycles")
         for bar in forest.barcode:
             reps = list(forest.iter_bar_cycle_reps(bar))
             self.assertEqual(len(reps), len(bar.cycle_reps))
@@ -83,7 +82,7 @@ class BarCycleIteratorTests(unittest.TestCase):
     def test_rejects_foreign_bar_and_missing_diffs(self):
         forest = PersistenceForest(
             np.random.default_rng(42).random((15, 2)),
-            diff_only_mode=True, keep_simplex_diff=True,
+            storage="diffs",
         )
         with self.assertRaisesRegex(ValueError, "not in barcode"):
             next(forest.iter_bar_cycle_reps(object()))

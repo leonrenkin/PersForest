@@ -27,10 +27,8 @@ from typing import Callable, Any
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_VERSION = 1
 MODES = {
-    "standard": {},
-    "keep_simplex_diff": {"keep_simplex_diff": True},
-    "compute_interior": {"keep_simplex_diff": True, "compute_interior": True},
-    "diff_only_mode": {"keep_simplex_diff": True, "diff_only_mode": True},
+    "diffs": {"storage": "diffs"},
+    "cycles": {"storage": "cycles"},
 }
 SCHEDULES = {
     "barcode": {2: [1000, 5000, 10000, 25000, 50000, 100000],
@@ -107,7 +105,6 @@ def _instrumented_class(base: type, recorder: _Recorder) -> type:
         "_compute_forest": "forest_build",
         "_reduce_forest": "reduction",
         "_compute_loop_activity": "activity",
-        "_compute_barcode_cycles": "barcode",
         "_compute_barcode_diff": "barcode",
         "_add_interior_to_barcode": "interior",
     }.items():
@@ -181,7 +178,7 @@ def _worker(spec_path: Path, checkpoint_path: Path) -> int:
         )
         recorder.checkpoint("barcode_complete")
         # Endpoint summaries are outside timed regions; no representative
-        # materialization (especially important for diff-only mode).
+        # materialization (especially important for storage="diffs").
         endpoints = np.array(sorted((bar.birth, bar.death) for bar in forest.barcode))
         result["barcode_endpoints_sha256"] = hashlib.sha256(endpoints.tobytes()).hexdigest()
         del endpoints
@@ -296,7 +293,7 @@ def build_cases(config: dict) -> list[dict]:
     """
     cases = []
     order_rng = random.Random(config["base_seed"])
-    modes = ["diff_only_mode"] if config["suite"] == "diff-scaling" else config["modes"]
+    modes = ["diffs"] if config["suite"] == "diff-scaling" else config["modes"]
     for dim in config["dimensions"]:
         sizes = config[f"sizes_{dim}d"] or SCHEDULES[config["suite"]][dim]
         for n_points in sorted(set(sizes)):
