@@ -1,7 +1,7 @@
 #%%
 import numpy as np
 import matplotlib.pyplot as plt
-from persforest.PersistenceForest import PersistenceForest
+from persforest import PersistenceForest
 import seaborn as sns
 from matplotlib.patches import Rectangle, Circle, ConnectionPatch
 from matplotlib.transforms import Bbox
@@ -85,6 +85,9 @@ def style_paper_barcode(ax, *, show_x_arrow=True):
         )
 
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "examples"))
 
 Path("paper_figures").mkdir(parents=True, exist_ok=True)
 
@@ -92,7 +95,7 @@ Path("paper_figures").mkdir(parents=True, exist_ok=True)
 # %% Example: Point clouds with barcodes
 
 from point_cloud_sampling import sample_noisy_circle, sample_noisy_star,  sample_noisy_ellipse,  sample_noisy_circle_with_tendril, sample_noisy_star_pointy
-from persforest.cycle_rep_vectorisations import polygon_area, polygon_length, polygon_length_squared_area_ratio_normalized, curvature_excess
+from persforest.geometry.planar import polygon_area, polygon_length, polygon_length_squared_area_ratio_normalized, curvature_excess
 
 n_points = 1000
 
@@ -138,7 +141,8 @@ fig.savefig('paper_figures/point_clouds_with_barcodes.pdf', transparent=True, dp
 plt.show()
 
 # %% Example: Measurement comparisons
-from persforest.cycle_rep_vectorisations import signed_chain_area, signed_chain_edge_length, signed_chain_excess_curvature, signed_chain_circularity_complement,signed_chain_convex_hull_area_deficit, signed_chain_convex_hull_perimeter_deficit
+from persforest.measurements.basic import signed_chain_area, signed_chain_edge_length
+from persforest.measurements.shape import signed_chain_excess_curvature, signed_chain_circularity_complement, signed_chain_convex_hull_area_deficit, signed_chain_convex_hull_perimeter_deficit
 fig, axes = plt.subplots(nrows=2,ncols=3, figsize=(0.92*width, 0.85 * 1.5/4 *width), sharex='col', layout='constrained')
 
 cycle_funcs_list = [
@@ -152,7 +156,7 @@ cycle_funcs_list = [
 use_signed = False
 
 
-from persforest.forest_landscapes import plot_landscape_comparison
+from persforest.plotting.landscapes import plot_landscape_comparison
 
 forests = [forest for _, forest in name_forest_list]
 forest_labels = [name for name, _ in name_forest_list]
@@ -218,7 +222,7 @@ fig.savefig('paper_figures/point_clouds_landscape_comparisons.pdf', transparent=
 plt.show()
 
 # %% Four-leaf clover measurement-landscape construction
-from persforest.cycle_rep_vectorisations import signed_chain_edge_length
+from persforest.measurements.basic import signed_chain_edge_length
 
 # Plot each measurement profile only on its interval by default.  Set this to
 # True to show its zero-valued extension over the full filtration range.
@@ -798,7 +802,8 @@ axes[0].set_title("Point Cloud")
 axes[0].set_xlim(0,100)
 axes[0].set_ylim(0,100)
 
-from persforest.cycle_rep_vectorisations import signed_chain_circularity_complement, constant_one_functional
+from persforest.measurements.shape import signed_chain_circularity_complement
+from persforest.measurements.basic import constant_one_functional
 
 
 forest_6_holes.compute_measurement_landscapes(cycle_func=constant_one_functional,
@@ -883,7 +888,8 @@ axes[0].set_title("Point Cloud")
 axes[0].set_xlim(0,100)
 axes[0].set_ylim(0,100)
 
-from persforest.cycle_rep_vectorisations import signed_chain_convex_hull_perimeter_deficit, signed_chain_convex_hull_area_deficit, constant_one_functional
+from persforest.measurements.shape import signed_chain_convex_hull_perimeter_deficit, signed_chain_convex_hull_area_deficit
+from persforest.measurements.basic import constant_one_functional
 
 
 forest_6_holes.compute_measurement_landscapes(cycle_func=constant_one_functional,

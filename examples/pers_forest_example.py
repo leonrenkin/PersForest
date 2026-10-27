@@ -9,10 +9,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from persforest import PersistenceForest
-from persforest.cycle_rep_vectorisations import (
-    signed_chain_edge_length,
-    signed_chain_excess_curvature,
-)
+from persforest.measurements.basic import signed_chain_edge_length
+from persforest.measurements.shape import signed_chain_excess_curvature
 
 
 def sample_noisy_star(

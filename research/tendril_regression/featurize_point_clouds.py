@@ -10,15 +10,8 @@ import numpy as np
 import pandas as pd
 
 from persforest import PersistenceForest
-from persforest.cycle_rep_vectorisations import (
-    constant_one_functional,
-    signed_chain_avg_tendril_length,
-    signed_chain_circularity_complement,
-    signed_chain_connected_components_only_signed_simplices,
-    signed_chain_excess_curvature,
-    signed_chain_excess_curvature_diff_to_unsigned,
-    signed_chain_tendril_branching_ratio
-)
+from persforest.measurements.basic import constant_one_functional, signed_chain_connected_components_only_signed_simplices
+from persforest.measurements.shape import signed_chain_avg_tendril_length, signed_chain_circularity_complement, signed_chain_excess_curvature, signed_chain_excess_curvature_diff_to_unsigned, signed_chain_tendril_branching_ratio
 
 CycleFunc = Callable[..., float]
 

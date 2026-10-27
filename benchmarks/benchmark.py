@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import csv
 import os
+from pathlib import Path
+import sys
 import time
 from typing import Callable, Dict, Iterable, Sequence, Optional
 import statistics
@@ -49,7 +51,8 @@ plt.rcParams.update({
 import numpy as np
 
 # Local imports
-from persforest.PersistenceForest import PersistenceForest
+from persforest import PersistenceForest
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
 from point_cloud_sampling import (
     sample_noisy_circle,
     sample_uniform_points,
