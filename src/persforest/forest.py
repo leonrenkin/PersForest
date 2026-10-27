@@ -1,12 +1,30 @@
+"""forest: mechanically extracted reference implementation."""
 
+from matplotlib.colors import Colormap
+from numpy.typing import NDArray
+from persforest._forest.graph_model import PFNode
+from persforest.barcode import PFBar
+from persforest.chains import SignedChain
+from persforest.filtrations._validation import validate_point_cloud
+from typing import Any
+from typing import Dict
+from typing import Iterable
+from typing import Iterator
+from typing import List
+from typing import Literal
+from typing import Optional
+from typing import Sequence
+from typing import Tuple
+from typing import Union
+import itertools
+import math
+import numpy as np
+import time
+import warnings
 
-#Should I rename class to PersForest?
-#
-# Set up the following infrastructure for computing the persistence forest
-#forest = PersistenceForest.from_points(points) #computes alpha filtration
-#forest = PersistenceForest.from_filtration(filtration) 
-#forest = PersistenceForest.from_cubical_grid(grid_vales, corner_convention = "8")
-#      
+from .filtrations.alpha import prepare_alpha_filtration
+from .filtrations.simplicial import prepare_simplicial_filtration
+
 class PersistenceForest:
     """
     Compute and store cycle progressions in forest format.
@@ -83,16 +101,13 @@ class PersistenceForest:
 
         if filtration is None:
             start = time.perf_counter()
-            from filtrations.alpha import alpha_filtration
-            self.Filtration = alpha_filtration(point_cloud=point_cloud)
+            self.simplex_tree, filtration = prepare_alpha_filtration(self.point_cloud)
             alpha_complex_time = time.perf_counter()-start
             if print_info:
                 print(f"Alpha filtration generated in {alpha_complex_time}")
         else:
             start = time.perf_counter()
-            from filtrations.simplicial import SimplicialFiltration
-            filtration = _validate_filtration(filtration, len(self.point_cloud))
-            self.Filtration = SimplicialFiltration(filtration_list=filtration)
+            filtration = prepare_simplicial_filtration(filtration, len(self.point_cloud))
             filtration_verification_time = time.perf_counter()-start
             if print_info:
                 print(f"Filtration order verified in {filtration}")
@@ -103,8 +118,16 @@ class PersistenceForest:
                 stacklevel=2,
             )
 
+        start = time.perf_counter()
+        # Extract s filtration up to order d
+        self.filtration =  [(simplex,filt_val) for simplex, filt_val in filtration if len(simplex) >= self.dim] #keep simplices up to codim 1
+        filtration_time = time.perf_counter()-start
+        if print_info:
+            print(f"Filtration processed in {filtration_time}")
+
         self.barcode: set[PFBar] = set()
         self._barcode_computed = False
+        self._barcode_diffs_ready = False
 
         self.landscape_families: Dict[str, Any] = {}
         self.barcode_functionals: Dict[str, Any] = {}
@@ -121,30 +144,124 @@ class PersistenceForest:
         self.diff_only_mode = diff_only_mode
         self.compute_interior = compute_interior
 
-        self._build_forest(print_info = print_info)
+        self._compute_forest(print_info = print_info)
 
         self.reduced = reduce
 
         if reduce:
-            from _core.reduction import reduce_forest
-            reduce_forest(forest=self,print_info = print_info)
+            self._reduce_forest(print_info = print_info)
    
         # Compute where each cycle is active.
         if not self.diff_only_mode:
-            from _core.representatives import compute_loop_activity
-            compute_loop_activity(forest=self)
+            self._compute_loop_activity()
 
         if compute_barcode:
-            self.compute_barcode(print_info=print_info)
+            if self.keep_simplex_diff:
+                self._compute_barcode_diff(print_info=print_info)
+            else:
+                self._compute_barcode_cycles(print_info = print_info)
 
         if compute_interior: #we should probably remove that feature, the interior can be very quickly collected from the barcode interior diff sequence
-            from _core.representatives import add_interior_to_barcode
-            add_interior_to_barcode(forest=self,print_info = print_info)
+            self._add_interior_to_barcode(print_info = print_info)
 
 
         return
 
-    def _build_forest(self, print_info: bool = False):
+    # ---------- builders ---------
+
+
+    def add_leaf(self, simplex: List[int], filt_val: float, orientation: int):
+        """
+        Create a new leaf node for a full-dimensional simplex.
+
+        In the reverse-filtration algorithm this corresponds to the death of a
+        codimension-one homology class; the new cycle is the signed boundary of
+        ``simplex``.
+
+        Parameters
+        ----------
+        simplex : list[int]
+            Vertices of the full-dimensional simplex being added. It has
+            length ``self.dim + 1``.
+        filt_val : float
+            Filtration value where the simplex enters.
+        orientation : int
+            Orientation (+/-1) of the simplex in the complex.
+
+        Returns
+        -------
+        PFNode
+            Newly created leaf node.
+        """
+        from persforest._forest.build import add_leaf
+        return add_leaf(self, simplex, filt_val, orientation)
+    
+    def make_root(self, node: PFNode, filt_val: float):
+        """
+        End a tree by creating a root parent for an active node.
+
+        In the reverse-filtration algorithm this corresponds to the birth of a
+        codimension-one homology class.
+
+        Parameters
+        ----------
+        node : PFNode
+            Child node that becomes the child of the new root.
+        filt_val : float
+            Filtration value at which the root is created.
+        """
+        from persforest._forest.build import make_root
+        return make_root(self, node, filt_val)
+
+    def merge_nodes(self, node1: PFNode, node2: PFNode, simplex: List[int], filt_val: float):
+        """ 
+        Create a parent node by merging two active child nodes.
+
+        The parent cycle is obtained by unioning the child cycles and removing
+        both orientations of ``simplex``. In the reverse-filtration algorithm,
+        this records a split event and creates a new barcode branch.
+
+        Parameters
+        ----------
+        node1, node2 : PFNode
+            Child nodes that are merged.
+        simplex : list[int]
+            Codimension-one simplex at which the two children cycles merge.
+        filt_val : float
+            Filtration value of the merge event.
+        """
+        from persforest._forest.build import merge_nodes
+        return merge_nodes(self, node1, node2, simplex, filt_val)
+    
+    def update_node(self, node: PFNode, simplex: List[int], filt_val:float):
+        """
+        Create a parent node for an active node whose cycle changes.
+
+        The updated cycle is obtained by removing both orientations of
+        ``simplex`` from ``node.cycle``.
+
+        Parameters
+        ----------
+        node : PFNode
+            Node whose representative is being updated.
+        simplex : list[int]
+            Codimension-one simplex to remove from the representative.
+        filt_val : float
+            Filtration value of the update event.
+        """
+        from persforest._forest.build import update_node
+        return update_node(self, node, simplex, filt_val)
+    
+    
+    # ----- compute the forest ----------
+
+
+    def _update_node_list(self, node_id_list: List[int]) -> List[PFNode]:
+        """Return current root ancestors for ``node_id_list``."""
+        from persforest._forest.build import _update_node_list
+        return _update_node_list(self, node_id_list)
+
+    def _compute_forest(self, print_info: bool = False):
         """ 
         Compute the persistence forest from the alpha-complex filtration.
 
@@ -153,28 +270,171 @@ class PersistenceForest:
         print_info : bool
             If True, print timing information.
         """
-
-        loop_forest_start = time.perf_counter()
-
-        from _core.build import build_forest
-        build_forest(forest=self)
-
-        loop_forest_time = time.perf_counter() - loop_forest_start
-        if print_info:
-            print(f"Forest succesfully computed in {loop_forest_time} sec")
-
-        return
+        from persforest._forest.build import _compute_forest
+        return _compute_forest(self, print_info)
 
 
+    # ----- methods to work with the forest
+
+    def active_nodes_at(self, filt_val: float) -> List[PFNode]:
+        """
+        Return nodes active at a given filtration value.
+
+        A non-root node is active at ``r`` if ``node.filt_val > r`` and its
+        parent has filtration value ``<= r``.
+
+        Parameters
+        ----------
+        filt_val : float
+            Filtration value to query.
+
+        Returns
+        -------
+        list[PFNode]
+            Active nodes sorted by decreasing node filtration value and then id.
+        """
+        from persforest._forest.queries import active_nodes_at
+        return active_nodes_at(self, filt_val)
+
+    def active_cycles_at(self, filt_val: float) -> List[SignedChain]:
+        """Return active cycle representatives at ``filt_val``."""
+        from persforest._forest.queries import active_cycles_at
+        return active_cycles_at(self, filt_val)
+
+    def leaves_below_node(self, node: PFNode) -> set[int]:
+        """Return ids of all descendant leaves below ``node``."""
+        from persforest._forest.queries import leaves_below_node
+        return leaves_below_node(self, node)
+
+    def leaf_to_node_path(self, leaf: PFNode, node: PFNode) -> List[int]:
+        """Return node ids on the path from ``leaf`` up to ancestor ``node``."""
+        from persforest._forest.queries import leaf_to_node_path
+        return leaf_to_node_path(self, leaf, node)
+
+    def node_to_leaf_path(self, leaf: PFNode, node: PFNode) -> List[int]:
+        """Return node ids on the path from ancestor ``node`` down to ``leaf``."""
+        from persforest._forest.queries import node_to_leaf_path
+        return node_to_leaf_path(self, leaf, node)
+
+    def get_root(self, node: PFNode) -> PFNode:
+        """Return the highest ancestor of ``node`` with no parent."""
+        from persforest._forest.queries import get_root
+        return get_root(self, node)
+
+
+    # ----- reduce forest (collapses trivial edges which happen at the same filtration value) -------------
+
+    def _collapse_parent_child(self, parent: PFNode, child: PFNode):
+        """
+        Collapse a parent-child pair into the parent node.
+
+        Intended for pairs whose filtration values agree up to
+        ``self.filtration_tol``. The parent node is kept; the child is removed
+        and its children are re-parented to ``parent``.
+        """
+        from persforest._forest.reduction import _collapse_parent_child
+        return _collapse_parent_child(self, parent, child)
+
+    def _reduce_forest(self, print_info: bool = False):
+        """
+        Reduce the forest by collapsing every parent-child pair whose
+        filtration values differ by at most ``self.filtration_tol``.
+
+        Collapse rule for an edge (parent p, child c) with
+        p.filt_val <= c.filt_val <= p.filt_val + self.filtration_tol:
+        - Keep the *parent* node p (its cycle stays as-is).
+        - Remove the child node c from the forest.
+        - The parent of the resulting (collapsed) node remains p.parent (i.e., the
+            parent of the original parent), if any.
+        - Children of the resulting node are the union of p.children and c.children,
+            minus the removed child c itself.
+        - For every grandchild g in c.children, set g.parent = p.id.
+        Repeats until no collapsible edges remain.
+
+        Finally, normalize roots so that branches born simultaneously belong
+        to separate trees, each with its child's cycle as root representative.
+
+        Parameters
+        ----------
+        print_info : bool
+            If True, print timing information and node counts.
+        """
+        from persforest._forest.reduction import _reduce_forest
+        return _reduce_forest(self, print_info)
+
+    def _normalize_roots(self) -> None:
+        """Give each surviving root one child and that child's representative.
+
+        Notes
+        -----
+        Called after edge collapse and before activity/barcode computation.
+        A branching root represents a split at birth, so each child receives
+        a separate root at the original birth value. The smallest child ID
+        retains the existing root; other children receive fresh root IDs.
+        Non-root node order is preserved for barcode tie-breaking.
+
+        Root diffs are empty because a root represents exactly its child,
+        including in diff-only mode, where both stored cycles are ``None``.
+        Existing unary roots are normalized too, since collapse can change
+        their child. Repeating this operation leaves the forest unchanged.
+        """
+        from persforest._forest.reduction import _normalize_roots
+        return _normalize_roots(self)
+
+    # ------ Add active period of each cycle ----------
+
+    def _node_activity(self, node):
+        """Return ``(active_start, active_end)`` for a node's cycle."""
+        from persforest._forest.queries import _node_activity
+        return _node_activity(self, node)
+
+    def _compute_loop_activity(self):
+        """Annotate each non-root node cycle with its active interval."""
+        from persforest._forest.representatives import _compute_loop_activity
+        return _compute_loop_activity(self)
+
+    # ----- Compute barcode sequence ---------
+
+    def _compute_barcode_cycles(self, print_info: bool = False) -> None:
+        """Build bars from stored representatives without accumulating diffs.
+
+        Parameters
+        ----------
+        print_info : bool
+            If True, print timing information.
+        """
+        from persforest._forest.compute_barcode import compute_barcode_cycles
+        return compute_barcode_cycles(self, print_info)
+
+    def _compute_barcode_diff(self, print_info: bool = False) -> None:
+        """Build bars and accumulate barcode diffs when node diffs are stored.
+
+        Parameters
+        ----------
+        print_info : bool
+            If True, print timing information.
+        """
+        from persforest._forest.compute_barcode import compute_barcode_diff
+        return compute_barcode_diff(self, print_info)
 
     def compute_barcode(self,  print_info: bool = False):
+        """Compute bars using the builder appropriate for the storage mode.
+
+        Parameters
+        ----------
+        print_info : bool
+            If True, print timing information.
+
+        Raises
+        ------
+        RuntimeError
+            If the barcode has already been computed.
+        """
 
         if self.keep_simplex_diff:
-            from _core.compute_barcode import compute_barcode_diff
-            compute_barcode_diff(forest=self, print_info=print_info)
+            self._compute_barcode_diff(print_info=print_info)
         else:
-            from _core.compute_barcode import compute_barcode_cycles
-            compute_barcode_cycles(forest=self, print_info=print_info)
+            self._compute_barcode_cycles(print_info=print_info)
 
         return
 
@@ -189,8 +449,8 @@ class PersistenceForest:
         ValueError
             On iteration, if the bar is foreign or required diffs are missing.
         """
-        from _core.representatives import iter_bar_cycle_reps
-        return iter_bar_cycle_reps(forest=self,bar=bar)
+        from persforest._forest.representatives import iter_bar_cycle_reps
+        return iter_bar_cycle_reps(self, bar)
 
     def cycle_for_bar_at(self, bar: PFBar, filt_val: float) -> SignedChain:
         """Return a bar's representative active at a filtration value.
@@ -211,10 +471,62 @@ class PersistenceForest:
         SignedChain
             Representative active at ``filt_val``.
         """
-        from _core.representatives import cycle_for_bar_at
-        return cycle_for_bar_at(forest=self, bar=bar, filt_val=filt_val)
+        from persforest._forest.representatives import cycle_for_bar_at
+        return cycle_for_bar_at(self, bar, filt_val)
 
+    # ----- Interior computation and activity ------
 
+    def _add_interior_to_bar(self, bar: PFBar):
+        """
+        Adds an ``interior`` set containing accumulated full-dimensional simplices to each SignedChain in bar, 
+        and sets ``interior_available=True``.
+
+        Raises
+        ------
+        ValueError
+            If any node in the progression does not have simplex diffs.
+        """
+        from persforest._forest.representatives import _add_interior_to_bar
+        return _add_interior_to_bar(self, bar)
+
+    def _add_interior_to_barcode(self,print_info: bool =False):
+        """
+        Replace barcode cycle representatives by diff-reconstructed chains.
+
+        Parameters
+        ----------
+        print_info : bool
+            If True, print timing information.
+
+        Notes
+        -----
+        Requires the forest to have been built with ``keep_simplex_diff=True``.
+        The reconstructed representatives carry accumulated interior simplex
+        data used by ``interior_simplex_activity``.
+        """
+        from persforest._forest.representatives import _add_interior_to_barcode
+        return _add_interior_to_barcode(self, print_info)
+
+    def interior_simplex_activity(self) -> dict[tuple[int, ...], list[tuple[PFBar, float, float]]]:
+        """
+        Return active interior intervals for full-dimensional simplices.
+
+        The return value maps each unsigned full-dimensional simplex to a list
+        of ``(bar, active_start, active_end)`` tuples. The interval is the
+        half-open filtration range where the simplex is in the interior of the
+        active cycle representative for that bar.
+
+        Returns
+        -------
+        dict[tuple[int, ...], list[tuple[PFBar, float, float]]]
+            Mapping from simplex keys to bars and active intervals.
+
+        Notes
+        -----
+        Requires ``keep_simplex_diff=True``.
+        """
+        from persforest._forest.representatives import interior_simplex_activity
+        return interior_simplex_activity(self)
 
     # ----- Useful barcode functions --------
 
@@ -238,6 +550,15 @@ class PersistenceForest:
         cycles = [self.cycle_for_bar_at(bar, filt_val) for bar in active_bars if bar.lifespan()>=min_bar_length]
         return cycles
 
+    def _active_bars_with_cycles_at(
+        self,
+        filt_val: float,
+        min_bar_length: float = 0.0,
+    ) -> List[Tuple["PFBar", SignedChain]]:
+        """Return active bars paired with their cycles at ``filt_val``."""
+        from persforest._forest.representatives import _active_bars_with_cycles_at
+        return _active_bars_with_cycles_at(self, filt_val, min_bar_length)
+
     def barcode_cycle_reps(self, relative_position=0.1, min_bar_length: float = 0) -> List[SignedChain]:
         """
         Return the list of cycle representatives for all bars in the barcode.
@@ -254,15 +575,41 @@ class PersistenceForest:
         list[SignedChain]
             Cycle representatives for all bars in the barcode.
         """
-        from _core.representatives import barcode_cycle_reps
-        return barcode_cycle_reps(forest=forest, relative_position=relative_position, min_bar_length=min_bar_length)
+        from persforest._forest.representatives import barcode_cycle_reps
+        return barcode_cycle_reps(self, relative_position, min_bar_length)
 
     # ------ generate color scheme  ---------
 
+    def _build_color_map_forest(self, seed: Optional[int] = 39, start_color: Optional[str] = "#ff7f0e",):
+        """
+        Computes a color map which assign a color to each bar in the barcode. 
+        Bars in same tree will have similiar colors. 
+        Saved as a dictionary {bar: "#RRGGBB"} in self.color_map_forest
+        Based on json
+
+        Parameters
+        ----------
+        seed : int | None
+            Random seed to make the palette repeatable.
+        start_color : str | None
+            Preferred color to start the palette with (hex).
+        """
+        from persforest.plotting.colors import _build_color_map_forest
+        return _build_color_map_forest(self, seed, start_color)
+
+    def _build_color_map_bars(self):
+        """
+        Computes a color map which assign a color to each bar in the barcode. 
+        Ignores tree structure and cycles through 20 colors from longest to shortest bar 
+        Saved as a dictionary {bar: "#RRGGBB"} in self.color_map_bars
+        """
+        from persforest.plotting.colors import _build_color_map_bars
+        return _build_color_map_bars(self)
+
     def _get_color_map(self, coloring: Literal["forest", "bars"] = "forest"):
         """Return the requested bar color map, building it on first use."""
-        from plotting.colors import _get_color_map
-        return _get_color_map(forest=self, coloring=coloring)
+        from persforest.plotting.colors import _get_color_map
+        return _get_color_map(self, coloring)
 
     def set_longest_bar_colors(
         self,
@@ -270,9 +617,8 @@ class PersistenceForest:
         coloring: Literal["forest", "bars"] = "forest",
     ) -> None:
         """Overwrite colors for the longest bars in the selected color map."""
-        from plotting.colors import set_longest_bar_colors
-        set_longest_bar_colors(forest=self,colors=colors, coloring=coloring)
-        return
+        from persforest.plotting.colors import set_longest_bar_colors
+        return set_longest_bar_colors(self, colors, coloring)
 
     # ----- interior activity plotting -------
 
@@ -327,7 +673,7 @@ class PersistenceForest:
         matplotlib.axes.Axes
             Axes containing the activity plot.
         """
-        from .interior_activity_plotting import plot_interior_simplex_activity
+        from persforest.plotting.interior_mpl import plot_interior_simplex_activity
 
         return plot_interior_simplex_activity(
             self,
@@ -360,16 +706,14 @@ class PersistenceForest:
         """Plot the smooth 2D interior-activity field.
 
         This representation is defined only for 2D forests. Parameters are
-        forwarded to ``interior_activity_plotting`` without modification.
+        forwarded to ``persforest.plotting.interior_mpl`` without modification.
 
         Returns
         -------
         matplotlib.axes.Axes
             Axes containing the activity gradient.
         """
-        from .interior_activity_plotting import (
-            plot_interior_simplex_activity_gradient,
-        )
+        from persforest.plotting.interior_mpl import plot_interior_simplex_activity_gradient
 
         return plot_interior_simplex_activity_gradient(
             self,
@@ -463,9 +807,7 @@ class PersistenceForest:
         plotly.graph_objects.Figure
             Interactive 3D figure.
         """
-        from .interior_activity_plotly import (
-            plot_interior_simplex_activity_plotly,
-        )
+        from persforest.plotting.interior_plotly import plot_interior_simplex_activity_plotly
 
         return plot_interior_simplex_activity_plotly(
             self,
@@ -485,9 +827,9 @@ class PersistenceForest:
             style=style,
             edge_mode=edge_mode,
         )
-    
+
     # ----- filtration plotting helpers -------
-    
+
     def _simplices_present_at_filtration(self, filt_val: float) -> Dict[str, Any]:
         """
         Return simplices present at a filtration value.
@@ -507,37 +849,9 @@ class PersistenceForest:
         dict
             Dictionary containing present simplices.
         """
-        if self.dim not in (2, 3):
-            raise ValueError("Plotting is only implemented for ambient dimensions 2 and 3.")
+        from persforest.plotting._scene import _simplices_present_at_filtration
+        return _simplices_present_at_filtration(self, filt_val)
 
-        out: Dict[str, Any] = {
-            "edges": [],
-            "triangles": [],
-            "tetrahedra": [],
-        }
-
-        for simplex, f in self.filtration:
-            if f > filt_val:
-                break
-
-            simplex_t = tuple(simplex)
-
-            if self.dim == 2:
-                if len(simplex_t) == 2:
-                    out["edges"].append(simplex_t)
-                elif len(simplex_t) == 3:
-                    out["triangles"].append(simplex_t)
-
-            elif self.dim == 3:
-                if len(simplex_t) == 2:
-                    out["edges"].append(simplex_t)
-                elif len(simplex_t) == 3:
-                    out["triangles"].append(simplex_t)
-                elif len(simplex_t) == 4:
-                    out["tetrahedra"].append(simplex_t)
-
-        return out
-    
     def _complex_snapshot_at_filtration(self, filt_val: float) -> Dict[str, Any]:
         """
         Build a backend-agnostic snapshot of the complex and active cycles at
@@ -553,41 +867,9 @@ class PersistenceForest:
         dict
             Snapshot containing points and present simplices.
         """
-        pts = np.asarray(self.point_cloud, dtype=float)
-        simplices = self._simplices_present_at_filtration(filt_val)
+        from persforest.plotting._scene import _complex_snapshot_at_filtration
+        return _complex_snapshot_at_filtration(self, filt_val)
 
-        snapshot: Dict[str, Any] = {
-            "dimension": self.dim,
-            "filt_val": float(filt_val),
-            "points": pts,
-        }
-
-        if self.dim == 2:
-            snapshot["edges"] = simplices["edges"]
-            snapshot["triangles"] = simplices["triangles"]
-
-        elif self.dim == 3:
-            tetrahedra = simplices["tetrahedra"]
-            standalone_triangles = simplices["triangles"]
-            edges = simplices["edges"]
-
-            boundary_from_tets = boundary_faces_from_tetrahedra(
-                tetrahedra=tetrahedra,
-                point_cloud=pts,
-            )
-            tet_face_keys = {tuple(sorted(face)) for face in boundary_from_tets}
-            standalone_keys = {tuple(sorted(face)) for face in standalone_triangles}
-
-            # Include all boundary faces from tetrahedra, plus triangles not covered by them.
-            boundary_faces = list(tet_face_keys | standalone_keys)
-
-            snapshot["triangles"] = boundary_faces
-            snapshot["edges"] = edges
-            snapshot["tetrahedra"] = tetrahedra
-            snapshot["standalone_triangles"] = standalone_triangles
-
-        return snapshot
-    
 
     # ----- filtration plotting tools -------
 
@@ -669,7 +951,7 @@ class PersistenceForest:
         -------
         matplotlib.axes.Axes
         """
-        from .simplicial_filtration_plotting import _plot_at_filtration_generic
+        from persforest.plotting.filtration_mpl import _plot_at_filtration_generic
 
         return _plot_at_filtration_generic(
             self,
@@ -743,7 +1025,7 @@ class PersistenceForest:
         -------
         matplotlib.axes.Axes
         """
-        from .simplicial_filtration_plotting import _plot_at_filtration_with_dual_2d
+        from persforest.plotting.filtration_mpl import _plot_at_filtration_with_dual_2d
 
         return _plot_at_filtration_with_dual_2d(
             self,
@@ -824,7 +1106,7 @@ class PersistenceForest:
         -------
         matplotlib.axes.Axes
         """
-        from .simplicial_filtration_plotting import plot_barcode_cycle_reps
+        from persforest.plotting.filtration_mpl import plot_barcode_cycle_reps
 
         return plot_barcode_cycle_reps(
             self,
@@ -900,7 +1182,7 @@ class PersistenceForest:
         -------
         plotly.graph_objects.Figure
         """
-        from .simplicial_filtration_plotly import plot_at_filtration_plotly
+        from persforest.plotting.filtration_plotly import plot_at_filtration_plotly
 
         return plot_at_filtration_plotly(
             self,
@@ -986,7 +1268,7 @@ class PersistenceForest:
                 "reconstructing cycles for every frame can be slow. "
                 "Build the forest with diff_only_mode=False to animate it."
             )
-        from .simplicial_filtration_plotly import plot_filtration_interactive
+        from persforest.plotting.filtration_plotly import plot_filtration_interactive
 
         return plot_filtration_interactive(
             self,
@@ -1019,10 +1301,10 @@ class PersistenceForest:
         ``edge_style="curved"|"straight"|"routed"``, ``curvature``,
         ``branch_angle``, ``min_clearance``, ``node_size``, ``node_alpha``,
         and Matplotlib styling. Filters affect only the display. See
-        :func:`persforest.forest_plotting._plot_persistence_forest_generic`
+        :func:`persforest.plotting.forest._plot_persistence_forest_generic`
         for full parameter descriptions and optional layout metadata.
         """
-        from .forest_plotting import _plot_persistence_forest_generic
+        from persforest.plotting.forest import _plot_persistence_forest_generic
         return _plot_persistence_forest_generic(self, **kwargs)
 
     def plot_barcode(self, *args, **kwargs):
@@ -1074,7 +1356,7 @@ class PersistenceForest:
         ax : matplotlib.axes.Axes
             The axes the barcode was drawn on.
         """
-        from .forest_plotting import _plot_barcode_generic
+        from persforest.plotting.barcode import _plot_barcode_generic
 
         return _plot_barcode_generic(self, *args,**kwargs)
 
@@ -1189,228 +1471,8 @@ class PersistenceForest:
             - 3D MP4 path: output filename string.
             - 3D HTML path: Plotly figure.
         """
-        if self.diff_only_mode:
-            raise ValueError(
-                "Animations are unavailable with diff_only_mode=True because "
-                "reconstructing cycles for every frame can be slow. "
-                "Build the forest with diff_only_mode=False to animate it."
-            )
-        from pathlib import Path
-        from .simplicial_filtration_animation import (
-            _animate_filtration_generic, _validate_radius_box_corner,
-        )
-
-        _validate_radius_box_corner(radius_box_corner)
-
-        out_format = format
-        if out_format is None and filename is not None:
-            suffix = Path(filename).suffix.lower()
-            if suffix in {".mp4", ".html"}:
-                out_format = suffix[1:]
-        if out_format is None:
-            out_format = "mp4"
-        if out_format not in {"mp4", "html"}:
-            raise ValueError(f"Unsupported animation format: {out_format!r}. Use 'mp4' or 'html'.")
-
-        if plot_kwargs is not None:
-            warnings.warn(
-                "`plot_kwargs` is deprecated; use `filtration_kwargs`.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            if filtration_kwargs is None:
-                filtration_kwargs = dict(plot_kwargs)
-            else:
-                merged = dict(plot_kwargs)
-                merged.update(filtration_kwargs)
-                filtration_kwargs = merged
-
-        if cloud_figsize is not None or total_figsize is not None:
-            warnings.warn(
-                "`cloud_figsize` and `total_figsize` are deprecated; use `figsize=(w, h)`.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            if figsize is None:
-                if with_barcode and total_figsize is not None:
-                    figsize = total_figsize
-                elif (not with_barcode) and cloud_figsize is not None:
-                    figsize = cloud_figsize
-
-        base_filtration_kwargs: dict[str, Any] = {}
-        if filtration_kwargs is not None:
-            base_filtration_kwargs.update(filtration_kwargs)
-    
-        style_2d = dict(base_filtration_kwargs.pop("style_2d", {}) or {})
-        style_3d = dict(base_filtration_kwargs.pop("style_3d", {}) or {})
-
-        if "fill_triangles" in base_filtration_kwargs:
-            base_filtration_kwargs.setdefault(
-                "show_complex",
-                bool(base_filtration_kwargs.pop("fill_triangles")),
-            )
-
-        if "remove_double_edges" in base_filtration_kwargs:
-            base_filtration_kwargs.setdefault(
-                "signed",
-                not bool(base_filtration_kwargs.pop("remove_double_edges")),
-            )
-
-        if "linewidth_filt" in base_filtration_kwargs:
-            style_2d.setdefault(
-                "complex_edge_width",
-                float(base_filtration_kwargs.pop("linewidth_filt")),
-            )
-        if "linewidth_cycle" in base_filtration_kwargs:
-            style_2d.setdefault(
-                "cycle_edge_width",
-                float(base_filtration_kwargs.pop("linewidth_cycle")),
-            )
-
-        if "show_orientation_arrows" in base_filtration_kwargs:
-            style_2d.setdefault(
-                "show_orientation_arrows",
-                bool(base_filtration_kwargs.pop("show_orientation_arrows")),
-            )
-
-        if "camera_eye" in base_filtration_kwargs:
-            style_3d.setdefault("camera_eye", base_filtration_kwargs.pop("camera_eye"))
-        if "remove_axes" in base_filtration_kwargs:
-            style_3d.setdefault(
-                "remove_axes",
-                bool(base_filtration_kwargs.pop("remove_axes")),
-            )
-
-        base_filtration_kwargs["signed"] = bool(signed)
-        base_filtration_kwargs["show_cycles"] = bool(show_cycles)
-        base_filtration_kwargs["show_complex"] = bool(show_complex)
-
-        if style_2d:
-            base_filtration_kwargs["style_2d"] = style_2d
-        if style_3d:
-            base_filtration_kwargs["style_3d"] = style_3d
-
-        if self.dim == 2:
-            if out_format == "html":
-                raise ValueError("HTML animation export is only implemented for ambient dimension 3.")
-
-            resolved_filename = filename
-            if resolved_filename is not None and Path(resolved_filename).suffix.lower() == "":
-                resolved_filename = f"{resolved_filename}.mp4"
-
-            filtration_panel_kwargs = dict(base_filtration_kwargs)
-            barcode_panel_kwargs = {}
-            if barcode_kwargs is not None:
-                barcode_panel_kwargs.update(barcode_kwargs)
-            t_max_2d = t_max
-            if t_max_2d is None:
-                finite_deaths = [float(bar.death) for bar in self.barcode if np.isfinite(float(bar.death))]
-                if finite_deaths:
-                    t_max_2d = max(finite_deaths)
-                else:
-                    finite_filtration = [float(f) for _, f in self.filtration if np.isfinite(float(f))]
-                    if finite_filtration:
-                        t_max_2d = max(finite_filtration)
-
-            return _animate_filtration_generic(
-                self,
-                filename=resolved_filename,
-                fps=fps,
-                frames=frames,
-                coloring=coloring,
-                with_barcode=with_barcode,
-                t_min=t_min,
-                t_max=t_max_2d,
-                dpi=dpi,
-                figsize=figsize,
-                pixel_size=pixel_size,
-                panel_width_ratios=panel_width_ratios,
-                panel_spacing=panel_spacing,
-                figure_margins=figure_margins,
-                filtration_kwargs=filtration_panel_kwargs,
-                barcode_kwargs=barcode_panel_kwargs,
-                alpha_digits=alpha_digits,
-                radius_box_corner=radius_box_corner,
-            )
-
-        if self.dim == 3:
-            if out_format == "html":
-                html_width = None
-                html_height = None
-                if pixel_size is not None:
-                    if len(pixel_size) != 2:
-                        raise ValueError("pixel_size must be a 2-tuple (width, height).")
-                    html_width = int(pixel_size[0])
-                    html_height = int(pixel_size[1])
-                elif figsize is not None:
-                    html_width = int(round(float(figsize[0]) * float(dpi)))
-                    html_height = int(round(float(figsize[1]) * float(dpi)))
-
-                filtration_panel_kwargs = dict(base_filtration_kwargs)
-                style_3d = dict(filtration_panel_kwargs.get("style_3d", {}) or {})
-
-                fig = self.plot_filtration_interactive(
-                    coloring=coloring,
-                    show_cycles=filtration_panel_kwargs.get("show_cycles", True),
-                    signed=filtration_panel_kwargs["signed"],
-                    filt_max=t_max,
-                    show_complex=filtration_panel_kwargs.get("show_complex", True),
-                    complex_opacity=float(style_3d.get("complex_face_alpha", 0.20)),
-                    cycle_opacity=float(style_3d.get("cycle_face_alpha", 0.55)),
-                    resolution=frames,
-                    show=False,
-                    vertex_size=float(filtration_panel_kwargs.get("vertex_size", 3.0)),
-                    width=html_width,
-                    height=html_height,
-                )
-                resolved_filename = filename if filename is not None else "filtration_animation_3d.html"
-                if Path(resolved_filename).suffix.lower() == "":
-                    resolved_filename = f"{resolved_filename}.html"
-                fig.write_html(str(resolved_filename))
-                return fig
-
-            resolved_filename = filename if filename is not None else "filtration_animation_3d.mp4"
-            if Path(resolved_filename).suffix.lower() == "":
-                resolved_filename = f"{resolved_filename}.mp4"
-
-            filtration_panel_kwargs = {"camera_mode": camera_mode, **base_filtration_kwargs}
-
-            barcode_panel_kwargs = {}
-            if barcode_kwargs is not None:
-                barcode_panel_kwargs.update(barcode_kwargs)
-
-            t_max_3d = t_max
-            if t_max_3d is None:
-                finite_deaths = [float(bar.death) for bar in self.barcode if np.isfinite(float(bar.death))]
-                if finite_deaths:
-                    t_max_3d = max(finite_deaths)
-                else:
-                    finite_filtration = [float(f) for _, f in self.filtration if np.isfinite(float(f))]
-                    if finite_filtration:
-                        t_max_3d = max(finite_filtration)
-
-            return _animate_filtration_generic(
-                self,
-                filename=resolved_filename,
-                with_barcode=with_barcode,
-                fps=fps,
-                frames=frames,
-                t_min=t_min,
-                t_max=t_max_3d,
-                coloring=coloring,
-                dpi=dpi,
-                figsize=figsize,
-                pixel_size=pixel_size,
-                panel_width_ratios=panel_width_ratios,
-                panel_spacing=panel_spacing,
-                figure_margins=figure_margins,
-                filtration_kwargs=filtration_panel_kwargs,
-                barcode_kwargs=barcode_panel_kwargs,
-                alpha_digits=alpha_digits,
-                radius_box_corner=radius_box_corner,
-            )
-
-        raise ValueError("animate_filtration is only implemented for ambient dimensions 2 and 3.")
+        from persforest.plotting.animation.api import animate_filtration
+        return animate_filtration(self, filename, format, with_barcode, fps, frames, t_min, t_max, coloring, signed, show_cycles, show_complex, dpi, figsize, pixel_size, panel_width_ratios, panel_spacing, figure_margins, filtration_kwargs, barcode_kwargs, camera_mode, cloud_figsize, total_figsize, plot_kwargs, alpha_digits, radius_box_corner)
 
     def animate_barcode_measurement(
                 self,
@@ -1444,7 +1506,7 @@ class PersistenceForest:
             ``self.max_bar()`` inside the generic helper.
         *args, **kwargs :
             Forwarded to
-            :func:`forest_landscapes.animate_barcode_measurement_generic`.
+            :func:`persforest.plotting.animation.measurements.animate_barcode_measurement_generic`.
             Typical keyword arguments include ``filename``, ``fps``,
             ``frames``, ``t_min``, ``t_max``, ``dpi``, ``total_figsize``,
             ``filtration_kwargs`` and ``measurement_kwargs``.
@@ -1462,78 +1524,8 @@ class PersistenceForest:
             :class:`matplotlib.animation.FuncAnimation` and ``fig`` is the
             underlying figure.
         """
-        if self.diff_only_mode:
-            raise ValueError(
-                "Animations are unavailable with diff_only_mode=True because "
-                "reconstructing cycles for every frame can be slow. "
-                "Build the forest with diff_only_mode=False to animate it."
-            )
-        from .forest_landscapes import animate_barcode_measurement_generic
-        from copy import deepcopy
-
-        kwargs = dict(kwargs)
-        if "plot_kwargs" in kwargs:
-            raise TypeError(
-                "`plot_kwargs` is no longer supported; use `filtration_kwargs`."
-            )
-        raw_filtration_kwargs = kwargs.get("filtration_kwargs", None)
-        if raw_filtration_kwargs is not None:
-            if not isinstance(raw_filtration_kwargs, dict):
-                raise TypeError("filtration_kwargs must be a dict when provided.")
-            filtration_kwargs = deepcopy(raw_filtration_kwargs)
-        else:
-            filtration_kwargs = {}
-
-        style_2d = dict(filtration_kwargs.pop("style_2d", {}) or {})
-        style_3d = dict(filtration_kwargs.pop("style_3d", {}) or {})
-
-        if "fill_triangles" in filtration_kwargs:
-            filtration_kwargs["show_complex"] = bool(filtration_kwargs.pop("fill_triangles"))
-
-        if "remove_double_edges" in filtration_kwargs:
-            filtration_kwargs["signed"] = not bool(filtration_kwargs.pop("remove_double_edges"))
-
-        if "linewidth_filt" in filtration_kwargs:
-            style_2d["complex_edge_width"] = float(filtration_kwargs.pop("linewidth_filt"))
-        if "linewidth_cycle" in filtration_kwargs:
-            style_2d["cycle_edge_width"] = float(filtration_kwargs.pop("linewidth_cycle"))
-
-        if "show_orientation_arrows" in filtration_kwargs:
-            style_2d["show_orientation_arrows"] = bool(
-                filtration_kwargs.pop("show_orientation_arrows")
-            )
-
-        if "camera_eye" in filtration_kwargs:
-            style_3d["camera_eye"] = filtration_kwargs.pop("camera_eye")
-        if "remove_axes" in filtration_kwargs:
-            style_3d["remove_axes"] = bool(filtration_kwargs.pop("remove_axes"))
-
-        # `alpha_digits` is not a `plot_at_filtration` kwarg in this animation path.
-        filtration_kwargs.pop("alpha_digits", None)
-
-        if style_2d:
-            filtration_kwargs["style_2d"] = style_2d
-        if style_3d:
-            filtration_kwargs["style_3d"] = style_3d
-
-        kwargs["filtration_kwargs"] = filtration_kwargs
-
-        if signed:
-            def _cycle_value(chain, point_cloud):
-                # `chain` is a SignedChain
-                return float(cycle_func(chain, point_cloud))
-        else:
-            def _cycle_value(chain, point_cloud):
-                # `chain` is a SignedChain
-                return float(cycle_func(chain.unsigned(), point_cloud))
-
-        return animate_barcode_measurement_generic(
-            forest=self,
-            cycle_func=_cycle_value,
-            bar=bar,
-            *args,
-            **kwargs,
-        )
+        from persforest.plotting.animation.api import animate_barcode_measurement
+        return animate_barcode_measurement(self, cycle_func, signed, bar, *args, **kwargs)
 
     #------- measurement landscape ----------------
 
@@ -1577,7 +1569,7 @@ class PersistenceForest:
         show : bool
             If True, call ``plt.show()`` after plotting.
         *args :
-            Forwarded to ``forest_landscapes.plot_barcode_measurement_generic``.
+            Forwarded to ``persforest.plotting.landscapes.plot_barcode_measurement_generic``.
         **kwargs :
             Forwarded to ``StepFunctionData.plot`` (e.g., ``baseline_kwargs``,
             line color/linewidth, etc.).
@@ -1587,7 +1579,7 @@ class PersistenceForest:
         tuple[matplotlib.axes.Axes, StepFunctionData]
             The axes and the piecewise-constant measurement data.
         """
-        from .forest_landscapes import plot_barcode_measurement_generic
+        from persforest.plotting.landscapes import plot_barcode_measurement_generic
 
         if signed:
             def _cycle_func(chain, point_cloud):
@@ -1688,7 +1680,7 @@ class PersistenceForest:
                 # `chain` is a SignedChain
                 return float(cycle_func(chain.unsigned(), point_cloud))
     
-        from .forest_landscapes import compute_measurement_landscape_family
+        from persforest.landscapes.family import compute_measurement_landscape_family
 
         return compute_measurement_landscape_family(
             self,
@@ -1785,7 +1777,7 @@ class PersistenceForest:
         matplotlib.axes.Axes
             Axes containing the landscape plot.
         """
-        from .forest_landscapes import plot_landscape_family
+        from persforest.plotting.landscapes import plot_landscape_family
         return plot_landscape_family(
             self,
             label,
@@ -1855,5 +1847,5 @@ class PersistenceForest:
         matplotlib.axes.Axes
             Axes containing the comparison plot.
         """
-        from .forest_landscapes import plot_landscape_comparison_between_functionals
+        from persforest.plotting.landscapes import plot_landscape_comparison_between_functionals
         return plot_landscape_comparison_between_functionals(self, labels=labels, k=k, ax=ax, title=title, *args, **kwargs)

@@ -1,23 +1,13 @@
+"""chains: mechanically extracted reference implementation."""
 
 from dataclasses import dataclass
-
-
-
-#todo: set up Chain class such that it also works for cubical complexes
-@dataclass(slots=True)
-class Chain:
-    signed_simplices: Set[tuple]       # oriented codimension-one simplices, stored as (simplex, orientation)
-    active_start: float = float("-inf")
-    active_end: float   = float("-inf")
-    interior_available: bool = False
-    interior: Set[tuple] | None = None
-    type: Optional[str] = None 
-
-
-
+from numpy.typing import NDArray
+from typing import Dict
+from typing import Set
+import numpy as np
 
 @dataclass(slots=True)
-class SignedChain(Chain): 
+class SignedChain: 
     """
     Oriented simplicial chain used as a cycle representative.
 
@@ -133,13 +123,8 @@ class SignedChain(Chain):
         list[np.ndarray]
             List of 2xD arrays representing oriented edge segments.
         """
-        segments = []
-        for signed_simplex in self.signed_simplices:
-            if signed_simplex[1]==1:
-                segments.append(np.array(point_cloud[list(signed_simplex[0])]))
-            else:
-                segments.append(np.array(point_cloud[list(reversed(signed_simplex[0]))]))
-        return segments
+        from persforest.geometry.simplicial import chain_segments
+        return chain_segments(self, point_cloud)
     
     def simplices(self, signed) -> list[list[int]]:
         if not signed:
@@ -170,15 +155,27 @@ class SignedChain(Chain):
         ndarray, shape (n_vertices, dim)
             Coordinates of the vertices in the chain.
         """
-        vertex_indices: Set[int] = set()
-        if signed: 
-            signed_simplices = self.signed_simplices
-        else:
-            signed_simplices = self.unsigned().signed_simplices
+        from persforest.geometry.simplicial import chain_vertex_coordinates
+        return chain_vertex_coordinates(self, point_cloud, signed)
 
-        for signed_simplex in signed_simplices:
-            simplex, _ = signed_simplex
-            vertex_indices.update(simplex)
+def merge_at_simplex(cycle1: "SignedChain", cycle2: "SignedChain", simplex: list[int]) -> "SignedChain":
+    """
+    Union two chains and remove the specified simplex if it
+    appears with opposite orientation in the two chains.
 
-        coords = np.array([point_cloud[i] for i in sorted(vertex_indices)], dtype=float)
-        return coords
+    Parameters
+    ----------
+    cycle1 : SignedChain
+        Chain to merge.
+    cycle2 : SignedChain
+        Chain to merge.
+    simplex : list[int]
+        Simplex that is being collapsed when the chains merge.
+
+    Returns
+    -------
+    SignedChain
+        New chain representing the merged cycles.
+    """
+    union = cycle1.signed_simplices | cycle2.signed_simplices
+    return SignedChain(signed_simplices= union.difference({(tuple(simplex),1),(tuple(simplex),-1)}) )

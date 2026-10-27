@@ -1,3 +1,8 @@
+"""filtrations.simplicial: mechanically extracted reference implementation."""
+
+from persforest.filtrations._validation import _validate_filtration
+from collections.abc import Iterable, Sequence
+
 def key(simplex):
     """
     Return a canonical, orientation-free key for a simplex.
@@ -15,45 +20,39 @@ def key(simplex):
     """
     return tuple(sorted(simplex))
 
-class SimplicialFiltration:
+def signed_boundary(simplex, orientation: int): 
+    """
+    Compute the oriented boundary of a simplex.
 
-    def __init__(self, filtration_list):
-        self.filtration_list = filtration_list
-        return
+    Parameters
+    ----------
+    simplex : list[int]
+        Vertices of the simplex whose boundary is computed.
+    orientation : int
+        Orientation (+1 or -1) of the simplex.
 
-    def remove_low_dim_simplices(self,dim: int):
-        "only keeps simplices up to dimension dim-1"
-        self.filtration_list = [(simplex,filt_val) for simplex, filt_val in self.filtration_list if len(simplex) >= dim]
-        return
+    Returns
+    -------
+    set[tuple]
+        Set of oriented faces stored as (simplex_tuple, orientation).
+    """
+    return {(tuple(simplex[:i] + simplex[i+1:]), orientation* (-1)**i) for i in range(len(simplex))}
 
-    def signed_boundary(self, simplex):
-        """
-        Compute the oriented boundary of a simplex.
+def prepare_simplicial_filtration(
+    filtration: Iterable[tuple[Sequence[int], float]], n_points: int,
+) -> list[tuple[tuple[int, ...], float]]:
+    """Validate custom input without changing its values or caller tie order.
 
-        Parameters
-        ----------
-        simplex : list[int]
-            Vertices of the simplex whose boundary is computed.
-        orientation : int
-            Orientation (+1 or -1) of the simplex.
+    Parameters
+    ----------
+    filtration : iterable of (sequence of int, float)
+        Existing ordered simplicial input.
+    n_points : int
+        Number of available vertices.
 
-        Returns
-        -------
-        set[tuple]
-            Set of oriented faces stored as (simplex_tuple, orientation).
-        """
-        if len(simplex)<2:
-            raise ValueError(f"Error for simplex {simplex}: Boundaries for 1-simplices should not occur")
-
-        return tuple( (simplex[:i] + simplex[i + 1:], (-1) ** i) for i in range(len(simplex)))
-
-    def faces(self, simplex):
-        return list(itertools.combinations(simplex, len(simplex)-1 ))
-
-    def dim(self,simplex):
-        return len(simplex)-1
-
-    def simplex_oriention(self,simplex, point_cloud):
-        from geometry.simplicial import simplex_orientation
-        return simplex_orientation(simplex=simplex, point_cloud=point_cloud)
-    
+    Returns
+    -------
+    list
+        The existing validator's materialized simplex-value pairs.
+    """
+    return _validate_filtration(filtration, n_points)

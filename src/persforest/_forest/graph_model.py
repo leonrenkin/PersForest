@@ -1,4 +1,8 @@
+"""_forest.graph model: mechanically extracted reference implementation."""
 
+from dataclasses import dataclass
+from persforest.chains import SignedChain
+from typing import Optional
 
 @dataclass(slots=True)
 class PFNode:
@@ -11,7 +15,7 @@ class PFNode:
     """
     id: int # unique node identifier
     filt_val: float
-    cycle: Chain | None
+    cycle: SignedChain | None
     children: set[int]                                    #ids of children
     parent: Optional[int] = None
     _is_inactive_leaf: bool = False #keeps track of leaves where root above leaves have been removed from active cycles

@@ -12,36 +12,66 @@ https://doi.org/10.48550/arXiv.2512.09668.
 - Runnable script quickstart in `examples/pers_forest_example.py`.
 
 ## Installation
-Requires Python `>=3.13,<3.14`.
+Supports Python 3.11–3.14. The base installation includes NumPy and GUDHI for
+computation; visualization dependencies are optional.
 
 ```bash
 git clone https://github.com/leonrenkin/persforest.git
 cd persforest
-pip install .
+python -m pip install .
 ```
+
+The implementation lives in `src/persforest/`. For local development, install
+[uv](https://docs.astral.sh/uv/getting-started/installation/) and run:
+
+```bash
+uv sync --all-extras --locked --python 3.13
+uv run python examples/pers_forest_example.py
+```
+
+uv installs the project editably, so imports resolve to `src/persforest/`.
+With pip, the equivalent development installation is
+`python -m pip install -e ".[plot,plotly,notebook,animation,examples]"`.
+Use `from persforest import PersistenceForest` for the public entry point.
+Import helpers from their implementation modules, such as
+`from persforest.chains import SignedChain`. Legacy module shims have been removed.
 
 Optional extras:
 
 ```bash
+# Matplotlib plots and color palettes (needed for the quickstart below)
+python -m pip install ".[plot]"
+
 # Plotly-based 2D/3D interactive plotting
-pip install ".[plotly]"
+python -m pip install ".[plotly]"
 
 # Notebook inline rendering (MIME/widget renderers)
-pip install ".[notebook]"
+python -m pip install ".[notebook]"
 
 # GIF export via Pillow
-pip install ".[animation]"
+python -m pip install ".[animation]"
 
 # Extra dependencies for regression/benchmark examples
-pip install ".[examples]"
+python -m pip install ".[examples]"
 ```
+
+The `plotly`, `notebook`, `animation`, and `examples` extras include the plotting
+dependencies they need. Importing the package and computing forests or landscapes
+does not load plotting libraries. Missing plotting dependencies produce an
+installation hint when a plotting method is called.
+
+`uv.lock` records exact development dependencies. The published package declares
+broader minimum versions, allowing pip users to resolve compatible dependencies
+for their own environment. After changing dependencies, run `uv lock`, verify the
+tests, and include the lockfile with the metadata change. Poetry is no longer
+required.
 
 ## Quickstart
 ```python
 import numpy as np
 import matplotlib.pyplot as plt
 from persforest import PersistenceForest
-from persforest.cycle_rep_vectorisations import signed_chain_edge_length
+from persforest.measurements.basic import signed_chain_edge_length
 
 # 1) Create a point cloud
 rng = np.random.default_rng(0)
@@ -112,28 +142,29 @@ The tutorial notebooks are intended to be read in this order:
 5. `examples/tutorials/05_plotting_persistence_forests.ipynb` - plot persistence forests and compare them with barcodes.
 
 ## Measurement Landscapes
-- Define cycle functionals in `persforest/cycle_rep_vectorisations.py` (examples: edge length, enclosed area or volume, connected components, signed/unsigned variants).
+- Existing cycle functionals live in `src/persforest/measurements/` (examples: edge length, enclosed area or volume, connected components, signed/unsigned variants).
 - `forest.compute_measurement_landscapes(...)` builds families for one functional; `plot_landscape_comparison_between_functionals` contrasts multiple labels. 
 - Landscapes are stored as grid approximations.
 - Use `family.evaluate_on_grid()` to retrieve all computed levels on the stored grid. Pass `grid` and/or `levels` explicitly to select a subset.
 - Landscape measurements must be finite and nonnegative
 
 ## Repository guide
-- `persforest/PersistenceForest.py` - forest construction, barcodes, plotting wrappers and measurement landscapes.
-- `persforest/cycle_rep_vectorisations.py` - cycle functionals for measurement landscapes.
-- `persforest/forest_landscapes.py` - landscape computation, evaluation and comparison utilities.
-- `persforest/forest_plotting.py` - barcode and persistence-forest plotting helpers.
-- `persforest/simplicial_filtration_animation.py` - filtration and barcode-panel animation helpers.
-- `persforest/simplicial_filtration_plotting.py` - Matplotlib filtration plotting.
-- `persforest/simplicial_filtration_plotly.py` - Plotly filtration plotting.
-- `persforest/interior_activity_plotting.py` - Matplotlib interior-activity plotting.
-- `persforest/interior_activity_plotly.py` - Plotly interior-activity plotting.
+- `src/persforest/forest.py` - public facade, construction orchestration and delegates.
+- `src/persforest/chains.py`, `barcode.py`, `_forest/graph_model.py` - canonical domain objects.
+- `src/persforest/_forest/` - construction, queries, reduction, barcode extraction and representative access.
+- `src/persforest/filtrations/`, `geometry/` - existing simplicial input preparation, orientation and geometry.
+- `src/persforest/measurements/`, `landscapes/` - measurements and numerical landscapes.
+- `src/persforest/plotting/` - rendering, shared scenes, colors and animation.
+- `src/persforest/plotting/animation/` - animation dispatch, filtration and measurement renderers, timing, layout and export.
+- [Restructuring report](docs/restructuring-report.md) and [definition map](docs/restructuring-map.md) - completed extraction, verification and deferred architecture.
 - `examples/tutorials/` - guided tutorial notebooks.
 - `examples/pers_forest_example.py` - compact runnable quickstart.
 - `examples/animation_tutorial.ipynb` - animation example.
-- `examples/benchmark.py` - runtime benchmark script.
-- `examples/paper-examples.ipy` - manuscript figure examples.
-- `examples/point_cloud_sampling.py` - synthetic point-cloud samplers used by examples.
+- `examples/point_cloud_sampling.py` - shared synthetic point-cloud samplers.
+- `benchmarks/benchmark.py` - legacy runtime benchmark script.
+- `benchmarks/performance/` - runtime and memory benchmark harness.
+- `research/paper_examples/paper-examples.py` - manuscript figure examples.
+- `research/tendril_regression/` - synthetic-data and regression experiments.
 
 ## Notes
 - MP4 animation export requires `ffmpeg`; GIF export requires the `animation` extra.
@@ -145,8 +176,29 @@ There are the manually written tests in
 [`test_persistence_forest_pipeline.py`](tests/test_persistence_forest_pipeline.py),
 accompanied by AI-generated tests in [`tests/tests-by-agents`](tests/tests-by-agents/README.md)
 
-Run all tests from the repository root with the Python 3.13 environment:
+Install all extras and run all tests from the repository root:
 
 ```bash
-MPLBACKEND=Agg MPLCONFIGDIR=/tmp/persforest-tests-mpl .venv/bin/python -m unittest discover -v
+uv sync --all-extras --locked
+PYTHONDONTWRITEBYTECODE=1 MPLBACKEND=Agg MPLCONFIGDIR=/tmp/persforest-tests-mpl \
+  uv run --locked python tests/tests-by-agents/run_restructured_suite.py --implementation src
+uv lock --check
 ```
+
+This runs full unittest discovery and asserts package locations, including in
+child processes. After an editable installation, ordinary
+`python -m unittest discover` from the repository root also tests the src package.
+
+CI tests Python 3.11–3.14, installs the built wheel outside the checkout, and
+checks computation without optional dependencies. A separate Python 3.11 job
+checks the declared minimum direct dependency versions.
+
+Build distributions locally with:
+
+```bash
+uv build --no-sources
+uv run python tests/tests-by-agents/verify_restructured_distribution.py dist
+```
+
+This creates a wheel and source distribution for a future PyPI release. Building
+does not publish the package.

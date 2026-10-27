@@ -1,4 +1,11 @@
+"""filtrations. validation: mechanically extracted reference implementation."""
 
+from typing import Iterable
+from typing import Sequence
+import itertools
+import math
+import numpy as np
+import operator
 
 def _validate_filtration(
     filtration: Iterable[tuple[Sequence[int], float]],
@@ -62,3 +69,13 @@ def _validate_filtration(
         previous_value = filtration_value
 
     return entries
+
+def validate_point_cloud(point_cloud):
+    """Return a finite numeric point array with shape ``(n_points, dim)``."""
+    try:
+        points = np.asarray(point_cloud, dtype=float)
+    except (TypeError, ValueError) as error:
+        raise ValueError("point_cloud must be a finite 2D numeric array") from error
+    if points.ndim != 2 or points.shape[1] < 1 or not np.isfinite(points).all():
+        raise ValueError("point_cloud must be a finite 2D numeric array")
+    return points

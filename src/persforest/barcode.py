@@ -1,3 +1,8 @@
+"""barcode: mechanically extracted reference implementation."""
+
+from persforest.chains import SignedChain
+from typing import Optional
+
 class PFBar:
     """ 
     Persistence bar together with a progression of cycle representatives.

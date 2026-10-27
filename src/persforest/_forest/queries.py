@@ -1,22 +1,27 @@
+"""_forest.queries: mechanically extracted reference implementation."""
 
-def active_nodes_at(forest, filt_val: float) -> List[PFNode]:
+from persforest._forest.graph_model import PFNode
+from persforest.chains import SignedChain
+from typing import List
+
+def active_nodes_at(self, filt_val: float) -> List[PFNode]:
     """
-    Return nodes active at a given filtration value.
+        Return nodes active at a given filtration value.
 
-    A non-root node is active at ``r`` if ``node.filt_val > r`` and its
-    parent has filtration value ``<= r``.
+        A non-root node is active at ``r`` if ``node.filt_val > r`` and its
+        parent has filtration value ``<= r``.
 
-    Parameters
-    ----------
-    filt_val : float
-        Filtration value to query.
+        Parameters
+        ----------
+        filt_val : float
+            Filtration value to query.
 
-    Returns
-    -------
-    list[PFNode]
-        Active nodes sorted by decreasing node filtration value and then id.
-    """
-    nodes = forest.nodes
+        Returns
+        -------
+        list[PFNode]
+            Active nodes sorted by decreasing node filtration value and then id.
+        """
+    nodes = self.nodes
 
     active: List[PFNode] = []
     for n in nodes.values():
@@ -36,27 +41,27 @@ def active_nodes_at(forest, filt_val: float) -> List[PFNode]:
     active.sort(key=lambda n: (-n.filt_val, n.id))
     return active
 
-def active_cycles_at(forest, filt_val: float) -> List[SignedChain]:
+def active_cycles_at(self, filt_val: float) -> List[SignedChain]:
     """Return active cycle representatives at ``filt_val``."""
-    if forest.diff_only_mode:
-        if not forest._barcode_computed:
+    if self.diff_only_mode:
+        if not self._barcode_computed:
             raise RuntimeError("Call compute_barcode() before querying cycles in diff_only_mode")
         return [
-            forest.cycle_for_bar_at(bar, filt_val)
-            for bar in forest.active_bars_at(filt_val)
+            self.cycle_for_bar_at(bar, filt_val)
+            for bar in self.active_bars_at(filt_val)
         ]
 
-    active_nodes = forest.active_nodes_at(filt_val=filt_val)
+    active_nodes = self.active_nodes_at(filt_val=filt_val)
     return [node.cycle for node in active_nodes]
 
-def leaves_below_node(forest, node: PFNode) -> set[int]:
+def leaves_below_node(self, node: PFNode) -> set[int]:
     """Return ids of all descendant leaves below ``node``."""
     leaf_ids: set[int] = set()
     stack = [node.id]
 
     while stack:
         vid = stack.pop()
-        children_ids = forest.nodes[vid].children
+        children_ids = self.nodes[vid].children
 
         if not children_ids:
             leaf_ids.add(vid)
@@ -65,13 +70,13 @@ def leaves_below_node(forest, node: PFNode) -> set[int]:
 
     return leaf_ids
 
-def leaf_to_node_path(forest, leaf: PFNode, node: PFNode) -> List[int]:
+def leaf_to_node_path(self, leaf: PFNode, node: PFNode) -> List[int]:
     """Return node ids on the path from ``leaf`` up to ancestor ``node``."""
     path = [leaf.id]
 
     active_node = leaf
     while active_node.parent != None:
-        active_node = forest.nodes[active_node.parent]
+        active_node = self.nodes[active_node.parent]
         path.append(active_node.id)
         if active_node.id == node.id:
             return path
@@ -81,24 +86,24 @@ def leaf_to_node_path(forest, leaf: PFNode, node: PFNode) -> List[int]:
 
     return path
 
-def node_to_leaf_path(forest, leaf: PFNode, node: PFNode) -> List[int]:
+def node_to_leaf_path(self, leaf: PFNode, node: PFNode) -> List[int]:
     """Return node ids on the path from ancestor ``node`` down to ``leaf``."""
-    return list(reversed(forest.leaf_to_node_path(leaf=leaf, node=node)))
+    return list(reversed(self.leaf_to_node_path(leaf=leaf, node=node)))
 
-def get_root(forest, node: PFNode) -> PFNode:
+def get_root(self, node: PFNode) -> PFNode:
     """Return the highest ancestor of ``node`` with no parent."""
     while node.parent != None:
                 pid = node.parent
-                node = forest.nodes[pid]
+                node = self.nodes[pid]
 
     return node
 
-def _node_activity(forest, node):
+def _node_activity(self, node):
     """Return ``(active_start, active_end)`` for a node's cycle."""
     if node.parent == None:
         return node.filt_val, node.filt_val
 
-    parent = forest.nodes[node.parent]
+    parent = self.nodes[node.parent]
     active_start = parent.filt_val
     active_end = node.filt_val
     return active_start, active_end
