@@ -1,5 +1,9 @@
 """plotting.forest: mechanically extracted reference implementation."""
 
+from ._dependencies import require_plotting
+
+require_plotting()
+
 from persforest.plotting._routes import edge_routes as _forest_edge_routes
 import matplotlib.pyplot as plt
 import numpy as np

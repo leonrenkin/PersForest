@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from ._dependencies import require_plotting
+
+require_plotting()
+
 from matplotlib import colors as mcolors
+from matplotlib import colormaps
 from typing import Any
 from typing import Dict
 from typing import Iterable
@@ -13,7 +18,6 @@ from typing import Sequence
 import math
 import numpy as np
 import random
-import seaborn as sns
 
 _Xn, _Yn, _Zn = 0.95047, 1.00000, 1.08883
 
@@ -460,8 +464,6 @@ def _build_color_map_forest(self, seed: Optional[int] = 39, start_color: Optiona
             Preferred color to start the palette with (hex).
         """
 
-    from persforest.plotting.colors import color_map_for_bars
-
     ordered_bars = sorted(list(self.barcode), key= lambda bar: bar.lifespan(), reverse=True)
 
     self.color_map_forest = color_map_for_bars(
@@ -480,7 +482,8 @@ def _build_color_map_bars(self):
         Saved as a dictionary {bar: "#RRGGBB"} in self.color_map_bars
         """
     bars_sorted = sorted(list(self.barcode), key = lambda bar:bar.lifespan(), reverse=True )
-    colors = sns.color_palette("tab20", len(bars_sorted))
+    palette = colormaps["tab20"].colors
+    colors = [palette[i % len(palette)] for i in range(len(bars_sorted))]
 
     self.color_map_bars = {bars_sorted[i]: colors[i] for i in range(len(bars_sorted))}
     self.set_longest_bar_colors(coloring = "bars", colors = [   "#1f78b4",   "#e31a1c",  "#33a02c",  "#ff7f00",  "#6a3d9a",  "#e7298a",  "#17becf",   "#bcbd22",   "#b15928",  "#fdb462",  "#7570b3", "#66a61e"]
@@ -506,8 +509,6 @@ def set_longest_bar_colors(
     coloring: Literal["forest", "bars"] = "forest",
 ) -> None:
     """Overwrite colors for the longest bars in the selected color map."""
-    from persforest.plotting.colors import _to_hex
-
     color_map = self._get_color_map(coloring=coloring)
     bars_sorted = sorted(list(self.barcode), key=lambda bar: bar.lifespan(), reverse=True)
 

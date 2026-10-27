@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from ._dependencies import require_plotting
+
+require_plotting()
+
 from collections import defaultdict
 from matplotlib import colors as mcolors
 from persforest.plotting._geometry import _activity_face_records

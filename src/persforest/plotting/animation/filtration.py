@@ -1,5 +1,9 @@
 """Matplotlib filtration animations and paired forest views."""
 
+from .._dependencies import require_plotting
+
+require_plotting()
+
 from numbers import Real
 from pathlib import Path
 from typing import Any, Literal, Optional, Tuple
@@ -676,7 +680,7 @@ def animate_filtration_pair(
         The two forests to animate.
     filename : str or None, optional
         If not None, the animation is also written to this file.
-        The extension ('.mp4', '.gif', etc.) determines the writer.
+        The extension must be '.mp4'. Export requires ffmpeg on PATH.
     fps : int, optional
         Frames per second for the saved animation.
     frames : int, optional
@@ -702,8 +706,6 @@ def animate_filtration_pair(
     anim : matplotlib.animation.FuncAnimation
     fig : matplotlib.figure.Figure
     """
-    import numpy as np
-    import matplotlib.pyplot as plt
     from matplotlib.animation import FuncAnimation
 
     _validate_radius_box_corner(radius_box_corner)

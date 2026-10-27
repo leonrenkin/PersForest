@@ -1,6 +1,7 @@
 """plotting.barcode: mechanically extracted reference implementation."""
 
 from typing import Literal
+from ._dependencies import require_plotting
 
 def _plot_barcode_generic(
         forest,
@@ -66,6 +67,7 @@ def _plot_barcode_generic(
     ax : matplotlib.axes.Axes
         The axes the barcode was drawn on.
     """
+    require_plotting()
     import math
     import numpy as np
     import matplotlib.pyplot as plt

@@ -1,5 +1,9 @@
 """Figure layout, camera settings, and radius labels for animations."""
 
+from .._dependencies import require_plotting
+
+require_plotting()
+
 from matplotlib.offsetbox import AnchoredText
 from numbers import Real
 from typing import Any, Optional

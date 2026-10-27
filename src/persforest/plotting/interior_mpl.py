@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from ._dependencies import require_plotting
+
+require_plotting()
+
 from matplotlib import colors as mcolors
 from matplotlib.collections import LineCollection
 from matplotlib.collections import PolyCollection
@@ -517,8 +521,6 @@ def _plot_interior_simplex_activity_gradient_2d(
             "_plot_interior_simplex_activity_gradient_2d requires a 2D "
             "PersistenceForest object."
         )
-
-    from collections import defaultdict
 
     plot_style = {
         "point_color": "black",

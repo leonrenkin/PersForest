@@ -1,9 +1,15 @@
 """plotting.landscapes: mechanically extracted reference implementation."""
 
+from ._dependencies import require_plotting
+
+require_plotting()
+
 from matplotlib.colors import Colormap
 from persforest.landscapes.functions import StepFunctionData
 from persforest.landscapes.profiles import CycleValueFunc
 from persforest.landscapes.profiles import _build_step_function_data
+from persforest.landscapes.family import MeasurementLandscapeFamily
+from persforest.landscapes._validation import positive_integer
 from typing import Any
 from typing import Dict
 from typing import List
@@ -66,13 +72,13 @@ def plot_barcode_measurement_generic(
         The piecewise-constant function induced by `cycle_func`.
     """
 
-    if ax is None:
-        fig, ax = plt.subplots()
-
     if bar is None:
         bar = forest.max_bar()
 
     step_func = _build_step_function_data(forest=forest, bar=bar,cycle_func=cycle_func)
+
+    if ax is None:
+        _, ax = plt.subplots()
 
     step_func.plot(x_range=x_range, y_range=y_range, ax= ax, title = title,show_baseline=show_baseline, **kwargs)
 
@@ -85,8 +91,7 @@ def plot_barcode_measurement_generic(
     return (ax, step_func)
 
 def plot_landscape_family(
-        forest,
-        label: str,
+        family: MeasurementLandscapeFamily,
         ks: Optional[List[int]] = None,
         ax: Optional["matplotlib.axes.Axes"] = None,
         title: Optional[str] = None,
@@ -98,14 +103,12 @@ def plot_landscape_family(
         higher_layers_on_top: bool = False,
     ):
     """
-    Plot selected landscapes λ_k from a stored family on a given forest.
+    Plot stored landscape samples from an explicit family result.
 
     Parameters
     ----------
-    forest :
-        Forest-like object carrying `landscape_families`.
-    label : str
-        Key of the desired family inside `forest.landscape_families`.
+    family : MeasurementLandscapeFamily
+        Explicit result; no forest or label lookup is needed.
     ks : list of int, optional
         Which landscape levels to plot; defaults to all available.
     ax : matplotlib.axes.Axes, optional
@@ -136,13 +139,13 @@ def plot_landscape_family(
         The axis containing the plot.
     """
 
-    if not hasattr(forest, "landscape_families"):
-        raise AttributeError("No landscape_families attribute on this forest object")
-
-    family = forest.landscape_families[label]
-
+    if not isinstance(family, MeasurementLandscapeFamily):
+        raise TypeError("family must be MeasurementLandscapeFamily")
     if ks is None:
-        ks = sorted(family.landscapes.keys())
+        ks = sorted(family.landscapes)
+    else:
+        ks = [positive_integer(k, "landscape level") for k in ks]
+    family.evaluate_on_grid(levels=ks)  # Validate before creating any artists.
 
     if ax is None:
         fig, ax = plt.subplots()
@@ -179,7 +182,7 @@ def plot_landscape_family(
     ax.set_xlabel("filtration value")
     ax.set_ylabel("landscape value")
     if title is None:
-        title = f"Measurement landscapes of {label}"
+        title = f"Measurement landscapes of {family.label}"
     ax.set_title(title)
     if show_legend is None:
         show_legend = len(ks) < 10
@@ -192,117 +195,51 @@ def plot_landscape_family(
 
     return ax
 
-def plot_landscape_comparison_between_functionals(forest,
-    labels: list[str],
-    k: int = 1,
-    ax: Optional["matplotlib.axes.Axes"] = None,
-    title: Optional[str] = None,
-):
-    """
-    Compare the k-th landscape across multiple functionals on a single forest.
-
-    Parameters
-    ----------
-    forest :
-        Forest-like object carrying `landscape_families`.
-    labels : list of str
-        Names of the families/functionals to compare.
-    k : int, default 1
-        Landscape level to plot.
-    ax : matplotlib.axes.Axes, optional
-        Axis to draw on; a new one is created if omitted.
-    title : str, optional
-        Custom plot title.
-
-    Returns
-    -------
-    matplotlib.axes.Axes
-        The axis containing the comparison plot.
-    """
-
-    if not hasattr(forest, "landscape_families"):
-        raise AttributeError(f"No landscape_families attribute on {forest}")
-
-
-    families = [forest.landscape_families[label] for label in labels]
-
-    if ax is None:
-        fig, ax = plt.subplots()
-
-    for fam, label in zip(families, labels):
-        if k not in fam.landscapes:
-            continue
-        plf = fam.landscapes[k]
-        ax.plot(plf.xs, plf.ys, label=label)
-
-    ax.set_xlabel("filtration value")
-    ax.set_ylabel(fr"$\lambda_{k}$")
-    if title is None:
-        title = fr"Comparison of $\lambda_{k}$"
-    ax.set_title(title)
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    return ax
-
 def plot_landscape_comparison(
-    forests: List,
-    label: str,
-    k: int = 1,
+    families: List[MeasurementLandscapeFamily], k: int = 1,
     ax: Optional["matplotlib.axes.Axes"] = None,
-    forest_labels: Optional[List[str]] = None,
-    title: Optional[str] = None,
-    **kwargs
+    labels: Optional[List[str]] = None, title: Optional[str] = None, **kwargs,
 ):
-    """
-    Compare the k-th landscape across multiple forests for a single functional.
+    """Compare one stored level across explicit family results.
 
     Parameters
     ----------
-    forests : list
-        Forest-like objects that have `landscape_families`.
-    label : str
-        Family/functional name to extract from each forest.
+    families : list of MeasurementLandscapeFamily
+        Results to compare, including across sources or measurements.
     k : int, default 1
-        Landscape level to plot.
+        Positive computed rank. Missing ranks raise rather than skipping curves.
     ax : matplotlib.axes.Axes, optional
-        Axis to draw on; a new one is created if omitted.
-    forest_labels : list of str, optional
-        Labels to use in the legend; defaults to each family's `forest_id`.
+        Axis to draw on; created after input validation when omitted.
+    labels : list of str, optional
+        One label per family, defaulting to each result label.
     title : str, optional
-        Custom plot title.
+        Custom title.
+    **kwargs
+        Line options forwarded to ax.plot.
 
     Returns
     -------
     matplotlib.axes.Axes
-        The axis containing the comparison plot.
+        Axis containing one line per input family.
     """
-    for forest in forests:
-        if not hasattr(forest, "landscape_families"):
-            raise AttributeError(f"No landscape_families attribute on {forest}")
-
-    families = [forest.landscape_families[label] for forest in forests]
-
+    k = positive_integer(k, "k")
+    families = list(families)
+    if any(not isinstance(family, MeasurementLandscapeFamily) for family in families):
+        raise TypeError("families must contain MeasurementLandscapeFamily results")
+    labels = [family.label for family in families] if labels is None else list(labels)
+    if len(labels) != len(families):
+        raise ValueError("labels must contain exactly one label per family")
+    for family in families:
+        family.evaluate_on_grid(levels=[k])
     if ax is None:
-        fig, ax = plt.subplots()
-
-    if forest_labels is None:
-        forest_labels = [fam.forest_id for fam in families]
-
-    for fam, forest_label in zip(families, forest_labels):
-        if k not in fam.landscapes:
-            continue
-        plf = fam.landscapes[k]
-        ax.plot(plf.xs, plf.ys, label=forest_label, lw=1, **kwargs)
-
+        _, ax = plt.subplots()
+    for family, label in zip(families, labels):
+        ax.plot(family.x_grid, family.landscapes[k].ys, label=label, **kwargs)
     ax.set_xlabel("filtration value")
     ax.set_ylabel(fr"$\lambda_{k}$")
-    if title is None:
-        title = fr"Comparison of {label} $\lambda_{k}$"
-    ax.set_title(title)
-    # ax.legend()
-    # ax.grid(True, alpha=0.3)
-
+    ax.set_title(fr"Comparison of $\lambda_{k}$" if title is None else title)
+    if families:
+        ax.legend()
     return ax
 
 
@@ -370,25 +307,11 @@ def _plot_step_function(
     if len(xs_unique) < 2:
         xs_unique = [xmin, xmax]
 
-    def _value_at(t: float) -> float:                               #this is a correct but inefficient way to do it since we do not allow overlaping intervals, fix later
-        """Evaluate the step function at a single point t."""
-        mask = (starts <= t) & (t < ends)
-        if not np.any(mask):
-            return float(self.baseline)
-        idx = np.nonzero(mask)[0]
-        if idx.size > 1:
-            # If intervals overlap, fall back to summing their values.
-            return float(vals[idx].sum())
-        return float(vals[idx[0]])
-
-    xs_plot: list[float] = []
-    ys_plot: list[float] = []
-
-    for left, right in zip(xs_unique[:-1], xs_unique[1:]):
-        mid = 0.5 * (left + right)
-        y = _value_at(mid)
-        xs_plot.extend([left, right])
-        ys_plot.extend([y, y])
+    # Use the same validated interval semantics as numerical evaluation.
+    edges = np.asarray(xs_unique, dtype=float)
+    mids = edges[:-1] + (edges[1:] - edges[:-1]) / 2
+    ys_plot = np.repeat(self.eval_on_grid(mids), 2)
+    xs_plot = np.column_stack((edges[:-1], edges[1:])).ravel()
 
     # Defaults that can be overridden by **line_kwargs
     ax.plot(xs_plot, ys_plot, **line_kwargs)

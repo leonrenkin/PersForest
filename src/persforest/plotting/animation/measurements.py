@@ -1,17 +1,23 @@
 """Animate a filtration beside a barcode measurement profile."""
 
 from typing import Optional, Tuple
+from .._dependencies import require_plotting
+
+require_plotting()
+
 import matplotlib.pyplot as plt
 import numpy as np
 
-from persforest.landscapes.profiles import CycleValueFunc, _build_step_function_data
+from persforest.landscapes.profiles import CycleValueFunc, MeasurementProfiles, _build_step_function_data
+from persforest.landscapes._validation import require_computed_barcode, positive_integer
 from ._export import _save_measurement_animation
 
 def animate_barcode_measurement_generic(
         forest,
-        cycle_func: CycleValueFunc,
+        cycle_func: CycleValueFunc | None = None,
         bar=None,
         *,
+        profiles: MeasurementProfiles | None = None,
         filename: Optional[str] = None,
         fps: int = 20,
         frames: int = 200,
@@ -47,9 +53,12 @@ def animate_barcode_measurement_generic(
     bar :
         Bar object in ``forest.barcode``. If ``None``, ``forest.max_bar()``
         is used.
+    profiles : MeasurementProfiles, optional
+        Reuse this explicit result for the measurement panel. Supply either
+        profiles or cycle_func, never both. Source/bar association is checked.
     filename : str or None, optional
         If given, the animation is written to this path. The file extension
-        determines the writer (".mp4" uses FFMpeg, ".gif" uses Pillow).
+        must be ".mp4". Export requires ffmpeg on PATH.
     fps : int, optional
         Frames per second for the saved animation.
     frames : int, optional
@@ -83,6 +92,12 @@ def animate_barcode_measurement_generic(
     """
     from matplotlib.animation import FuncAnimation
 
+    require_computed_barcode(forest)
+    frames = positive_integer(frames, "frames")
+    if (profiles is None) == (cycle_func is None):
+        raise ValueError("Supply exactly one of cycle_func or profiles")
+    if profiles is not None and not isinstance(profiles, MeasurementProfiles):
+        raise TypeError("profiles must be MeasurementProfiles")
     if getattr(forest, "diff_only_mode", False):
         raise ValueError(
             "Animations are unavailable with diff_only_mode=True because "
@@ -106,8 +121,8 @@ def animate_barcode_measurement_generic(
             raise ValueError("Forest has an empty barcode.")
         t_max = max(deaths)
 
-    if t_max <= t_min: # type: ignore
-        raise ValueError("t_max must be strictly larger than t_min for animation.")
+    if not np.isfinite((t_min, t_max)).all() or t_max <= t_min:
+        raise ValueError("Animation bounds must be finite with t_max strictly larger than t_min.")
 
     # Uniformly spaced in filtration value → uniform speed
     frame_times = np.linspace(t_min, t_max, frames).tolist()  # type: ignore
@@ -126,11 +141,11 @@ def animate_barcode_measurement_generic(
     }
 
     # ---- Build the step function data once ----
-    step_func = _build_step_function_data(
-        forest=forest,
-        bar=bar,
-        cycle_func=cycle_func,
-    )
+    if profiles is not None:
+        profiles.require_source(forest, bar)
+        step_func = profiles[bar]
+    else:
+        step_func = _build_step_function_data(forest=forest, bar=bar, cycle_func=cycle_func)
 
     # ---- Figure and axes ----
     fig, (ax_cloud, ax_meas) = plt.subplots(

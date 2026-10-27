@@ -1,6 +1,8 @@
 """forest: mechanically extracted reference implementation."""
 
-from matplotlib.colors import Colormap
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from numpy.typing import NDArray
 from persforest._forest.graph_model import PFNode
 from persforest.barcode import PFBar
@@ -24,6 +26,11 @@ import warnings
 
 from .filtrations.alpha import prepare_alpha_filtration
 from .filtrations.simplicial import prepare_simplicial_filtration
+
+if TYPE_CHECKING:
+    from matplotlib.colors import Colormap
+    from persforest.landscapes.profiles import CycleValueFunc, MeasurementProfiles
+    from persforest.landscapes.family import MeasurementLandscapeFamily
 
 class PersistenceForest:
     """
@@ -130,7 +137,7 @@ class PersistenceForest:
         self._barcode_diffs_ready = False
 
         self.landscape_families: Dict[str, Any] = {}
-        self.barcode_functionals: Dict[str, Any] = {}
+        self.measurement_profiles: Dict[str, Any] = {}
 
         if diff_only_mode and compute_interior:
             raise ValueError("Cannot set diff_only_mode=True and compute_interior=True at the same time.")
@@ -1581,12 +1588,14 @@ class PersistenceForest:
         """
         from persforest.plotting.landscapes import plot_barcode_measurement_generic
 
+        if not isinstance(signed, (bool, np.bool_)):
+            raise TypeError("signed must be a boolean")
         if signed:
             def _cycle_func(chain, point_cloud):
-                return float(cycle_func(chain, point_cloud))
+                return cycle_func(chain, point_cloud)
         else:
             def _cycle_func(chain, point_cloud):
-                return float(cycle_func(chain.unsigned(), point_cloud))
+                return cycle_func(chain.unsigned(), point_cloud)
 
         return plot_barcode_measurement_generic(
             forest=self,
@@ -1603,129 +1612,124 @@ class PersistenceForest:
             **kwargs,
         )
 
-    def compute_measurement_landscapes(
-        self,
-        cycle_func,
-        label: str,
-        *,
-        max_k: int = 5,
-        num_grid_points: int = 512,
-        min_bar_length: float = 0.0,
-        x_grid: Optional[NDArray[np.float64]] = None,
-        cache: bool = True,
-        signed: bool = False,
-        cache_functionals: bool = False,
-        functionals_label: Optional[str] = None,
-        compute_functionals: bool = True,
-    ):
-        """
-        Compute measurement landscapes for this PersistenceForest.
+    def compute_measurement_profiles(
+        self, cycle_func: CycleValueFunc, label: str, *, signed: bool = False,
+        min_bar_length: float = 0.0, baseline: float = 0.0,
+        cache: bool = True, measurement_name: str | None = None,
+        measurement_params: dict[str, Any] | None = None,
+    ) -> MeasurementProfiles:
+        """Capture per-bar measurement profiles, optionally storing by label.
 
         Parameters
         ----------
         cycle_func : callable
-            A function
-
-                cycle_func(chain, point_cloud) -> float
-
-            where ``chain`` is a SignedChain. Measurements must be finite and
-            nonnegative; negative, NaN, and infinite results raise
-            ``ValueError``. Examples include total length and mass.
+            Read-only (chain, point_cloud) -> real scalar measurement.
         label : str
-            Key used to store the family in ``self.landscape_families`` when
-            ``cache=True``.
-        max_k : int
-            Number of landscape levels λ_1..λ_max_k.
-        num_grid_points : int, optional
-            Number of x-grid samples (if x_grid is None).
-        min_bar_length : float, optional
-            Ignore bars with lifespan < min_bar_length.
-        x_grid : np.ndarray | None, optional
-            Optional common grid to evaluate all landscapes on.
-        cache : bool
-            If True, store the resulting family in ``self.landscape_families``
-            under ``label``.
-        signed : bool
-            If True, evaluate ``cycle_func`` on stored signed chains. If False,
-            evaluate it after cancelling opposing simplices.
-        cache_functionals : bool
-            If True, store the per-bar ``BarcodeFunctionals`` in
-            ``self.barcode_functionals``.
-        functionals_label : str | None
-            Label used when caching or retrieving per-bar functionals. If None,
-            the generic helper uses ``label``.
-        compute_functionals : bool
-            If True, compute per-bar functionals before building landscapes. If
-            False, reuse cached functionals with ``functionals_label``.
+            Result label and key in self.measurement_profiles when caching.
+        signed : bool, default False
+            Cancel opposing simplices before measurement. True uses stored chains.
+        min_bar_length : float, default 0
+            Inclusive minimum bar length, finite and nonnegative.
+        baseline : float, default 0
+            Value outside active intervals; landscapes require zero.
+        cache : bool, default True
+            Publish the result only after successful measurement.
+        measurement_name : str, optional
+            Descriptive name, defaulting to label.
+        measurement_params : dict, optional
+            Explicit descriptive parameters, not inferred from the callable.
+
+        Returns
+        -------
+        MeasurementProfiles
+            Read-only measurement arrays and captured bar endpoints. Stored
+            representative iteration borrows chains; callbacks must not mutate
+            chains or point_cloud. Results describe this measurement snapshot,
+            not subsequent arbitrary edits to the source forest.
+        """
+        from persforest.landscapes.profiles import compute_measurement_profiles
+        return compute_measurement_profiles(
+            self, cycle_func, label, signed=signed, min_bar_length=min_bar_length,
+            baseline=baseline, cache=cache, measurement_name=measurement_name,
+            measurement_params=measurement_params,
+        )
+
+    def compute_barcode_functionals(self, cycle_func: CycleValueFunc, label: str, **kwargs) -> MeasurementProfiles:
+        """Compatibility entry point for :meth:`compute_measurement_profiles`."""
+        return self.compute_measurement_profiles(cycle_func, label, **kwargs)
+
+    def compute_measurement_landscapes(
+        self, cycle_func: CycleValueFunc, label: str, *, max_k: int = 5,
+        num_grid_points: int = 512, min_bar_length: float = 0.0,
+        x_grid: Optional[NDArray[np.float64]] = None, cache: bool = True,
+        signed: bool = False, cache_profiles: bool = False,
+        mode: Literal["raw", "pyramid"] = "pyramid", tol: float = 1e-12,
+        measurement_name: str | None = None,
+        measurement_params: dict[str, Any] | None = None,
+    ) -> MeasurementLandscapeFamily:
+        """Measure representatives and rank their kernels on a shared grid.
+
+        Parameters
+        ----------
+        cycle_func : callable
+            Read-only (chain, point_cloud) -> finite nonnegative real scalar.
+        label : str
+            Result label and forest registry key.
+        max_k : int, default 5
+            Positive number of ranks; excess ranks are zero.
+        num_grid_points : int, default 512
+            Inferred grid size, at least two; ignored with explicit x_grid.
+        min_bar_length : float, default 0
+            Inclusive finite, nonnegative bar-length threshold.
+        x_grid : array-like, optional
+            Finite strictly increasing shared construction coordinates.
+        cache : bool, default True
+            Store the complete successful family in self.landscape_families.
+        signed : bool, default False
+            False cancels opposing simplices; True measures stored chains.
+        cache_profiles : bool, default False
+            Also store the successful result in self.measurement_profiles.
+        mode : {'raw', 'pyramid'}, default 'pyramid'
+            Raw convolution or lambda(x) = 0.5 * g(2x).
+        tol : float, default 1e-12
+            Convolution tolerance, distinct from filtration_tol.
+        measurement_name : str, optional
+            Descriptive name, defaulting to label.
+        measurement_params : dict, optional
+            Explicit descriptive measurement parameters.
 
         Returns
         -------
         MeasurementLandscapeFamily
-            Family of landscapes evaluated for each bar.
-
-        Raises
-        ------
-        RuntimeError
-            If the barcode has not been computed yet.
+            Stored-grid samples and exact per-bar kernels. Finite bar endpoints
+            and nonnegative finite measurements are required. To reuse explicit
+            profiles, call landscapes_from_profiles(profiles, ...) directly;
+            this method always calls the supplied measurement.
         """
-
-        if not self._barcode_computed:
-            raise RuntimeError("Barcode has not been computed; call compute_barcode() first")
-        if signed:
-            def _cycle_value(chain, point_cloud):
-                # `chain` is a SignedChain
-                return float(cycle_func(chain, point_cloud))
-        else:
-            def _cycle_value(chain, point_cloud):
-                # `chain` is a SignedChain
-                return float(cycle_func(chain.unsigned(), point_cloud))
-    
-        from persforest.landscapes.family import compute_measurement_landscape_family
-
-        return compute_measurement_landscape_family(
-            self,
-            _cycle_value,
-            max_k=max_k,
-            num_grid_points=num_grid_points,
-            mode='pyramid',
-            label=label,
-            min_bar_length=min_bar_length,
-            x_grid=x_grid,
-            cache = cache,
-            cache_functionals=cache_functionals,
-            functionals_label=functionals_label,
-            compute_functionals=compute_functionals,
+        from persforest.landscapes._validation import (
+            require_computed_barcode, validate_landscape_request, validate_tolerance,
         )
-
-    def compute_generalized_landscape_family(
-        self,
-        cycle_func,
-        label: str,
-        *,
-        max_k: int = 5,
-        num_grid_points: int = 512,
-        min_bar_length: float = 0.0,
-        x_grid: Optional[NDArray[np.float64]] = None,
-        cache: bool = True,
-        signed: bool = False,
-        cache_functionals: bool = False,
-        functionals_label: Optional[str] = None,
-        compute_functionals: bool = True,
-    ):
-        """Legacy compatibility wrapper for compute_measurement_landscapes."""
-        return self.compute_measurement_landscapes(
-            cycle_func=cycle_func,
-            label=label,
-            max_k=max_k,
-            num_grid_points=num_grid_points,
-            min_bar_length=min_bar_length,
-            x_grid=x_grid,
-            cache=cache,
-            signed=signed,
-            cache_functionals=cache_functionals,
-            functionals_label=functionals_label,
-            compute_functionals=compute_functionals,
+        from persforest.landscapes.family import landscapes_from_profiles
+        require_computed_barcode(self)
+        if not isinstance(cache, (bool, np.bool_)) or not isinstance(cache_profiles, (bool, np.bool_)):
+            raise TypeError("cache and cache_profiles must be booleans")
+        x_grid = validate_landscape_request(max_k, num_grid_points, mode, x_grid)
+        tol = validate_tolerance(tol)
+        profiles = self.compute_measurement_profiles(
+            cycle_func, label, signed=signed, min_bar_length=min_bar_length,
+            cache=False, measurement_name=measurement_name,
+            measurement_params=measurement_params,
         )
+        family = landscapes_from_profiles(
+            profiles, max_k=max_k, num_grid_points=num_grid_points,
+            x_grid=x_grid, mode=mode, tol=tol,
+        )
+        # Labels are convenience registry entries; publish only complete results.
+        if cache_profiles:
+            self.measurement_profiles[label] = profiles
+        if cache:
+            self.landscape_families[label] = family
+        return family
 
     def plot_measurement_landscapes(
         self,
@@ -1779,8 +1783,7 @@ class PersistenceForest:
         """
         from persforest.plotting.landscapes import plot_landscape_family
         return plot_landscape_family(
-            self,
-            label,
+            self.landscape_families[label],
             ks,
             ax,
             title,
@@ -1792,34 +1795,7 @@ class PersistenceForest:
             **kwargs,
         )
 
-    def plot_landscape_family(
-        self,
-        label: str,
-        ks: Optional[list[int]] = None,
-        ax=None,
-        title: Optional[str] = None,
-        *args,
-        show_legend: Optional[bool] = None,
-        linewidth: Optional[float] = None,
-        cmap: Optional[Union[str, Colormap]] = None,
-        higher_layers_on_top: bool = False,
-        **kwargs,
-    ):
-        """Legacy compatibility wrapper for plot_measurement_landscapes."""
-        return self.plot_measurement_landscapes(
-            label,
-            ks,
-            ax,
-            title,
-            *args,
-            show_legend=show_legend,
-            linewidth=linewidth,
-            cmap=cmap,
-            higher_layers_on_top=higher_layers_on_top,
-            **kwargs,
-        )
-
-    def plot_landscape_comparison_between_functionals(
+    def plot_landscape_comparison_between_measurements(
         self,
         labels: list[str],
         k: int = 1,
@@ -1847,5 +1823,5 @@ class PersistenceForest:
         matplotlib.axes.Axes
             Axes containing the comparison plot.
         """
-        from persforest.plotting.landscapes import plot_landscape_comparison_between_functionals
-        return plot_landscape_comparison_between_functionals(self, labels=labels, k=k, ax=ax, title=title, *args, **kwargs)
+        from persforest.plotting.landscapes import plot_landscape_comparison
+        return plot_landscape_comparison([self.landscape_families[label] for label in labels], labels=labels, k=k, ax=ax, title=title, *args, **kwargs)

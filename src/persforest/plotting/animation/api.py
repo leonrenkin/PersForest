@@ -134,6 +134,8 @@ def animate_filtration(
         out_format = "mp4"
     if out_format not in {"mp4", "html"}:
         raise ValueError(f"Unsupported animation format: {out_format!r}. Use 'mp4' or 'html'.")
+    if filename is not None and Path(filename).suffix.lower() not in {"", f".{out_format}"}:
+        raise ValueError(f"Animation export requires a .{out_format} filename.")
 
     if plot_kwargs is not None:
         warnings.warn(
