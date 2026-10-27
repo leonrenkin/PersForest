@@ -1,5 +1,7 @@
 """landscapes.functions: mechanically extracted reference implementation."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from dataclasses import field
 from numpy.typing import NDArray
@@ -8,11 +10,44 @@ from typing import Dict
 from typing import Optional
 from typing import Tuple
 from typing import Union
-import matplotlib
-import matplotlib.axes
+from typing import TYPE_CHECKING
+from collections.abc import Mapping, Sequence
+from types import MappingProxyType
 import numpy as np
+from persforest.landscapes._validation import sample_grid
 
-@dataclass
+if TYPE_CHECKING:
+    import matplotlib.axes
+
+def _readonly_vector(values, name: str) -> NDArray[np.float64]:
+    """Own a one-dimensional numeric buffer with no writable backing array."""
+    array = np.asarray(values, dtype=float)
+    if array.ndim != 1:
+        raise ValueError(f"{name} must be one-dimensional")
+    return np.frombuffer(array.tobytes(), dtype=float)
+
+
+def _freeze_metadata(value: Any) -> Any:
+    """Snapshot descriptive metadata without retaining mutable caller containers."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_metadata(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple, np.ndarray)):
+        return tuple(_freeze_metadata(item) for item in value)
+    if value is None or isinstance(value, (str, bool, int, float, np.generic)):
+        return value
+    raise TypeError("Metadata must contain scalar values, sequences, or mappings")
+
+
+def _domain(domain: Sequence[float]) -> tuple[float, float]:
+    if len(domain) != 2:
+        raise ValueError("domain must contain two endpoints")
+    start, end = map(float, domain)
+    if np.isnan((start, end)).any() or end < start:
+        raise ValueError("domain endpoints must be ordered and not NaN")
+    return start, end
+
+
+@dataclass(frozen=True, eq=False)
 class StepFunctionData:
     """
     Piecewise-constant function data.
@@ -23,7 +58,9 @@ class StepFunctionData:
     All arrays are 1D and aligned by index. `domain` is the global range
     where the function is potentially non-zero (for convenience).
 
-    We assume that ends[i] = starts[i+1] for all i, i.e., no gaps or overlaps between intervals.
+    Intervals must be ordered and nonoverlapping. Gaps use the baseline;
+    zero-width records are allowed. Negative/nonfinite values and infinite
+    endpoints can be stored here; landscapes impose stricter requirements.
     """
     starts: NDArray[np.float64]
     ends: NDArray[np.float64]
@@ -31,6 +68,25 @@ class StepFunctionData:
     baseline: float
     domain: Tuple[float, float]
     metadata: Dict[str, object] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Validate interval structure and capture owned, read-only arrays."""
+        for name in ("starts", "ends", "vals"):
+            object.__setattr__(self, name, _readonly_vector(getattr(self, name), name))
+        if not (self.starts.size == self.ends.size == self.vals.size):
+            raise ValueError("starts, ends, vals must have the same length")
+        if (np.isnan(self.starts).any() or np.isnan(self.ends).any()
+                or np.any(self.ends < self.starts)
+                or np.any(self.starts[1:] < self.ends[:-1])):
+            raise ValueError("Profile intervals must be ordered, nonoverlapping, and have end >= start")
+        domain = _domain(self.domain)
+        if np.any(self.starts < domain[0]) or np.any(self.ends > domain[1]):
+            raise ValueError("Profile intervals must lie inside the domain")
+        if not np.isscalar(self.baseline):
+            raise ValueError("baseline must be a scalar")
+        object.__setattr__(self, "baseline", float(self.baseline))
+        object.__setattr__(self, "domain", domain)
+        object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
 
     def plot(
         self,
@@ -86,20 +142,11 @@ class StepFunctionData:
         numpy.ndarray
             Array of function values at the provided grid points.
         """
-        if grid.size == 0:
-            raise ValueError("x_grid must be non-empty")
-        if not np.all(np.isfinite(grid)):
-            raise ValueError("x_grid contains non-finite values")
-        if np.any(np.diff(grid) < 0):
-            raise ValueError("x_grid must be sorted in non-decreasing order")
-
-        x_grid = np.asarray(grid, dtype=float).ravel()
-        y_vals = np.full_like(grid, fill_value=self.baseline, dtype=float)
+        x_grid = sample_grid(grid)
+        y_vals = np.full_like(x_grid, fill_value=self.baseline, dtype=float)
 
         if self.starts.size == 0:
             return np.full_like(x_grid, fill_value=float(self.baseline), dtype=float)
-        if not (self.starts.size == self.ends.size == self.vals.size):
-            raise ValueError("starts, ends, vals must have the same length")
 
         i = 0
         for j,x in enumerate(x_grid):
@@ -115,7 +162,7 @@ class StepFunctionData:
 
         return y_vals
 
-@dataclass
+@dataclass(frozen=True, eq=False)
 class PiecewiseLinearFunction:
     """
     Piecewise-linear function specified by breakpoints (xs, ys).
@@ -126,6 +173,22 @@ class PiecewiseLinearFunction:
     ys: NDArray[np.float64]
     domain: Tuple[float, float]
     metadata: Dict[str, object] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Validate finite knots and capture owned, read-only arrays."""
+        xs = _readonly_vector(self.xs, "xs")
+        ys = _readonly_vector(self.ys, "ys")
+        if xs.size != ys.size or not np.isfinite(xs).all() or not np.isfinite(ys).all():
+            raise ValueError("xs and ys must be aligned finite arrays")
+        if np.any(np.diff(xs) <= 0):
+            raise ValueError("xs must be strictly increasing")
+        domain = _domain(self.domain)
+        if not np.isfinite(domain).all():
+            raise ValueError("Piecewise-linear domain endpoints must be finite")
+        object.__setattr__(self, "xs", xs)
+        object.__setattr__(self, "ys", ys)
+        object.__setattr__(self, "domain", domain)
+        object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
 
     def __call__(self, x: Union[NDArray[np.float64], float]):
         """

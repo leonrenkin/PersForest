@@ -2,14 +2,13 @@
 
 from bisect import bisect_right
 from persforest.landscapes._validation import validate_landscape_kernel_input
+from persforest.landscapes._validation import validate_tolerance
 from persforest.landscapes.functions import PiecewiseLinearFunction
 from persforest.landscapes.functions import StepFunctionData
-from persforest.landscapes.profiles import CycleValueFunc
-from persforest.landscapes.profiles import _build_step_function_data
+from persforest.landscapes.profiles import MeasurementProfiles
 from typing import Callable
 from typing import List
 from typing import Literal
-from typing import Optional
 from typing import Tuple
 import math
 import numpy as np
@@ -46,6 +45,11 @@ def _build_convolution_with_indicator(
             convolution, ``xs`` are knot locations and ``ys`` are values at
             those knots.
         """
+        tol = validate_tolerance(tol)
+        if not np.isfinite((a, b)).all():
+            raise ValueError("Convolution interval endpoints must be finite")
+        if not all(np.isfinite(values).all() for values in (starts, ends, vals)):
+            raise ValueError("Convolution profile endpoints and values must be finite")
         if b < a:
             raise ValueError("Require a <= b for the indicator [a,b].")
         if not (len(starts) == len(ends) == len(vals)):
@@ -117,208 +121,86 @@ def _build_convolution_with_indicator(
 
         return h, xs, ys
 
-def compute_convolution_kernel_for_bar(
-        forest,
-        bar,
-        cycle_func: CycleValueFunc,
-        *,
-        tol: float = 1e-12,
-        sf: Optional[StepFunctionData] = None,
-    ) -> PiecewiseLinearFunction:
-        """
-        Compute the raw convolution kernel for one bar.
+def convolve_profile(
+    profile: StepFunctionData, birth: float, death: float, *, tol: float = 1e-12,
+) -> PiecewiseLinearFunction:
+    """Convolve a zero-baseline profile with the indicator of [birth, death].
 
-        The kernel is ``g(x) = (f * 1_[birth, death])(x)``, where ``f`` is the
-        step function induced by ``cycle_func`` on the bar's cycle
-        representatives.
+    Parameters
+    ----------
+    profile : StepFunctionData
+        Ordered interval data. Negative values are supported by raw convolution.
+    birth, death : float
+        Finite, ordered indicator endpoints.
+    tol : float, default 1e-12
+        Finite nonnegative event quantization and small-contribution tolerance.
 
-        Parameters
-        ----------
-        forest :
-            Forest-like object with `barcode` and `point_cloud`.
-        bar :
-            Bar instance from `forest.barcode`.
-        cycle_func : CycleValueFunc
-            Callable that assigns a scalar value to each cycle representative.
-        tol : float, default 1e-12
-            Numerical tolerance used when merging breakpoint events.
-        sf : StepFunctionData, optional
-            If given, reuse this step function instead of rebuilding it.
+    Returns
+    -------
+    PiecewiseLinearFunction
+        Raw convolution g(x), zero outside its captured knot support.
 
-        Returns
-        -------
-        PiecewiseLinearFunction
-            Piecewise-linear convolution kernel defined on the bar interval.
-        """
-        if sf is None:
-            sf = _build_step_function_data(forest=forest,
-                                           bar=bar, 
-                                           cycle_func=cycle_func, 
-                                           baseline=0.0)
+    Notes
+    -----
+    Nonzero baselines are rejected rather than silently discarded. Infinite
+    endpoints remain supported by standalone profiles, not finite convolution.
+    """
+    if not isinstance(profile, StepFunctionData):
+        raise TypeError("profile must be StepFunctionData")
+    if profile.baseline != 0.0:
+        raise ValueError("Convolution requires baseline=0; nonzero baselines are not convolved")
+    _, xs, ys = _build_convolution_with_indicator(
+        profile.starts.tolist(), profile.ends.tolist(), profile.vals.tolist(),
+        birth, death, tol=tol,
+    )
+    domain = (float(xs[0]), float(xs[-1])) if len(xs) > 1 else (float(birth), float(death))
+    return PiecewiseLinearFunction(
+        np.asarray(xs, dtype=float), np.asarray(ys, dtype=float), domain,
+        metadata={**profile.metadata, "kernel_type": "raw_convolution", "tol": float(tol)},
+    )
 
-        a, b = bar.birth, bar.death
-        h, xs, ys = _build_convolution_with_indicator(
-            sf.starts.tolist(),
-            sf.ends.tolist(),
-            sf.vals.tolist(),
-            a,
-            b,
-            tol=tol,
-        )
 
-        xs_arr = np.asarray(xs, dtype=float)
-        ys_arr = np.asarray(ys, dtype=float)
+def landscape_kernel(
+    profiles: MeasurementProfiles, bar_id: object, *,
+    mode: Literal["raw", "pyramid"] = "pyramid", tol: float = 1e-12,
+) -> PiecewiseLinearFunction:
+    """Build a kernel from an explicitly selected captured measurement profile.
 
-        if xs_arr.size > 1:
-            domain = (float(xs_arr[0]), float(xs_arr[-1]))
-        else:
-            domain = (float(a), float(b))
+    Parameters
+    ----------
+    profiles : MeasurementProfiles
+        Self-contained measurement result; no live forest is consulted.
+    bar_id : int or bar
+        Result-local ID, captured bar, or original source bar.
+    mode : {'raw', 'pyramid'}, default 'pyramid'
+        Raw convolution g(x), or lambda(x) = 0.5 * g(2x).
+    tol : float, default 1e-12
+        Event quantization and small-contribution tolerance, distinct from the
+        source forest's filtration reduction tolerance.
 
-        return PiecewiseLinearFunction(
-            xs=xs_arr,
-            ys=ys_arr,
-            domain=domain,
-            metadata={
-                **sf.metadata,
-                "kernel_type": "raw_convolution",
-            },
-        )
-
-def compute_measurement_interval_landscape(
-        forest,
-        cycle_func: CycleValueFunc,
-        bar,
-        sf: Optional[StepFunctionData] = None,
-    ):
-        """
-        Helper that computes the (raw) convolution kernel g
-        for a single bar and returns (h, xs, ys) as before, but implemented via
-        the new PiecewiseLinearFunction.
-
-        Note: this uses the *raw* convolution (no pyramid rescaling).
-        For landscapes, prefer compute_measurement_landscape_family.
-
-        Parameters
-        ----------
-        forest :
-            Forest-like object with `barcode`.
-        cycle_func : CycleValueFunc
-            Scalar-valued functional on cycle representatives.
-        bar :
-            Bar from the forest barcode; if None, `forest.max_bar()` is used.
-        sf : StepFunctionData, optional
-            If given, reuse this step function instead of rebuilding it.
-
-        Returns
-        -------
-        tuple
-            `(h, xs, ys)` where `h` is a callable evaluator and `xs`, `ys`
-            describe the breakpoints of the piecewise-linear kernel.
-        """
-        if bar is None:
-            bar = forest.max_bar()
-
-        if bar not in forest.barcode:
-            raise ValueError("Bar is not in barcode of forest")
-
-        kernel = compute_convolution_kernel_for_bar(
-            forest=forest,
-            bar=bar,
-            cycle_func=cycle_func,
-            sf=sf,
-        )
-
-        xs = kernel.xs.tolist()
-        ys = kernel.ys.tolist()
-
-        def h(x: float) -> float:
-            return float(kernel(x))
-
-        return h, xs, ys
-
-def compute_landscape_kernel_for_bar(
-        forest,
-        bar,
-        cycle_func: CycleValueFunc,
-        *,
-        mode: Literal["raw", "pyramid"] = "pyramid",
-        tol: float = 1e-12,
-        sf: Optional[StepFunctionData] = None,
-    ) -> PiecewiseLinearFunction:
-        """
-        Build the kernel used for landscapes for a single bar.
-
-        cycle_func values must be finite and nonnegative.
-
-        - mode="raw":      return g(x) = (f * 1_[birth,death])(x)
-        - mode="pyramid":  return λ(x) = 1/2 * g(2x)
-
-        The "pyramid" mode should reproduce the usual persistence landscape
-        shape when f ≡ 1.
-
-        Parameters
-        ----------
-        forest :
-            Forest-like object with `barcode`.
-        bar :
-            Bar from the forest barcode.
-        cycle_func : CycleValueFunc
-            Functional used to evaluate each cycle representative.
-        mode : {"raw", "pyramid"}, default "pyramid"
-            Whether to return the raw convolution or the pyramid-rescaled kernel.
-        tol : float, default 1e-12
-            Tolerance forwarded to the convolution helper.
-        sf : StepFunctionData, optional
-            If given, reuse this step function instead of rebuilding it.
-
-        Returns
-        -------
-        PiecewiseLinearFunction
-            Kernel ready to be sampled on a grid.
-        """
-        if sf is None:
-            sf = _build_step_function_data(
-                forest=forest, bar=bar, cycle_func=cycle_func, baseline=0.0
-            )
-        validate_landscape_kernel_input(bar, sf)
-
-        raw_kernel = compute_convolution_kernel_for_bar(
-            forest = forest,
-            bar=bar,
-            cycle_func=cycle_func,
-            tol=tol,
-            sf=sf,
-        )
-
-        if mode == "raw":
-            # Just return a shallow copy with explicit metadata
-            return PiecewiseLinearFunction(
-                xs=raw_kernel.xs.copy(),
-                ys=raw_kernel.ys.copy(),
-                domain=raw_kernel.domain,
-                metadata={
-                    **raw_kernel.metadata,
-                    "kernel_type": "raw_convolution",
-                },
-            )
-
-        # mode == "pyramid"
-        xs = raw_kernel.xs
-        ys = raw_kernel.ys
-
-        # λ(x) = 1/2 * g(2x)
-        xs_scaled = xs / 2.0
-        ys_scaled = ys / 2.0
-
-        domain = (float(xs_scaled[0]), float(xs_scaled[-1])) if xs_scaled.size > 1 else raw_kernel.domain
-
-        return PiecewiseLinearFunction(
-            xs=xs_scaled,
-            ys=ys_scaled,
-            domain=domain,
-            metadata={
-                **raw_kernel.metadata,
-                "kernel_type": "pyramid_rescaled",
-                "rescaling_formula": "lambda(x) = 0.5 * g(2x)",
-            },
-        )
+    Returns
+    -------
+    PiecewiseLinearFunction
+        Exact kernel between its numerically constructed knots. Landscape
+        inputs must have finite endpoints, nonnegative finite measurements,
+        and zero baseline. Invalid modes and missing profiles raise errors.
+    """
+    if mode not in ("raw", "pyramid"):
+        raise ValueError("mode must be 'raw' or 'pyramid'")
+    tol = validate_tolerance(tol)
+    if not isinstance(profiles, MeasurementProfiles):
+        raise TypeError("profiles must be MeasurementProfiles")
+    index = profiles._index(bar_id)
+    bar = profiles.bars[index]
+    profile = profiles[index]
+    validate_landscape_kernel_input(bar, profile)
+    raw = convolve_profile(profile, bar.birth, bar.death, tol=tol)
+    if mode == "raw":
+        return raw
+    xs, ys = raw.xs / 2.0, raw.ys / 2.0
+    domain = (float(xs[0]), float(xs[-1])) if xs.size > 1 else raw.domain
+    return PiecewiseLinearFunction(
+        xs, ys, domain,
+        metadata={**raw.metadata, "kernel_type": "pyramid_rescaled",
+                  "rescaling_formula": "lambda(x) = 0.5 * g(2x)"},
+    )
