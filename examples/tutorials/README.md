@@ -14,7 +14,9 @@ Optional extras:
 ```bash
 pip install ".[notebook]"
 pip install ".[plotly]"
-pip install ".[animation]"
 ```
+
+MP4 export requires `ffmpeg` on PATH in addition to the plotting dependencies
+included by these extras. Interactive 3D HTML export uses Plotly.
 
 Animation exports write to `examples/example_figures/` only when the notebook variable `SAVE_OUTPUTS` is set to `True`.

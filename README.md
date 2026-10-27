@@ -31,7 +31,7 @@ uv run python examples/pers_forest_example.py
 
 uv installs the project editably, so imports resolve to `src/persforest/`.
 With pip, the equivalent development installation is
-`python -m pip install -e ".[plot,plotly,notebook,animation,examples]"`.
+`python -m pip install -e ".[plot,plotly,notebook,examples]"`.
 Use `from persforest import PersistenceForest` for the public entry point.
 Import helpers from their implementation modules, such as
 `from persforest.chains import SignedChain`. Legacy module shims have been removed.
@@ -48,17 +48,15 @@ python -m pip install ".[plotly]"
 # Notebook inline rendering (MIME/widget renderers)
 python -m pip install ".[notebook]"
 
-# GIF export via Pillow
-python -m pip install ".[animation]"
-
 # Extra dependencies for regression/benchmark examples
 python -m pip install ".[examples]"
 ```
 
-The `plotly`, `notebook`, `animation`, and `examples` extras include the plotting
+The `plotly`, `notebook`, and `examples` extras include the plotting
 dependencies they need. Importing the package and computing forests or landscapes
 does not load plotting libraries. Missing plotting dependencies produce an
 installation hint when a plotting method is called.
+The `plot` extra uses Matplotlib directly and does not require Seaborn or pandas.
 
 `uv.lock` records exact development dependencies. The published package declares
 broader minimum versions, allowing pip users to resolve compatible dependencies
@@ -141,12 +139,54 @@ The tutorial notebooks are intended to be read in this order:
 4. `examples/tutorials/04_measurement_landscapes.ipynb` - compute, plot and vectorize measurement landscapes.
 5. `examples/tutorials/05_plotting_persistence_forests.ipynb` - plot persistence forests and compare them with barcodes.
 
-## Measurement Landscapes
-- Existing cycle functionals live in `src/persforest/measurements/` (examples: edge length, enclosed area or volume, connected components, signed/unsigned variants).
-- `forest.compute_measurement_landscapes(...)` builds families for one functional; `plot_landscape_comparison_between_functionals` contrasts multiple labels. 
-- Landscapes are stored as grid approximations.
-- Use `family.evaluate_on_grid()` to retrieve all computed levels on the stored grid. Pass `grid` and/or `levels` explicitly to select a subset.
-- Landscape measurements must be finite and nonnegative
+## Measurement profiles and landscapes
+
+`PersistenceForest` provides both the one-call landscape workflow above and
+explicit measurement profiles for reuse:
+
+```python
+from persforest.landscapes.family import landscapes_from_profiles
+from persforest.landscapes.kernels import landscape_kernel
+
+profiles = forest.compute_measurement_profiles(
+    signed_chain_edge_length, "edge length", signed=False,
+    measurement_params={"units": "coordinate units"},
+)
+family = landscapes_from_profiles(profiles, x_grid=grid, max_k=5)
+first_kernel = landscape_kernel(profiles, profiles.bar_ids[0])
+# Recompute ranks on another grid without measuring or reconstructing cycles.
+refined = landscapes_from_profiles(profiles, x_grid=np.linspace(0.0, 0.5, 1024))
+```
+
+Measurement profiles own read-only scalar arrays and captured bar endpoints.
+`profiles.bars` contains immutable endpoint records; lookup also accepts the
+original source bar. Integer bar IDs are local to the result, and selections
+preserve their requested order. A missing or duplicate landscape bar selection
+raises an error. Results describe the source at measurement time; later source
+mutation requires explicit remeasurement if fresh data is wanted. Measurement
+callbacks borrow chains and coordinates and must not modify them.
+
+`forest.measurement_profiles[label]` and `forest.landscape_families[label]` are
+optional result registries. The one-call method accepts `cache_profiles=True`
+to retain profiles alongside a landscape family and publishes them only after
+success. Labels can be overwritten without changing previously returned results.
+To reuse a result, pass it directly to `landscapes_from_profiles`; there is no
+implicit cache-reuse switch or ignored measurement callable. The old
+`forest.compute_barcode_functionals(...)` name is a small wrapper around
+`forest.compute_measurement_profiles(...)`.
+
+Standalone profiles support signed values, arbitrary baselines and infinite
+bar deaths. Landscapes require finite bar/profile endpoints, finite nonnegative
+measurements and a zero baseline. Raw signed convolution is available separately
+as `convolve_profile(profile, birth, death)`. Invalid modes, malformed intervals,
+noninteger levels and unavailable selections raise errors.
+
+Landscape levels are stored samples. `family.evaluate_on_grid()` retrieves all
+levels on the stored grid; query coordinates must be exact stored coordinates.
+Use `landscapes_from_profiles` to recompute on a new grid. Plot explicit results
+with `persforest.plotting.landscapes.plot_landscape_family(family)` or compare a
+list of results with `plot_landscape_comparison(families)`. The forest plotting
+methods remain convenient label-based entry points.
 
 ## Repository guide
 - `src/persforest/forest.py` - public facade, construction orchestration and delegates.
@@ -167,7 +207,9 @@ The tutorial notebooks are intended to be read in this order:
 - `research/tendril_regression/` - synthetic-data and regression experiments.
 
 ## Notes
-- MP4 animation export requires `ffmpeg`; GIF export requires the `animation` extra.
+- MP4 animation export uses the `plot` extra and requires `ffmpeg` on PATH
+  (for example, `brew install ffmpeg` on macOS). Video filenames must end in `.mp4`.
+- Interactive 3D animations can be exported to Plotly HTML with the `plotly` extra.
 - Plotly figures require the `plotly` or `notebook` extra.
 
 ## Tests

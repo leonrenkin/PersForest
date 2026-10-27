@@ -31,7 +31,6 @@ Issues = "https://github.com/leonrenkin/persforest/issues"
 [project.optional-dependencies]
 plot = [
     "matplotlib>=3.8",
-    "seaborn>=0.13.2",
 ]
 plotly = [
     "persforest[plot]",
@@ -47,10 +46,6 @@ examples = [
     "persforest[plot]",
     "pandas>=2.2",
     "scikit-learn>=1.4",
-]
-animation = [
-    "persforest[plot]",
-    "pillow>=10.0",
 ]
 
 [build-system]
