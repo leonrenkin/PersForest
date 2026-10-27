@@ -1,8 +1,8 @@
 """K1–K7: independent interval-overlap integration and exact knot values."""
 import unittest
 import numpy as np
-from persforest.landscapes.kernels import _build_convolution_with_indicator, compute_convolution_kernel_for_bar, compute_landscape_kernel_for_bar, compute_measurement_interval_landscape
-from persforest.landscapes.profiles import compute_barcode_functionals
+from persforest.landscapes.kernels import _build_convolution_with_indicator, convolve_profile, landscape_kernel
+from persforest.landscapes.profiles import compute_measurement_profiles
 from fixtures_small_filtrations import profile_forest, measured
 from oracle_landscapes import kernel, event_grid
 
@@ -13,8 +13,8 @@ class LandscapeKernelTests(unittest.TestCase):
             for value in (0, 1, 6):
                 forest = profile_forest([(birth, death, [(birth, death, value)])])
                 bar = forest.barcode[0]
-                pyramid = compute_landscape_kernel_for_bar(forest, bar, measured)
-                raw = compute_landscape_kernel_for_bar(forest, bar, measured, mode='raw')
+                pyramid = landscape_kernel(compute_measurement_profiles(forest, measured, "test", cache=False), bar)
+                raw = landscape_kernel(compute_measurement_profiles(forest, measured, "test", cache=False), bar, mode='raw')
                 grid = np.linspace(birth - 1, death + 1, 49)
                 expected = value * np.maximum(0, np.minimum(grid - birth, death - grid))
                 np.testing.assert_allclose(pyramid(grid), expected, atol=1e-12, rtol=1e-12)
@@ -25,9 +25,10 @@ class LandscapeKernelTests(unittest.TestCase):
         forest = profile_forest([(1, 7, [(1, 3, 6), (3, 7, 2)]), (3, 5, [(3, 5, 4)])])
         for index, xs, ys, integral in [(0, [1, 2, 4, 5, 7], [0, 6, 10, 4, 0], 30),
                                         (1, [3, 4, 5], [0, 4, 0], 4)]:
-            actual = compute_landscape_kernel_for_bar(forest, forest.barcode[index], measured)
+            actual = landscape_kernel(compute_measurement_profiles(forest, measured, "test", cache=False), forest.barcode[index])
             np.testing.assert_allclose(actual(xs), ys, atol=1e-12, rtol=1e-12)
-            self.assertAlmostEqual(np.trapezoid(actual.ys, actual.xs), integral)
+            area = np.sum(np.diff(actual.xs) * (actual.ys[:-1] + actual.ys[1:]) / 2)
+            self.assertAlmostEqual(area, integral)
             if index == 0:
                 np.testing.assert_allclose(np.diff(actual(xs)) / np.diff(xs), [6, 2, -6, -2])
 
@@ -41,7 +42,7 @@ class LandscapeKernelTests(unittest.TestCase):
                 grid = event_grid(birth, death, records)
                 if mode == 'raw':
                     grid *= 2
-                actual = compute_landscape_kernel_for_bar(forest, forest.barcode[0], measured, mode=mode)
+                actual = landscape_kernel(compute_measurement_profiles(forest, measured, "test", cache=False), forest.barcode[0], mode=mode)
                 expected = [kernel(t, birth, death, records, raw=mode == 'raw') for t in grid]
                 np.testing.assert_allclose(actual(grid), expected, atol=1e-12, rtol=1e-12)
                 self.assertTrue(np.all(actual(grid) >= -1e-12))
@@ -49,7 +50,8 @@ class LandscapeKernelTests(unittest.TestCase):
                     self.assertAlmostEqual(actual(np.nextafter(knot, -np.inf)), actual(np.nextafter(knot, np.inf)))
                 scale = 1 if mode == 'raw' else .25
                 expected_integral = scale * (death - birth) * sum(v * (e - s) for s, e, v in records)
-                self.assertAlmostEqual(np.trapezoid(actual.ys, actual.xs), expected_integral)
+                area = np.sum(np.diff(actual.xs) * (actual.ys[:-1] + actual.ys[1:]) / 2)
+                self.assertAlmostEqual(area, expected_integral)
 
     def test_splitting_constant_intervals_and_zero_width_records_do_not_change_kernel(self):
         records = [[(0, 4, 2)], [(0, 1, 2), (1, 2, 2), (2, 4, 2)],
@@ -57,13 +59,13 @@ class LandscapeKernelTests(unittest.TestCase):
         grid = np.linspace(-1, 5, 65)
         for pieces in records:
             forest = profile_forest([(0, 4, pieces)])
-            actual = compute_landscape_kernel_for_bar(forest, forest.barcode[0], measured)
+            actual = landscape_kernel(compute_measurement_profiles(forest, measured, "test", cache=False), forest.barcode[0])
             np.testing.assert_allclose(actual(grid), 2 * np.maximum(0, np.minimum(grid, 4 - grid)))
 
     def test_empty_zero_and_zero_width_support_are_zero(self):
         for records, birth, death in [([], 1, 2), ([(1, 2, 0)], 1, 2), ([(1, 1, 5)], 1, 1)]:
             forest = profile_forest([(birth, death, records)])
-            actual = compute_landscape_kernel_for_bar(forest, forest.barcode[0], measured)
+            actual = landscape_kernel(compute_measurement_profiles(forest, measured, "test", cache=False), forest.barcode[0])
             self.assertTrue(np.isfinite(actual(np.arange(4.))).all())
             np.testing.assert_array_equal(actual(np.arange(4.)), 0)
         h, xs, ys = _build_convolution_with_indicator([], [], [], 1, 2)
@@ -91,28 +93,22 @@ class LandscapeKernelTests(unittest.TestCase):
         h, _, _ = _build_convolution_with_indicator([0], [2 * tau], [1], 0, 1, tol=tau)
         self.assertAlmostEqual(h(.5), 2 * tau)
 
-    def test_legacy_wrapper_is_raw_and_reuses_precomputed_profile(self):
+    def test_raw_convolution_consumes_only_explicit_profile(self):
         forest = profile_forest([(2, 6, [(2, 6, 1)])])
-        bar = forest.barcode[0]
-        profile = compute_barcode_functionals(forest, measured, 'one')[bar]
-        def forbidden(*_):
-            raise AssertionError('Precomputed profile should not call the functional')
-        raw = compute_convolution_kernel_for_bar(forest, bar, forbidden, sf=profile)
-        h, xs, ys = compute_measurement_interval_landscape(forest, forbidden, None, sf=profile)
-        np.testing.assert_array_equal(xs, [4, 8, 12])
-        np.testing.assert_array_equal(ys, [0, 4, 0])
-        self.assertEqual(h(8), 4)
-        np.testing.assert_allclose(raw(xs), ys)
-        with self.assertRaises(ValueError):
-            compute_measurement_interval_landscape(forest, measured, object())
+        profiles = compute_measurement_profiles(forest, measured, 'one', cache=False)
+        raw = convolve_profile(profiles[0], 2, 6)
+        np.testing.assert_array_equal(raw.xs, [4, 8, 12])
+        np.testing.assert_array_equal(raw.ys, [0, 4, 0])
+        self.assertEqual(raw(8), 4)
+        np.testing.assert_allclose(landscape_kernel(profiles, 0, mode='raw')(raw.xs), raw.ys)
 
     def test_per_bar_linearity_and_filtration_translation(self):
         first, second = [(0, 1, 1), (1, 4, 3)], [(0, 1, 4), (1, 4, 2)]
         together = [(s, e, a + b) for (s, e, a), (_, _, b) in zip(first, second)]
         forest = profile_forest([(0, 4, records) for records in (first, second, together)])
-        functions = [compute_landscape_kernel_for_bar(forest, b, measured) for b in forest.barcode]
+        functions = [landscape_kernel(compute_measurement_profiles(forest, measured, "test", cache=False), b) for b in forest.barcode]
         grid = np.linspace(-1, 5, 49)
         np.testing.assert_allclose(functions[2](grid), functions[0](grid) + functions[1](grid))
         translated = profile_forest([(7, 11, [(s + 7, e + 7, v) for s, e, v in first])])
-        shifted = compute_landscape_kernel_for_bar(translated, translated.barcode[0], measured)
+        shifted = landscape_kernel(compute_measurement_profiles(translated, measured, "test", cache=False), translated.barcode[0])
         np.testing.assert_allclose(shifted(grid + 7), functions[0](grid))

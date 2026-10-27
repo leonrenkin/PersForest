@@ -120,8 +120,8 @@ class PublicAPITests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'compute_barcode'):
             forest.compute_measurement_landscapes(constant_one_functional, 'one')
         with self.assertRaisesRegex(RuntimeError, 'compute_barcode'):
-            forest.compute_generalized_landscape_family(constant_one_functional, 'one')
-        self.assertEqual(forest.barcode_functionals, {})
+            forest.compute_measurement_profiles(constant_one_functional, 'one')
+        self.assertEqual(forest.measurement_profiles, {})
         self.assertEqual(forest.landscape_families, {})
         forest.compute_barcode()
         self.assertTrue(forest.compute_measurement_landscapes(

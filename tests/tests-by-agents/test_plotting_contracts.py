@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection, PolyCollection
 from matplotlib.colors import is_color_like
 from persforest.measurements.basic import signed_chain_area, constant_one_functional
-from persforest.plotting.landscapes import plot_barcode_measurement_generic, plot_landscape_comparison, plot_landscape_comparison_between_functionals
+from persforest.plotting.landscapes import plot_barcode_measurement_generic, plot_landscape_comparison
 from persforest.plotting._scene import _activity_rows_for_plotting
 from persforest.plotting.animation._timing import _compute_frame_times
 from persforest.plotting.colors import build_color_scheme
@@ -84,12 +84,12 @@ class PlottingContractTests(unittest.TestCase):
             np.testing.assert_array_equal(line.get_ydata(), before[level - 1])
         np.testing.assert_array_equal(family.evaluate_on_grid(grid, levels=2), before)
         forest.compute_measurement_landscapes(constant_one_functional, 'one', x_grid=grid)
-        ax = plot_landscape_comparison_between_functionals(forest, ['area', 'one'])
+        ax = plot_landscape_comparison([forest.landscape_families[label] for label in ['area', 'one']])
         self.assertEqual([line.get_label() for line in ax.lines], ['area', 'one'])
         np.testing.assert_allclose(ax.lines[0].get_ydata(), before[0])
         other = build(split())
         other.compute_measurement_landscapes(lambda r, p: 2 * signed_chain_area(r, p), 'area', x_grid=grid)
-        ax = plot_landscape_comparison([forest, other], 'area', forest_labels=['a', 'b'])
+        ax = plot_landscape_comparison([forest.landscape_families['area'], other.landscape_families['area']], labels=['a', 'b'])
         np.testing.assert_allclose(ax.lines[1].get_ydata(), 2 * ax.lines[0].get_ydata())
 
     def test_interior_activity_rows_faces_and_real_artists(self):

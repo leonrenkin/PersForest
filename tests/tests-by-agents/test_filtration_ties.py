@@ -9,7 +9,8 @@ from persforest import PersistenceForest
 from persforest._forest.graph_model import PFNode
 from persforest.chains import SignedChain
 from persforest.measurements.basic import signed_chain_area, constant_one_functional
-from persforest.landscapes.kernels import compute_landscape_kernel_for_bar
+from persforest.landscapes.kernels import landscape_kernel
+from persforest.landscapes.profiles import compute_measurement_profiles
 from fixtures_small_filtrations import (
     triangle, split, fan, disconnected, annulus, build, chain, active_reps, positive_bars,
     mode_options, reps,
@@ -121,8 +122,8 @@ class FiltrationTieTests(unittest.TestCase):
                 order[-2:] = reversed(order[-2:])
             forest = build(fixture, order=order)
             bar = next(b for b in forest.barcode if b.birth == 1)
-            results.append(compute_landscape_kernel_for_bar(forest, bar, signed_chain_area)(3))
-            ones.append(compute_landscape_kernel_for_bar(forest, bar, constant_one_functional)(3))
+            results.append(landscape_kernel(compute_measurement_profiles(forest, signed_chain_area, "test", cache=False), bar)(3))
+            ones.append(landscape_kernel(compute_measurement_profiles(forest, constant_one_functional, "test", cache=False), bar)(3))
         self.assertEqual(sorted(results), [8, 10])
         self.assertEqual(ones, [2, 2])
 
@@ -137,7 +138,7 @@ class FiltrationTieTests(unittest.TestCase):
                 rep = bar.cycle_reps[-1]
                 self.assertEqual(rep.signed_simplices,
                                  chain('-01 +03 -13') if sign == 1 else chain('+01 -02 +12'))
-                values.append(compute_landscape_kernel_for_bar(forest, bar, signed_chain_area)(3))
+                values.append(landscape_kernel(compute_measurement_profiles(forest, signed_chain_area, "test", cache=False), bar)(3))
             np.testing.assert_allclose(values, [10, 8], rtol=0, atol=1e-12)
 
 

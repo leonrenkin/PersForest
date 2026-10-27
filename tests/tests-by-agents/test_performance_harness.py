@@ -187,7 +187,7 @@ class PerformanceHarnessTests(unittest.TestCase):
 
             def compute_measurement_landscapes(self, function, label, **kwargs):
                 calls.append("landscape")
-                if kwargs["cache"] or kwargs["cache_functionals"] or not kwargs["compute_functionals"]:
+                if kwargs["cache"] or kwargs["cache_profiles"]:
                     raise AssertionError("Unexpected functional reuse")
                 return SimpleNamespace(landscapes={1: None}, x_grid=[0, 1])
 

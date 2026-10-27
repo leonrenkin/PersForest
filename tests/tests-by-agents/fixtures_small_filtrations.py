@@ -183,7 +183,7 @@ def profile_forest(specs):
         bars.append(PFBar(birth, death, tuple(range(len(cycles))), cycles))
     return SimpleNamespace(barcode=bars, point_cloud=np.zeros((0, 2)),
                            iter_bar_cycle_reps=lambda bar: iter(reversed(bar.cycle_reps)),
-                           barcode_functionals={}, landscape_families={},
+                           measurement_profiles={}, landscape_families={},
                            max_bar=lambda: max(bars, key=lambda bar: bar.lifespan()))
 
 

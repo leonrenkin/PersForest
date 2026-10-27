@@ -2,7 +2,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from persforest import PersistenceForest
-import seaborn as sns
 from matplotlib.patches import Rectangle, Circle, ConnectionPatch
 from matplotlib.transforms import Bbox
 
@@ -109,7 +108,7 @@ star_forest = PersistenceForest(star)
 pointy_star_forest = PersistenceForest(star_pointy)
 ellipse_forest = PersistenceForest(ellipse)
 circle_line_forest = PersistenceForest(circle_line)
-color_palette = sns.color_palette("tab10")
+color_palette = list(plt.get_cmap("tab10").colors)
 
 name_forest_list = [("Circle", circle_forest), ("Ellipse", ellipse_forest), ("Spoke Circle", circle_line_forest), ("Star", star_forest)]
 
@@ -170,7 +169,7 @@ for i, (func_name, cycle_func) in enumerate(cycle_funcs_list):
             x_grid=np.linspace(0,4,20000),
             label=func_name,
             signed=use_signed,
-            cache_functionals=True) 
+            cache_profiles=True)
 
     for j, (name, forest) in enumerate(name_forest_list):
         forest.plot_measurement_landscapes(
@@ -292,9 +291,9 @@ length_landscapes = forest.compute_measurement_landscapes(
     max_k=n_layers,
     min_bar_length=length_min_bar_length,
     x_grid=length_x_grid,
-    cache_functionals=True,
+    cache_profiles=True,
 )
-length_profiles = forest.barcode_functionals["length"]
+length_profiles = forest.measurement_profiles["length"]
 
 # The deliberately uneven values capture the births and geometric evolution of
 # the four dominant cycles.  The initial value t_0=0 shows the point-only

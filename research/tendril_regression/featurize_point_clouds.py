@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from persforest import PersistenceForest
+from persforest.landscapes._validation import sample_grid, validate_landscape_request
 from persforest.measurements.basic import constant_one_functional, signed_chain_connected_components_only_signed_simplices
 from persforest.measurements.shape import signed_chain_avg_tendril_length, signed_chain_circularity_complement, signed_chain_excess_curvature, signed_chain_excess_curvature_diff_to_unsigned, signed_chain_tendril_branching_ratio
 
@@ -45,12 +46,19 @@ def featurize_point_cloud(
     x_grid_first_layer=None,
     min_bar_length=0.0,
 ):
+    # Stored samples require exact coordinates. Construct once on their union.
+    x_grid = validate_landscape_request(max_k, 512, "pyramid", x_grid)
+    if x_grid is None:
+        raise ValueError("x_grid must be supplied for comparable feature vectors")
+    construction_grid = x_grid
+    if x_grid_first_layer is not None:
+        x_grid_first_layer = sample_grid(x_grid_first_layer)
+        construction_grid = np.union1d(x_grid, x_grid_first_layer)
     forest = PersistenceForest(point_cloud)
-
     landscapes = forest.compute_measurement_landscapes(
         cycle_func=cycle_func,
         label=cycle_func.__name__,
-        x_grid=x_grid,
+        x_grid=construction_grid,
         signed=signed,
         max_k=max_k,
         min_bar_length=min_bar_length,

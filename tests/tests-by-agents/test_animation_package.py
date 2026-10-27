@@ -31,7 +31,8 @@ class AnimationPackageTests(unittest.TestCase):
                 fig.get_facecolor.return_value = (1., 1., 1., 1.)
                 helper = getattr(export, '_save_' + name + '_animation')
                 arguments = (anim, fig, 'movie.MP4') if name == 'filtration' else (anim, 'movie.MP4')
-                with patch('matplotlib.animation.FFMpegWriter') as writer:
+                with patch.object(export, '_ffmpeg_path_or_raise', return_value='/fake/ffmpeg'), \
+                     patch('matplotlib.animation.FFMpegWriter') as writer:
                     helper(*arguments, fps=3, dpi=40)
                 writer.assert_called_once_with(**(paired_options if name == 'paired' else dict(fps=3, bitrate=2000)))
                 expected = dict(writer=writer.return_value, dpi=40)
@@ -40,27 +41,36 @@ class AnimationPackageTests(unittest.TestCase):
                     fig.canvas.draw.assert_called_once_with()
                 anim.save.assert_called_once_with('movie.MP4', **expected)
 
-    def test_export_retains_gif_and_matplotlib_fallback_writers(self):
+    def test_mp4_writers_reject_other_formats_without_saving(self):
         export = importlib.import_module('persforest.plotting.animation._export')
         for name in ('filtration', 'paired', 'measurement'):
-            for suffix in ('gif', 'gifv', 'html'):
+            for suffix in ('gif', 'gifv', 'html', 'avi', ''):
                 with self.subTest(path=name, suffix=suffix):
                     anim, fig = Mock(), Mock()
                     filename = 'movie.' + suffix
                     arguments = (anim, fig, filename) if name == 'filtration' else (anim, filename)
-                    with patch('matplotlib.animation.PillowWriter') as pillow:
+                    with self.assertRaisesRegex(ValueError, 'only .mp4'):
                         getattr(export, '_save_' + name + '_animation')(*arguments, fps=3, dpi=40)
-                    options = anim.save.call_args.kwargs
-                    self.assertEqual(anim.save.call_args.args, (filename,))
-                    self.assertEqual(options['dpi'], 40)
-                    if suffix in ('gif', 'gifv'):
-                        pillow.assert_called_once_with(fps=3)
-                        self.assertIs(options['writer'], pillow.return_value)
-                        self.assertNotIn('fps', options)
-                    else:
-                        pillow.assert_not_called()
-                        self.assertEqual(options['fps'], 3)
-                        self.assertNotIn('writer', options)
+                    anim.save.assert_not_called()
+                    fig.canvas.draw.assert_not_called()
+
+    def test_public_dispatch_rejects_gif_for_2d_and_3d(self):
+        for fixture in (triangle, tetrahedra):
+            forest = build(fixture())
+            for suffix in ('gif', 'gifv'):
+                with self.subTest(dimension=forest.dim, suffix=suffix):
+                    with self.assertRaisesRegex(ValueError, '.mp4 filename'):
+                        forest.animate_filtration(filename='movie.' + suffix)
+
+    def test_mp4_writers_report_missing_ffmpeg(self):
+        export = importlib.import_module('persforest.plotting.animation._export')
+        for name in ('filtration', 'paired', 'measurement'):
+            with self.subTest(path=name), patch.object(export.shutil, 'which', return_value=None):
+                anim, fig = Mock(), Mock()
+                args = (anim, fig, 'movie.mp4') if name == 'filtration' else (anim, 'movie.mp4')
+                with self.assertRaisesRegex(RuntimeError, 'Install ffmpeg'):
+                    getattr(export, '_save_' + name + '_animation')(*args, fps=3, dpi=40)
+                anim.save.assert_not_called()
 
     def test_ffmpeg_errors_preserve_the_process_diagnostic(self):
         export = importlib.import_module('persforest.plotting.animation._export')
@@ -85,7 +95,8 @@ class AnimationPackageTests(unittest.TestCase):
             for ax in fig.axes[2:]:
                 np.testing.assert_allclose(ax.lines[-1].get_xdata(), [value, value])
 
-    def test_3d_frames_keep_cycles_camera_and_barcode_in_sync(self):
+    @patch('persforest.plotting.animation.filtration._save_filtration_animation')
+    def test_3d_frames_keep_cycles_camera_and_barcode_in_sync(self, save_animation):
         forest = build(tetrahedra())
         anim, fig = forest.animate_filtration(frames=4, t_min=0, t_max=7,
             with_barcode=True, show_complex=False, camera_mode='orbit',

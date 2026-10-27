@@ -194,8 +194,7 @@ def _worker(spec_path: Path, checkpoint_path: Path) -> int:
                 "landscape", forest.compute_measurement_landscapes,
                 functional, spec["functional"], max_k=spec["max_k"],
                 num_grid_points=spec["grid_points"], min_bar_length=0.0,
-                signed=spec["signed"], cache=False, cache_functionals=False,
-                compute_functionals=True,
+                signed=spec["signed"], cache=False, cache_profiles=False,
             )
             landscape_s = result["time_landscape_s"]
             result["landscape_levels"] = len(family.landscapes)

@@ -2,6 +2,7 @@
 import builtins
 import importlib.util
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -16,10 +17,10 @@ from matplotlib.collections import LineCollection
 from persforest.plotting.animation._export import _ffmpeg_path_or_raise
 from persforest.plotting.animation.measurements import animate_barcode_measurement_generic
 from persforest.measurements.basic import signed_chain_area
-from fixtures_small_filtrations import triangle, split, build
+from fixtures_small_filtrations import triangle, split, tetrahedra, build
 
 HAS_PLOTLY = importlib.util.find_spec('plotly') is not None
-HAS_PILLOW = importlib.util.find_spec('PIL') is not None
+FFMPEG = shutil.which('ffmpeg')
 
 
 class OptionalFeatureTests(unittest.TestCase):
@@ -72,19 +73,30 @@ assert not f.barcode
         self.assertEqual(len(slider.frames[0].data), len(slider.frames[-1].data))
         self.assertTrue(all(frame.name for frame in slider.frames))
 
-    @unittest.skipUnless(HAS_PILLOW, 'Pillow animation extra is not installed')
-    def test_tiny_gif_export_is_readable_and_has_expected_frames(self):
-        from PIL import Image
+    @unittest.skipUnless(FFMPEG, 'ffmpeg is not installed')
+    def test_tiny_mp4_export_is_decodable_and_has_expected_frames(self):
         forest = build(triangle())
         with tempfile.TemporaryDirectory(prefix='persforest-test-') as directory:
-            path = Path(directory) / 'triangle.gif'
+            path = Path(directory) / 'triangle.mp4'
             anim, fig = forest.animate_filtration(filename=str(path), frames=3, fps=2,
                 t_min=0, t_max=6, dpi=40, figsize=(2, 2), show_complex=False,
                 filtration_kwargs={'style_2d': {'show_orientation_arrows': False}})
-            with Image.open(path) as image:
-                self.assertEqual(image.format, 'GIF')
-                self.assertEqual(image.n_frames, 3)
-                self.assertEqual(image.size, (80, 80))
+            self.assertEqual(path.read_bytes()[4:8], b'ftyp')
+            decoded = subprocess.run(
+                [FFMPEG, '-v', 'error', '-i', str(path), '-f', 'rawvideo',
+                 '-pix_fmt', 'rgb24', 'pipe:1'],
+                capture_output=True, check=True, timeout=30,
+            )
+            self.assertEqual(len(decoded.stdout), 3 * 80 * 80 * 3)
+
+    @unittest.skipUnless(HAS_PLOTLY, 'Plotly optional extra is not installed')
+    def test_3d_plotly_html_export_writes_interactive_frames(self):
+        forest = build(tetrahedra())
+        with tempfile.TemporaryDirectory(prefix='persforest-test-') as directory:
+            path = Path(directory) / 'tetrahedra.html'
+            figure = forest.animate_filtration(filename=str(path), frames=3, t_max=7)
+            self.assertTrue(figure.frames)
+            self.assertIn('Plotly.addFrames', path.read_text())
 
     def test_measurement_animation_tracks_same_time_as_profile(self):
         forest = build(split())

@@ -6,7 +6,7 @@ import numpy as np
 from persforest import PersistenceForest
 from persforest.chains import SignedChain
 from persforest.measurements.basic import signed_chain_interior_volume
-from persforest.landscapes.profiles import compute_barcode_functionals
+from persforest.landscapes.profiles import compute_measurement_profiles
 
 
 class InteriorVolumeTests(unittest.TestCase):
@@ -37,13 +37,13 @@ class InteriorVolumeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "full-dimensional"):
             signed_chain_interior_volume(chain, np.eye(3))
 
-    def test_barcode_functionals_match_in_both_modes(self):
+    def test_measurement_profiles_match_in_both_modes(self):
         points = np.random.default_rng(42).random((30, 3))
         full = PersistenceForest(points, keep_simplex_diff=True, compute_interior=True)
         diff = PersistenceForest(points, keep_simplex_diff=True, diff_only_mode=True)
         results = []
         for forest in (full, diff):
-            bf = compute_barcode_functionals(forest, signed_chain_interior_volume, "volume")
+            bf = compute_measurement_profiles(forest, signed_chain_interior_volume, "volume")
             results.append({bar._node_progression: bf[bar] for bar in forest.barcode})
         self.assertEqual(results[0].keys(), results[1].keys())
         for key, expected in results[0].items():

@@ -9,7 +9,7 @@ import numpy as np
 
 from persforest import PersistenceForest
 from persforest.measurements.basic import signed_chain_area, signed_chain_edge_length
-from persforest.landscapes.profiles import compute_barcode_functionals
+from persforest.landscapes.profiles import compute_measurement_profiles
 
 
 point_cloud = [[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2]]
@@ -147,17 +147,17 @@ def check_manual_case(test: unittest.TestCase, case: ManualCase, options: dict) 
         if landscape_rows:
             family = forest.compute_measurement_landscapes(
                 case.cycle_func, label, signed=signed, x_grid=np.asarray(case.grid),
-                max_k=len(landscape_rows), cache_functionals=True,
+                max_k=len(landscape_rows), cache_profiles=True,
             )
-            profiles = forest.barcode_functionals[label]
+            profiles = forest.measurement_profiles[label]
         else:
-            profiles = compute_barcode_functionals(
+            profiles = compute_measurement_profiles(
                 forest,
                 lambda chain, points: case.cycle_func(chain if signed else chain.unsigned(), points),
                 label, cache=False,
             )
         test.assertEqual(len(profiles.bars), len(case.bars))
-        for bar in profiles.bars:
+        for bar in forest.barcode:
             reps = expected[bar_signature(bar, forest)].reps
             step = profiles[bar]
             np.testing.assert_allclose(step.starts, [rep.start for rep in reps])

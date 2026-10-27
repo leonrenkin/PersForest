@@ -2,13 +2,20 @@
 from unittest.mock import Mock
 import unittest
 import numpy as np
-from persforest.landscapes.family import compute_measurement_landscape_family as family
-from persforest.landscapes.profiles import compute_barcode_functionals
-from persforest.landscapes.kernels import compute_landscape_kernel_for_bar, compute_convolution_kernel_for_bar
+from persforest.landscapes.family import landscapes_from_profiles
+from persforest.landscapes.profiles import compute_measurement_profiles
+from persforest.landscapes.kernels import landscape_kernel, convolve_profile
 from persforest.landscapes.functions import PiecewiseLinearFunction
 from persforest.measurements.basic import signed_chain_area, signed_chain_edge_length, constant_one_functional
 from fixtures_small_filtrations import build, split, fan, disconnected, profile_forest, measured
 from oracle_landscapes import landscape
+
+
+def family(forest, cycle_func, label, *, min_bar_length=0.0, **kwargs):
+    """Feed independent synthetic profiles through the numerical public API."""
+    profiles = compute_measurement_profiles(
+        forest, cycle_func, label, min_bar_length=min_bar_length, cache=False)
+    return landscapes_from_profiles(profiles, **kwargs)
 
 
 class LandscapeFamilyTests(unittest.TestCase):
@@ -127,9 +134,8 @@ class LandscapeFamilyTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, 'levels .* were not computed.*Recompute landscapes with max_k >='):
                         actual.evaluate_on_grid(levels=levels)
             np.testing.assert_array_equal(actual.evaluate_on_grid(levels=[2]), np.zeros((1, 5)))
-        del actual.landscapes[1]
-        with self.assertRaisesRegex(ValueError, r'levels \[1\] were not computed'):
-            actual.evaluate_on_grid(levels=None)
+        with self.assertRaises(TypeError):
+            del actual.landscapes[1]
 
     def test_piecewise_linear_scalar_array_empty_and_outside(self):
         f = PiecewiseLinearFunction(np.array([0., 1, 2]), np.array([0., 2, 0]), (0, 2))
@@ -152,48 +158,48 @@ class LandscapeFamilyTests(unittest.TestCase):
 
 
 class CacheAndWrapperTests(unittest.TestCase):
-    def test_cache_flags_overwrite_and_reuse_without_functional_calls(self):
-        forest = profile_forest([(1, 7, [(1, 3, 6), (3, 7, 2)]), (3, 5, [(3, 5, 4)])])
+    def test_cache_flags_overwrite_and_explicit_reuse(self):
+        forest = build(split())
         grid = np.arange(9.)
-        first = family(forest, measured, 'area', x_grid=grid, cache=False)
+        first = forest.compute_measurement_landscapes(signed_chain_area,
+            'area', x_grid=grid, cache=False)
         self.assertEqual(forest.landscape_families, {})
-        self.assertEqual(forest.barcode_functionals, {})
-        saved = family(forest, measured, 'area', x_grid=grid, cache_functionals=True, functionals_label='profiles')
+        self.assertEqual(forest.measurement_profiles, {})
+        saved = forest.compute_measurement_landscapes(signed_chain_area, 'area',
+            x_grid=grid, cache_profiles=True)
         self.assertIs(saved, forest.landscape_families['area'])
-        forbidden = Mock(side_effect=AssertionError('cached functional must not be called'))
-        reused = family(forest, forbidden, 'reuse', x_grid=grid, compute_functionals=False, functionals_label='profiles')
-        forbidden.assert_not_called()
-        np.testing.assert_allclose(reused.evaluate_on_grid(grid, levels=5), first.evaluate_on_grid(grid, levels=5))
-        overwritten = family(forest, lambda *_: 0, 'area', x_grid=grid)
+        profiles = forest.measurement_profiles['area']
+        with unittest.mock.patch.object(forest, 'iter_bar_cycle_reps', side_effect=AssertionError('Must not reconstruct')):
+            reused = landscapes_from_profiles(profiles, label='reuse', x_grid=grid)
+        np.testing.assert_allclose(reused.evaluate_on_grid(), first.evaluate_on_grid())
+        overwritten = forest.compute_measurement_landscapes(lambda *_: 0, 'area', x_grid=grid)
         self.assertIs(forest.landscape_families['area'], overwritten)
-        np.testing.assert_array_equal(overwritten.evaluate_on_grid(grid, levels=5), np.zeros((5, 9)))
-        with self.assertRaisesRegex(ValueError, 'none found'):
-            family(forest, measured, 'missing', compute_functionals=False)
+        np.testing.assert_array_equal(overwritten.evaluate_on_grid(), np.zeros((5, 9)))
+        np.testing.assert_allclose(landscapes_from_profiles(profiles, x_grid=grid).evaluate_on_grid(), saved.evaluate_on_grid())
 
-    def test_reordered_and_filtered_bars_reuse_profiles_by_object_identity(self):
+    def test_reordered_and_filtered_selections_keep_identity_and_report_missing(self):
         specs = [(1, 7, [(1, 3, 6), (3, 7, 2)]), (3, 5, [(3, 5, 4)])]
         forest = profile_forest(specs)
-        compute_barcode_functionals(forest, measured, 'profiles')
+        profiles = compute_measurement_profiles(forest, measured, 'profiles')
         forest.barcode.reverse()
         grid = np.arange(9.)
-        actual = family(forest, measured, 'cached', x_grid=grid, compute_functionals=False,
-                        functionals_label='profiles', max_k=2)
-        np.testing.assert_allclose(actual.evaluate_on_grid(grid, levels=2), landscape(grid, specs, 2))
-        filtered = family(forest, measured, 'long', x_grid=grid, min_bar_length=6,
-                          compute_functionals=False, functionals_label='profiles', max_k=1)
-        np.testing.assert_allclose(filtered.evaluate_on_grid(grid), landscape(grid, specs[:1], 1))
-        compute_barcode_functionals(forest, measured, 'partial', min_bar_length=6)
-        with self.assertRaises(KeyError):
-            family(forest, measured, 'incompatible', x_grid=grid, compute_functionals=False, functionals_label='partial')
+        actual = landscapes_from_profiles(profiles, bar_ids=forest.barcode, x_grid=grid, max_k=2)
+        self.assertEqual(actual.bar_ids, (1, 0))
+        np.testing.assert_allclose(actual.evaluate_on_grid(), landscape(grid, specs, 2))
+        filtered = landscapes_from_profiles(profiles, bar_ids=[0], x_grid=grid, max_k=1)
+        np.testing.assert_allclose(filtered.evaluate_on_grid(), landscape(grid, specs[:1], 1))
+        partial = compute_measurement_profiles(forest, measured, 'partial', min_bar_length=6)
+        with self.assertRaisesRegex(ValueError, 'Recompute profiles including the requested bar'):
+            landscapes_from_profiles(partial, bar_ids=forest.barcode, x_grid=grid)
 
-    def test_public_signedness_profiles_kernel_difference_and_legacy_alias(self):
+    def test_public_signedness_profiles_and_kernel_difference(self):
         forest = build(fan())
         grid = np.linspace(0, 8, 65)
         families = []
         for signed in (False, True):
             actual = forest.compute_measurement_landscapes(signed_chain_edge_length, str(signed),
-                signed=signed, x_grid=grid, max_k=4, cache_functionals=True)
-            profiles = forest.barcode_functionals[str(signed)]
+                signed=signed, x_grid=grid, max_k=4, cache_profiles=True)
+            profiles = forest.measurement_profiles[str(signed)]
             a = 4 + np.sqrt(2) + np.sqrt(10)
             literal = {
                 1: [(1, 2, 8 + 4 * np.sqrt(2)),
@@ -207,16 +213,13 @@ class CacheAndWrapperTests(unittest.TestCase):
                                            rtol=1e-12, atol=1e-12)
             np.testing.assert_allclose(actual.evaluate_on_grid(grid, levels=4), landscape(grid, specs, 4),
                                        rtol=1e-12, atol=1e-12)
-            alias = forest.compute_generalized_landscape_family(signed_chain_edge_length, 'alias',
-                signed=signed, x_grid=grid, max_k=4, cache=False, min_bar_length=0)
-            np.testing.assert_allclose(alias.evaluate_on_grid(grid, levels=4), actual.evaluate_on_grid(grid, levels=4))
             families.append(actual)
         long = next(b for b in forest.barcode if b.birth == 1)
-        unsigned = forest.barcode_functionals['False'][long]
-        signed = forest.barcode_functionals['True'][long]
+        unsigned = forest.measurement_profiles['False'][long]
+        signed = forest.measurement_profiles['True'][long]
         np.testing.assert_allclose(signed.vals - unsigned.vals, [0, 2 * np.sqrt(2), 0, 0])
-        a = compute_landscape_kernel_for_bar(forest, long, signed_chain_edge_length, sf=unsigned)
-        b = compute_landscape_kernel_for_bar(forest, long, signed_chain_edge_length, sf=signed)
+        a = landscape_kernel(forest.measurement_profiles['False'], long)
+        b = landscape_kernel(forest.measurement_profiles['True'], long)
         expected = np.sqrt(2) * np.maximum(0, np.minimum(3, 2 * grid - 1) - np.maximum(2, 2 * grid - 7))
         np.testing.assert_allclose(b(grid) - a(grid), expected, atol=1e-12)
 
@@ -227,7 +230,7 @@ class InvalidLandscapeContractTests(unittest.TestCase):
     def test_d8_infinite_kernel_has_actionable_error(self):
         forest = profile_forest([(1, np.inf, [(1, np.inf, 1)])])
         with self.assertRaisesRegex(ValueError, 'finite'):
-            compute_landscape_kernel_for_bar(forest, forest.barcode[0], measured)
+            landscape_kernel(compute_measurement_profiles(forest, measured, "test", cache=False), 0)
 
 
     def test_d8_infinite_family_has_actionable_error(self):
@@ -240,8 +243,8 @@ class InvalidLandscapeContractTests(unittest.TestCase):
         for mode in ('raw', 'pyramid'):
             with self.subTest(mode=mode):
                 with self.assertRaisesRegex(ValueError, 'finite and nonnegative'):
-                    family(forest, measured, 'negative', mode=mode, cache_functionals=True)
-        self.assertEqual(forest.barcode_functionals, {})
+                    family(forest, measured, 'negative', mode=mode)
+        self.assertEqual(forest.measurement_profiles, {})
         self.assertEqual(forest.landscape_families, {})
 
     def test_d8_nonfinite_measurement_rejects(self):
@@ -249,38 +252,37 @@ class InvalidLandscapeContractTests(unittest.TestCase):
             with self.subTest(value=value):
                 forest = profile_forest([(0, 2, [(0, 2, value)])])
                 with self.assertRaisesRegex(ValueError, 'finite and nonnegative'):
-                    family(forest, measured, 'nonfinite', cache_functionals=True)
-                self.assertEqual(forest.barcode_functionals, {})
+                    family(forest, measured, 'nonfinite')
+                self.assertEqual(forest.measurement_profiles, {})
 
     def test_d8_direct_kernel_and_cached_profile_values_are_validated(self):
         forest = profile_forest([(0, 2, [(0, 2, -1)])])
         bar = forest.barcode[0]
         with self.assertRaisesRegex(ValueError, 'finite and nonnegative'):
-            compute_landscape_kernel_for_bar(forest, bar, measured)
+            landscape_kernel(compute_measurement_profiles(forest, measured, "test", cache=False), bar)
 
-        profiles = compute_barcode_functionals(forest, measured, 'signed')
+        profiles = compute_measurement_profiles(forest, measured, 'signed')
         self.assertEqual(profiles[bar].vals.tolist(), [-1])
-        self.assertEqual(compute_convolution_kernel_for_bar(forest, bar, measured, sf=profiles[bar])(2), -2)
+        self.assertEqual(convolve_profile(profiles[bar], bar.birth, bar.death)(2), -2)
         for mode in ('raw', 'pyramid'):
             with self.subTest(mode=mode):
                 with self.assertRaisesRegex(ValueError, 'finite and nonnegative'):
-                    compute_landscape_kernel_for_bar(forest, bar, measured, sf=profiles[bar], mode=mode)
+                    landscape_kernel(profiles, bar, mode=mode)
                 with self.assertRaisesRegex(ValueError, 'finite and nonnegative'):
-                    family(forest, measured, 'cached', mode=mode,
-                           compute_functionals=False, functionals_label='signed')
+                    landscapes_from_profiles(profiles, mode=mode)
 
     def test_d8_public_wrapper_rejects_negative_and_preserves_existing_cache(self):
         forest = build(split())
         existing = forest.compute_measurement_landscapes(
-            constant_one_functional, 'measure', cache_functionals=True
+            constant_one_functional, 'measure', cache_profiles=True
         )
-        profiles = forest.barcode_functionals['measure']
+        profiles = forest.measurement_profiles['measure']
         with self.assertRaisesRegex(ValueError, 'finite and nonnegative'):
             forest.compute_measurement_landscapes(
-                lambda *_: -1, 'measure', cache_functionals=True
+                lambda *_: -1, 'measure', cache_profiles=True
             )
         self.assertIs(forest.landscape_families['measure'], existing)
-        self.assertIs(forest.barcode_functionals['measure'], profiles)
+        self.assertIs(forest.measurement_profiles['measure'], profiles)
 
 
 def _invalid_family_case(options):
