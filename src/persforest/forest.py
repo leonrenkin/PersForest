@@ -81,10 +81,12 @@ class PersistenceForest:
             Absolute numerical resolution for parent-child reduction. 
             Differences at or below this tolerance are ignored and short bars may disappear.
         filtration : iterable of (sequence of int, float), optional
-            Ordered simplex-filtration pairs. 
-            If None, construct the alpha filtration from ``point_cloud``. 
-            Geometric embeddedness and contractibility of the terminal complex are required by the algorithm 
-            but are not verified for a supplied filtration.
+            Ordered simplex-filtration pairs.
+            If None, construct the alpha filtration from ``point_cloud``.
+            Simplices are stored with increasing vertex order; simplices above the
+            ambient dimension are rejected. Geometric embeddedness and contractibility
+            of the terminal complex are required by the algorithm but are not verified
+            for a supplied filtration; if they fail, results are meaningless.
         """
         self.point_cloud = validate_point_cloud(point_cloud)
         self.filtration_tol = float(filtration_tol)
@@ -108,29 +110,27 @@ class PersistenceForest:
 
         if filtration is None:
             start = time.perf_counter()
-            self.simplex_tree, filtration = prepare_alpha_filtration(self.point_cloud)
+            self.simplex_tree, self._cells = prepare_alpha_filtration(self.point_cloud)
             alpha_complex_time = time.perf_counter()-start
             if print_info:
                 print(f"Alpha filtration generated in {alpha_complex_time}")
         else:
             start = time.perf_counter()
-            filtration = prepare_simplicial_filtration(filtration, len(self.point_cloud))
+            self._cells = prepare_simplicial_filtration(filtration, self.point_cloud)
             filtration_verification_time = time.perf_counter()-start
             if print_info:
-                print(f"Filtration order verified in {filtration}")
+                print(f"Filtration order verified in {filtration_verification_time}")
             warnings.warn(
-                "The persistence-forest algorithm requires an embedded and contractible terminal complex;"
-                "these conditions are not verified for a manual filtration.",
+                "A custom filtration must be a simplicial complex geometrically embedded in "
+                f"R^{self.dim} with top simplices of dimension {self.dim} and a contractible "
+                "terminal complex. These conditions are not checked; if they do not hold, "
+                "the barcode and cycle representatives are meaningless.",
                 UserWarning,
                 stacklevel=2,
             )
 
-        start = time.perf_counter()
-        # Extract s filtration up to order d
-        self.filtration =  [(simplex,filt_val) for simplex, filt_val in filtration if len(simplex) >= self.dim] #keep simplices up to codim 1
-        filtration_time = time.perf_counter()-start
-        if print_info:
-            print(f"Filtration processed in {filtration_time}")
+        # Top simplices and their facets; shared with the engine's cell filtration.
+        self.filtration = self._cells.events
 
         self.barcode: set[PFBar] = set()
         self._barcode_computed = False
@@ -174,103 +174,11 @@ class PersistenceForest:
 
         return
 
-    # ---------- builders ---------
-
-
-    def add_leaf(self, simplex: List[int], filt_val: float, orientation: int):
-        """
-        Create a new leaf node for a full-dimensional simplex.
-
-        In the reverse-filtration algorithm this corresponds to the death of a
-        codimension-one homology class; the new cycle is the signed boundary of
-        ``simplex``.
-
-        Parameters
-        ----------
-        simplex : list[int]
-            Vertices of the full-dimensional simplex being added. It has
-            length ``self.dim + 1``.
-        filt_val : float
-            Filtration value where the simplex enters.
-        orientation : int
-            Orientation (+/-1) of the simplex in the complex.
-
-        Returns
-        -------
-        PFNode
-            Newly created leaf node.
-        """
-        from persforest._forest.build import add_leaf
-        return add_leaf(self, simplex, filt_val, orientation)
-    
-    def make_root(self, node: PFNode, filt_val: float):
-        """
-        End a tree by creating a root parent for an active node.
-
-        In the reverse-filtration algorithm this corresponds to the birth of a
-        codimension-one homology class.
-
-        Parameters
-        ----------
-        node : PFNode
-            Child node that becomes the child of the new root.
-        filt_val : float
-            Filtration value at which the root is created.
-        """
-        from persforest._forest.build import make_root
-        return make_root(self, node, filt_val)
-
-    def merge_nodes(self, node1: PFNode, node2: PFNode, simplex: List[int], filt_val: float):
-        """ 
-        Create a parent node by merging two active child nodes.
-
-        The parent cycle is obtained by unioning the child cycles and removing
-        both orientations of ``simplex``. In the reverse-filtration algorithm,
-        this records a split event and creates a new barcode branch.
-
-        Parameters
-        ----------
-        node1, node2 : PFNode
-            Child nodes that are merged.
-        simplex : list[int]
-            Codimension-one simplex at which the two children cycles merge.
-        filt_val : float
-            Filtration value of the merge event.
-        """
-        from persforest._forest.build import merge_nodes
-        return merge_nodes(self, node1, node2, simplex, filt_val)
-    
-    def update_node(self, node: PFNode, simplex: List[int], filt_val:float):
-        """
-        Create a parent node for an active node whose cycle changes.
-
-        The updated cycle is obtained by removing both orientations of
-        ``simplex`` from ``node.cycle``.
-
-        Parameters
-        ----------
-        node : PFNode
-            Node whose representative is being updated.
-        simplex : list[int]
-            Codimension-one simplex to remove from the representative.
-        filt_val : float
-            Filtration value of the update event.
-        """
-        from persforest._forest.build import update_node
-        return update_node(self, node, simplex, filt_val)
-    
-    
     # ----- compute the forest ----------
-
-
-    def _update_node_list(self, node_id_list: List[int]) -> List[PFNode]:
-        """Return current root ancestors for ``node_id_list``."""
-        from persforest._forest.build import _update_node_list
-        return _update_node_list(self, node_id_list)
 
     def _compute_forest(self, print_info: bool = False):
         """ 
-        Compute the persistence forest from the alpha-complex filtration.
+        Compute the persistence forest from the prepared cell filtration.
 
         Parameters
         ----------

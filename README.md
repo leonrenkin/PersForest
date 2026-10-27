@@ -109,10 +109,13 @@ To supply a custom filtration,
 use `PersistenceForest(point_cloud, filtration=ordered_pairs)`, 
 where each pair is `(simplex_vertex_indices, filtration_value)`. 
 Vertex indices refer to rows of `point_cloud`. 
+Simplices are stored with increasing vertex order; orientations come from the
+point coordinates, so the vertex order of the input does not matter.
+Simplices of higher dimension than the ambient space are rejected.
 The algorithm requires geometric embeddedness and a terminal
 complex with trivial homology groups. 
 These geometric and topological conditions are not checked for custom filtrations; 
-the constructor emits a warning about them.
+the constructor emits a warning that results are meaningless if they fail.
 
 ## Difference storage and interior activity
 
@@ -201,7 +204,7 @@ methods remain convenient label-based entry points.
 - `src/persforest/forest.py` - public facade, construction orchestration and delegates.
 - `src/persforest/chains.py`, `barcode.py`, `_forest/graph_model.py` - canonical domain objects.
 - `src/persforest/_forest/` - construction, queries, reduction, barcode extraction and representative access.
-- `src/persforest/filtrations/`, `geometry/` - existing simplicial input preparation, orientation and geometry.
+- `src/persforest/filtrations/` - input adapters behind the internal cell-filtration interface (`_interface.py`); `geometry/` - orientation and geometry.
 - `src/persforest/measurements/`, `landscapes/` - measurements and numerical landscapes.
 - `src/persforest/plotting/` - rendering, shared scenes, colors and animation.
 - `src/persforest/plotting/animation/` - animation dispatch, filtration and measurement renderers, timing, layout and export.

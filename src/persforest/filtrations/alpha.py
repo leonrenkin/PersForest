@@ -1,13 +1,14 @@
 """GUDHI alpha preparation in radius units."""
 import gudhi as gd
-from collections.abc import Iterator
 from numpy.typing import NDArray
+
+from persforest.filtrations.simplicial import SimplicialFiltration, simplicial_events
 
 
 def prepare_alpha_filtration(
     point_cloud: NDArray,
-) -> tuple[gd.SimplexTree, Iterator[tuple[list[int], float]]]:
-    """Prepare the existing alpha tree and its ordered event iterator.
+) -> tuple[gd.SimplexTree, SimplicialFiltration]:
+    """Prepare the alpha simplex tree and its simplicial adapter.
 
     Parameters
     ----------
@@ -17,8 +18,9 @@ def prepare_alpha_filtration(
     Returns
     -------
     tuple
-        The original simplex tree and its unmaterialized filtration iterator.
+        The simplex tree and an adapter over its top simplices and their facets,
+        in GUDHI's filtration order. GUDHI lists vertices in increasing order.
     """
     simplex_tree = gd.AlphaComplex(points=point_cloud).create_simplex_tree(output_squared_values=False)
-    filtration = simplex_tree.get_filtration()
-    return simplex_tree, filtration
+    events = simplicial_events(simplex_tree.get_filtration(), point_cloud.shape[1])
+    return simplex_tree, SimplicialFiltration(point_cloud, events)

@@ -1,32 +1,31 @@
-"""_forest.build: mechanically extracted reference implementation."""
+"""_forest.build: reverse sweep over a cell filtration."""
 
+from collections.abc import Hashable
 from persforest._forest.graph_model import PFNode
 from persforest.chains import SignedChain
 from persforest.chains import merge_at_simplex
-from persforest.filtrations.simplicial import key
-from persforest.filtrations.simplicial import signed_boundary
-from persforest.geometry.simplicial import simplex_orientation
+from persforest.filtrations._interface import oriented_boundary
 from typing import List
-import itertools
 import time
 
-def add_leaf(self, simplex: List[int], filt_val: float, orientation: int):
+def add_leaf(self, cell: Hashable, boundary: tuple, filt_val: float, orientation: int):
     """
-        Create a new leaf node for a full-dimensional simplex.
+        Create a new leaf node for a top cell.
 
         In the reverse-filtration algorithm this corresponds to the death of a
         codimension-one homology class; the new cycle is the signed boundary of
-        ``simplex``.
+        ``cell``.
 
         Parameters
         ----------
-        simplex : list[int]
-            Vertices of the full-dimensional simplex being added. It has
-            length ``self.dim + 1``.
+        cell : hashable
+            Top cell being added.
+        boundary : tuple of (cell, int)
+            Boundary of ``cell`` with ``orientation`` applied.
         filt_val : float
-            Filtration value where the simplex enters.
+            Filtration value where the cell enters.
         orientation : int
-            Orientation (+/-1) of the simplex in the complex.
+            Orientation (+/-1) of the cell in the complex.
 
         Returns
         -------
@@ -37,7 +36,7 @@ def add_leaf(self, simplex: List[int], filt_val: float, orientation: int):
     nid = next(self._node_id)
 
     if not self.diff_only_mode:
-        new_cycle = SignedChain(signed_simplices=signed_boundary(simplex=simplex,orientation=orientation))
+        new_cycle = SignedChain(signed_simplices=set(boundary))
     else:
         new_cycle = None
 
@@ -47,7 +46,7 @@ def add_leaf(self, simplex: List[int], filt_val: float, orientation: int):
                           children=set(), 
                           cycle=new_cycle, 
                           _simplex_diff_available = True,
-                          _interior_diff = {(key(simplex=simplex), orientation)},
+                          _interior_diff = {(cell, orientation)},
                           _codim1_simplex_diff = None)
     else: 
         new_node = PFNode(id=nid,filt_val=filt_val, children=set(), cycle=new_cycle, _simplex_diff_available = False)
@@ -102,20 +101,20 @@ def make_root(self, node: PFNode, filt_val: float):
 
     return
 
-def merge_nodes(self, node1: PFNode, node2: PFNode, simplex: List[int], filt_val: float):
+def merge_nodes(self, node1: PFNode, node2: PFNode, cell: Hashable, filt_val: float):
     """ 
         Create a parent node by merging two active child nodes.
 
         The parent cycle is obtained by unioning the child cycles and removing
-        both orientations of ``simplex``. In the reverse-filtration algorithm,
+        both orientations of ``cell``. In the reverse-filtration algorithm,
         this records a split event and creates a new barcode branch.
 
         Parameters
         ----------
         node1, node2 : PFNode
             Child nodes that are merged.
-        simplex : list[int]
-            Codimension-one simplex at which the two children cycles merge.
+        cell : hashable
+            Codimension-one cell at which the two children cycles merge.
         filt_val : float
             Filtration value of the merge event.
         """
@@ -125,7 +124,7 @@ def merge_nodes(self, node1: PFNode, node2: PFNode, simplex: List[int], filt_val
     node2.parent = nid
 
     if not self.diff_only_mode:
-        parent_cycle = merge_at_simplex(cycle1 = node1.cycle, cycle2=node2.cycle,  simplex=simplex) 
+        parent_cycle = merge_at_simplex(cycle1 = node1.cycle, cycle2=node2.cycle,  simplex=cell) 
     else:
         parent_cycle = None
 
@@ -136,7 +135,7 @@ def merge_nodes(self, node1: PFNode, node2: PFNode, simplex: List[int], filt_val
                              cycle=parent_cycle,
                              _simplex_diff_available = True,
                              _interior_diff = None,
-                             _codim1_simplex_diff = {(key(simplex),1),(key(simplex),-1)})
+                             _codim1_simplex_diff = {(cell,1),(cell,-1)})
     else:
         parent_node = PFNode(id=nid, filt_val=filt_val, children={node1.id,node2.id}, cycle=parent_cycle, _simplex_diff_available = False)
     self.nodes[nid]=parent_node
@@ -149,25 +148,25 @@ def merge_nodes(self, node1: PFNode, node2: PFNode, simplex: List[int], filt_val
 
     return
 
-def update_node(self, node: PFNode, simplex: List[int], filt_val:float):
+def update_node(self, node: PFNode, cell: Hashable, filt_val:float):
     """
         Create a parent node for an active node whose cycle changes.
 
         The updated cycle is obtained by removing both orientations of
-        ``simplex`` from ``node.cycle``.
+        ``cell`` from ``node.cycle``.
 
         Parameters
         ----------
         node : PFNode
             Node whose representative is being updated.
-        simplex : list[int]
-            Codimension-one simplex to remove from the representative.
+        cell : hashable
+            Codimension-one cell to remove from the representative.
         filt_val : float
             Filtration value of the update event.
         """
 
     if not self.diff_only_mode:
-        updated_cycle = node.cycle.cancel_simplex(simplex=simplex)
+        updated_cycle = node.cycle.cancel_simplex(simplex=cell)
     else: updated_cycle = None
 
     nid = next(self._node_id)
@@ -180,7 +179,7 @@ def update_node(self, node: PFNode, simplex: List[int], filt_val:float):
                              cycle = updated_cycle,
                              _simplex_diff_available = True,
                              _interior_diff = None,
-                             _codim1_simplex_diff = {(key(simplex),1),(key(simplex),-1)})
+                             _codim1_simplex_diff = {(cell,1),(cell,-1)})
     else:
         update_node = PFNode(id=nid, filt_val=filt_val, children={node.id},cycle = updated_cycle, _simplex_diff_available = False)
 
@@ -204,7 +203,7 @@ def _update_node_list(self, node_id_list: List[int]) -> List[PFNode]:
 
 def _compute_forest(self, print_info: bool = False):
     """ 
-        Compute the persistence forest from the alpha-complex filtration.
+        Compute the persistence forest by sweeping ``self._cells`` in reverse.
 
         Parameters
         ----------
@@ -214,72 +213,51 @@ def _compute_forest(self, print_info: bool = False):
 
     loop_forest_start = time.perf_counter()
 
-    face_cycle_dict = {}
+    cells = self._cells
+    top_dimension = cells.top_dimension
 
-    #simplices is already ordered in ascending order by number of simplices 
-    for simplex, filt_val in reversed(self.filtration):
-        #print("simplex", simplex)
-        #print("active_node_ids",self._active_node_ids)
-        
-        if len(simplex) == self.dim+1:
-            orientation = simplex_orientation(simplex=simplex, point_cloud=self.point_cloud)
+    # Facet -> leaves created by its incident top cells, in sweep order.
+    facet_leaf_ids = {}
 
-            new_node = self.add_leaf( simplex=simplex, filt_val=filt_val, orientation = orientation)
+    for cell, filt_val in reversed(cells.events):
+        dimension = cells.dimension(cell)
 
-            faces = list(itertools.combinations(simplex, len(simplex)-1 ) )
-            for face in faces:
-                if key(face) in face_cycle_dict:
-                   face_cycle_dict[key(face)].append(new_node.id)
+        if dimension == top_dimension:
+            orientation = cells.orientation(cell)
+            boundary = oriented_boundary(cells, cell, orientation)
+
+            new_node = add_leaf(self, cell=cell, boundary=boundary, filt_val=filt_val, orientation=orientation)
+
+            for facet, _ in boundary:
+                if facet in facet_leaf_ids:
+                    facet_leaf_ids[facet].append(new_node.id)
                 else:
-                    face_cycle_dict[key(face)] = [new_node.id]
+                    facet_leaf_ids[facet] = [new_node.id]
 
-        elif len(simplex) == self.dim:
-            #face_cycle_dict[simplex] contains nodes induced by cofaces of simplex
-            # can be of the form [],[l1], [l1,l2], [l1,l1]
+        elif dimension == top_dimension - 1:
+            # Leaves of the cofaces of this facet: [], [l1], [l1, l2] or [l1, l1].
+            L_tmp_ids = facet_leaf_ids.pop(cell, [])
 
-            #If key exists, get its value and remove it
-            #if key does not exists, get []
-            L_tmp_ids = face_cycle_dict.pop(key(simplex), [])
+            # Active nodes above those leaves; leaves below a construction root are no longer active.
+            L = _update_node_list(self, L_tmp_ids)
 
-            # find nodes corresponding to cofaces, find active nodes above leaves induced by cofaces, 
-            # we remove construction roots since they are not active anymore
-            L = self._update_node_list(L_tmp_ids)
-
-
-            #if no cycle contains simplex, nothing happens
+            # No active cycle contains the facet.
             if len(L) == 0:
                 continue
 
-            #if cycle is only contained in a single loop and appears only once in that loop once, remove that loop from the active loops 
+            # One active cycle contains the facet once: the class is born here.
             elif len(L) == 1:
-                self.make_root(node=L[0],filt_val=filt_val)
-
-                continue
+                make_root(self, node=L[0], filt_val=filt_val)
 
             elif len(L) == 2 and L[0]!=L[1]: 
-                self.merge_nodes( node1=L[0], node2=L[1], simplex =simplex, filt_val=filt_val)
-                """if not loop_in_filtration_check(parent_loop.vertex_list, simplex_tree=self.simplex_tree, filt_value=filt_val):
-                            print('edge', simplex)
-                            print('edge dict entry')
-                            print('filtration value', filt_val)
-                            print(f'first loop', L[0].cycle)
-                            print(f'second loop', L[1].cycle)
-                            raise ValueError("Loop not in simplex, Loop concat Case")"""
-
+                merge_nodes(self, node1=L[0], node2=L[1], cell=cell, filt_val=filt_val)
 
             elif len(L) == 2 and L[0]==L[1]:
-                #Same simplex is contained in a cycle in both orientations -> we remove it from the the cycle
-                self.update_node(node=L[0], simplex=simplex, filt_val=filt_val)
-                """if not loop_in_filtration_check(vertex_loop, simplex_tree=self.simplex_tree, filt_value=filt_val):
-                                print('edge', simplex)
-                                print(f'starting loop', L[0].loop)
-                                print(f'outer loop', vertex_loop)
-                                raise ValueError("Loop not in simplex, Tiebreak Case")"""
-                
+                # The same cycle contains the facet in both orientations; remove it.
+                update_node(self, node=L[0], cell=cell, filt_val=filt_val)
+
             else:
-                print(L)
-                print(simplex)
-                raise ValueError("Error, L is of the wrong form")
+                raise ValueError(f"Facet {cell} has {len(L)} incident active cycles; expected at most 2")
 
     loop_forest_time = time.perf_counter() - loop_forest_start
     if print_info:

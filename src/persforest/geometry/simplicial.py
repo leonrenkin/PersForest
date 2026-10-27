@@ -2,8 +2,6 @@
 
 from collections import defaultdict
 from numpy.typing import NDArray
-from persforest.filtrations.simplicial import key
-from persforest.filtrations.simplicial import signed_boundary
 from typing import Dict
 from typing import Iterable
 from typing import List
@@ -88,9 +86,10 @@ def boundary_faces_from_tetrahedra(
     """
     Compute boundary triangular faces of a tetrahedral complex.
 
-    Tetrahedra are oriented using ``point_cloud``. Their signed boundaries are
-    summed, and faces with net zero coefficient are removed. This cancels
-    interior faces while preserving boundary faces.
+    Tetrahedra are put in increasing vertex order and oriented using
+    ``point_cloud``. Their signed boundaries are summed, and faces with net zero
+    coefficient are removed. This cancels interior faces while preserving
+    boundary faces.
 
     Parameters
     ----------
@@ -112,13 +111,10 @@ def boundary_faces_from_tetrahedra(
     face_coeffs: Dict[Tuple[int, int, int], int] = defaultdict(int)
 
     for tet in tetrahedra:
-        tet_tuple = tuple(tet)
+        tet_tuple = tuple(sorted(tet))
         orientation = simplex_orientation(simplex=tet_tuple, point_cloud=point_cloud)
-        for face, face_orientation in signed_boundary(
-            simplex=list(tet_tuple),
-            orientation=orientation,
-        ):
-            face_coeffs[key(face)] += int(face_orientation)
+        for i in range(len(tet_tuple)):
+            face_coeffs[tet_tuple[:i] + tet_tuple[i + 1:]] += orientation * (-1) ** i
 
     return [face for face, coeff in face_coeffs.items() if coeff != 0]
 

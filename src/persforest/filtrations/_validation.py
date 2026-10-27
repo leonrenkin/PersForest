@@ -10,6 +10,7 @@ import operator
 def _validate_filtration(
     filtration: Iterable[tuple[Sequence[int], float]],
     n_points: int,
+    ambient_dim: int,
 ) -> list[tuple[tuple[int, ...], float]]:
     """Validate filtration and retain its simplex and tie order.
 
@@ -22,17 +23,23 @@ def _validate_filtration(
         Simplex-filtration pairs in ascending filtration order.
     n_points : int
         Number of available point-cloud vertices.
+    ambient_dim : int
+        Dimension of the ambient space. Simplices of higher dimension cannot be
+        embedded and are rejected.
 
     Returns
     -------
     list of (tuple of int, float)
-        Validated entries in their original order.
+        Validated entries in their original order. Each simplex is returned as
+        its increasing vertex tuple; orientations are computed geometrically,
+        so the caller's vertex order carries no information.
 
     Raises
     ------
     ValueError
-        If an entry is degenerate, duplicated, out of order, or lacks an
-        earlier face, or if its value or vertex index is invalid.
+        If an entry is degenerate, duplicated, out of order, lacks an earlier
+        face, or exceeds the ambient dimension, or if its value or vertex index
+        is invalid.
     """
     entries = []
     seen = set()
@@ -47,6 +54,11 @@ def _validate_filtration(
             raise ValueError(f"Filtration simplex {vertices} is empty or has repeated vertices")
         if any(vertex < 0 or vertex >= n_points for vertex in vertices):
             raise ValueError(f"Filtration simplex {vertices} has an invalid vertex index")
+        if len(vertices) > ambient_dim + 1:
+            raise ValueError(
+                f"Filtration simplex {vertices} has dimension {len(vertices) - 1}, "
+                f"above the ambient dimension {ambient_dim}"
+            )
 
         try:
             filtration_value = float(value)
@@ -64,7 +76,7 @@ def _validate_filtration(
             if face and face not in seen:
                 raise ValueError(f"Face {face} must precede filtration simplex {vertices}")
 
-        entries.append((vertices, filtration_value))
+        entries.append((simplex_key, filtration_value))
         seen.add(simplex_key)
         previous_value = filtration_value
 

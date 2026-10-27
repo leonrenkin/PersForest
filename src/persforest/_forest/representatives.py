@@ -3,8 +3,8 @@
 from collections import defaultdict
 from persforest.barcode import PFBar
 from persforest.chains import SignedChain
-from persforest.filtrations.simplicial import key
-from persforest.filtrations.simplicial import signed_boundary
+from persforest.filtrations._interface import CellFiltration
+from persforest.filtrations._interface import oriented_boundary
 from typing import Iterator
 from typing import List
 from typing import Set
@@ -24,12 +24,14 @@ def _require_barcode_diffs(self) -> None:
             "instead of _compute_barcode_cycles()."
         )
 
-def update_chain_with_diff(signed_simplices: Set[tuple], interior_diff: Set[tuple] | None, codim1_simplex_diff: Set[tuple] | None):
+def update_chain_with_diff(cells: CellFiltration, signed_simplices: Set[tuple], interior_diff: Set[tuple] | None, codim1_simplex_diff: Set[tuple] | None):
     """
     Apply stored simplex differences to a mutable set of signed simplices.
 
     Parameters
     ----------
+    cells : CellFiltration
+        Cell filtration providing the boundary map of the forest's top cells.
     signed_simplices : set[tuple]
         Current oriented codimension-one simplices, stored as
         ``(simplex_tuple, orientation)``.
@@ -47,7 +49,7 @@ def update_chain_with_diff(signed_simplices: Set[tuple], interior_diff: Set[tupl
 
     if interior_diff is not None:
         for oriented_simplex in interior_diff:
-            signed_simplices.update(signed_boundary(simplex =oriented_simplex[0], orientation=oriented_simplex[1]))
+            signed_simplices.update(oriented_boundary(cells, oriented_simplex[0], oriented_simplex[1]))
 
     if codim1_simplex_diff is not None:
         for oriented_simplex in codim1_simplex_diff:
@@ -97,11 +99,13 @@ def iter_bar_cycle_reps(self, bar: PFBar) -> Iterator[SignedChain]:
 
         active_start, active_end = self._node_activity(node)
         simplices = update_chain_with_diff(
+            cells=self._cells,
             signed_simplices=simplices,
             interior_diff=node._barcode_interior_diff,
             codim1_simplex_diff=node._barcode_codim1_simplex_diff,
         )
         simplices = update_chain_with_diff(
+            cells=self._cells,
             signed_simplices=simplices,
             interior_diff=node._interior_diff,
             codim1_simplex_diff=node._codim1_simplex_diff,
@@ -250,7 +254,7 @@ def interior_simplex_activity(self) -> dict[tuple[int, ...], list[tuple[PFBar, f
             for interior_diff in (node._interior_diff, node._barcode_interior_diff):
                 if interior_diff is not None:
                     for simplex, _orientation in interior_diff:
-                        active_end_by_simplex.setdefault(key(simplex), node.filt_val)
+                        active_end_by_simplex.setdefault(simplex, node.filt_val)
 
         for simplex_key, active_end in active_end_by_simplex.items():
             activity[simplex_key].append(

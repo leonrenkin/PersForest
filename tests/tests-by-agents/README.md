@@ -56,6 +56,16 @@ outside the checkout and checks minimum direct dependency versions on Python 3.1
   installation errors (`test_installation.py`).
 - Literal simplicial filtrations, signed chains, cycle progressions, interiors,
   filtration ties, and half-open activity intervals.
+- Custom-filtration canonical vertex order and rejection of simplices above the
+  ambient dimension (`test_manual_filtration_validation.py`).
+- The internal cell-filtration contract: simplicial boundaries, engine imports
+  limited to cell-neutral modules, and a test-only cubical grid whose barcodes
+  match `gudhi.CubicalComplex` and whose representatives are bounded cycles in
+  every storage mode (`test_cell_interface.py`).
+- Golden snapshots of bars, representatives, interiors and interior activity for
+  small fixtures and seeded alpha clouds in every storage mode
+  (`test_engine_golden.py`). Regenerate `data/engine_golden.json` with
+  `python tests/tests-by-agents/engine_golden.py` only after an intended change.
 - Deferred barcode-diff accumulation, source ownership, and root-reaching bars
   (`test_barcode_diff_accumulation.py`).
 - Barcode-diff readiness, rejection of incomplete interior/reconstruction data,
