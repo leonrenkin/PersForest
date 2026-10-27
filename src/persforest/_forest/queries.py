@@ -90,6 +90,31 @@ def node_to_leaf_path(self, leaf: PFNode, node: PFNode) -> List[int]:
     """Return node ids on the path from ancestor ``node`` down to ``leaf``."""
     return list(reversed(self.leaf_to_node_path(leaf=leaf, node=node)))
 
+def _cached_root_id(nodes: dict[int, PFNode], ancestors: dict[int, int], node_id: int) -> int:
+    """Return the id of the root above ``node_id``, as ``get_root`` would.
+
+    ``ancestors`` maps node ids to some known ancestor. The walk resumes from
+    cached ancestors and then points every node it passed at the root (path
+    compression). The cache is valid only while no node loses or changes its
+    parent: during the sweep nodes only gain parents, and barcode extraction
+    leaves the forest unchanged. Reduction re-parents nodes, so a cache must
+    not outlive the phase that created it.
+    """
+    path = []
+    current = node_id
+    while True:
+        cached = ancestors.get(current, current)
+        if cached == current:
+            parent = nodes[current].parent
+            if parent is None:
+                break
+            cached = parent
+        path.append(current)
+        current = cached
+    for visited in path:
+        ancestors[visited] = current
+    return current
+
 def get_root(self, node: PFNode) -> PFNode:
     """Return the highest ancestor of ``node`` with no parent."""
     while node.parent != None:

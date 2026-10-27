@@ -2,6 +2,7 @@
 
 from collections.abc import Hashable
 from persforest._forest.graph_model import PFNode
+from persforest._forest.queries import _cached_root_id
 from persforest.chains import SignedChain
 from persforest.chains import merge_at_simplex
 from persforest.filtrations._interface import oriented_boundary
@@ -180,13 +181,12 @@ def update_node(self, node: PFNode, cell: Hashable, filt_val:float):
 
     return
 
-def _update_node_list(self, node_id_list: List[int]) -> List[PFNode]:
-    """Return current root ancestors for ``node_id_list``."""
+def _update_node_list(self, node_id_list: List[int], ancestors: dict[int, int]) -> List[PFNode]:
+    """Return current root ancestors for ``node_id_list``, skipping inactive leaves."""
     L=[]
     for id in node_id_list:
         if not self.nodes[id]._is_inactive_leaf:
-            active_node = self.get_root(self.nodes[id])
-            L.append(active_node)
+            L.append(self.nodes[_cached_root_id(self.nodes, ancestors, id)])
     return L
 
 def _compute_forest(self, print_info: bool = False):
@@ -206,6 +206,8 @@ def _compute_forest(self, print_info: bool = False):
 
     # Facet -> leaves created by its incident top cells, in sweep order.
     facet_leaf_ids = {}
+    # Node -> some ancestor, for root lookups; valid only during the sweep.
+    ancestors: dict[int, int] = {}
 
     for cell, filt_val in reversed(cells.events):
         dimension = cells.dimension(cell)
@@ -227,7 +229,7 @@ def _compute_forest(self, print_info: bool = False):
             L_tmp_ids = facet_leaf_ids.pop(cell, [])
 
             # Active nodes above those leaves; leaves below a construction root are no longer active.
-            L = _update_node_list(self, L_tmp_ids)
+            L = _update_node_list(self, L_tmp_ids, ancestors)
 
             # No active cycle contains the facet.
             if len(L) == 0:

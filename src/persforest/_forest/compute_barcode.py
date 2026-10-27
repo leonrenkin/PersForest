@@ -1,5 +1,6 @@
 """_forest.compute_barcode: barcode extraction from node diffs."""
 
+from persforest._forest.queries import _cached_root_id
 from persforest.barcode import PFBar
 import time
 
@@ -57,6 +58,9 @@ def compute_barcode_diff(self, print_info: bool = False):
         raise ValueError("Node dict keys are not sorted. This should not happen. Easy fix: sort keys in compute_barcode function (currently not implemented)")
 
 
+    # Node -> some ancestor; valid because extraction never changes parents.
+    ancestors: dict[int, int] = {}
+
     for id, node in reversed(self.nodes.items()):
         #every barcode starts at leaf
         if node.children:
@@ -67,7 +71,7 @@ def compute_barcode_diff(self, print_info: bool = False):
         cycle_progression = [node.cycle]
         node._barcode_covered += 1
         is_max_tree_bar = True
-        root_id = self.get_root(node).id
+        root_id = _cached_root_id(self.nodes, ancestors, id)
 
         # Defer unions until we know whether this bar ends at a merge.
         # Root-reaching bars never need an accumulated diff.
