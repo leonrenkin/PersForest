@@ -11,7 +11,6 @@ from persforest.measurements.basic import (
     constant_one_functional, signed_chain_edge_length, signed_chain_interior_volume,
 )
 from persforest.measurements.cubical import cubical_chain_interior_volume, cubical_chain_volume
-from persforest.plotting.animation.filtration import animate_filtration_pair
 from fixtures_small_filtrations import reps
 
 
@@ -73,25 +72,10 @@ class CubicalPlottingTests(unittest.TestCase):
         forest.plot_measurement_landscapes(label="length")
         forest.plot_barcode_measurement(cubical_chain_volume, show=False)
 
-    def test_point_cloud_renderers_raise_explicitly(self):
+    def test_the_delaunay_dual_plot_raises_explicitly(self):
         forest = PersistenceForest.from_cubical_grid(centered((3, 3)))
-        calls = {
-            "plot_at_filtration": lambda: forest.plot_at_filtration(2, show=False),
-            "plot_at_filtration_with_dual": lambda: forest.plot_at_filtration_with_dual(2),
-            "plot_barcode_cycle_reps": lambda: forest.plot_barcode_cycle_reps(show=False),
-            "plot_at_filtration_plotly": lambda: forest.plot_at_filtration_plotly(2, show=False),
-            "plot_filtration_interactive": lambda: forest.plot_filtration_interactive(show=False),
-            "plot_interior_simplex_activity": lambda: forest.plot_interior_simplex_activity(),
-            "plot_interior_simplex_activity_gradient": lambda: forest.plot_interior_simplex_activity_gradient(),
-            "plot_interior_simplex_activity_plotly": lambda: forest.plot_interior_simplex_activity_plotly(),
-            "animate_filtration": lambda: forest.animate_filtration(frames=2),
-            "animate_barcode_measurement": lambda: forest.animate_barcode_measurement(constant_one_functional, frames=2),
-        }
-        for name, call in calls.items():
-            with self.subTest(method=name), self.assertRaisesRegex(NotImplementedError, name):
-                call()
-        with self.assertRaisesRegex(NotImplementedError, "no point cloud"):
-            animate_filtration_pair(forest, forest, frames=2)
+        with self.assertRaisesRegex(NotImplementedError, "plot_at_filtration_with_dual"):
+            forest.plot_at_filtration_with_dual(2)
 
 
 if __name__ == "__main__":

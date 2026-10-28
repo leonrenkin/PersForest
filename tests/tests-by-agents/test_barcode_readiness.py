@@ -6,6 +6,7 @@ from unittest.mock import patch
 import numpy as np
 
 from persforest import PersistenceForest
+from persforest._forest import compute_barcode
 from test_interior_simplex_activity import split_forest
 
 
@@ -46,7 +47,7 @@ class BarcodeReadinessTests(unittest.TestCase):
 
     def test_failed_builder_does_not_publish_readiness(self):
         forest = split_forest(storage="cycles", compute_barcode=False)
-        with patch.object(forest, "get_root", side_effect=RuntimeError("interrupted")):
+        with patch.object(compute_barcode, "_cached_root_id", side_effect=RuntimeError("interrupted")):
             with self.assertRaisesRegex(RuntimeError, "interrupted"):
                 forest.compute_barcode()
         self.assertFalse(forest._barcode_computed)

@@ -66,6 +66,10 @@ outside the checkout and checks minimum direct dependency versions on Python 3.1
   bounded representatives, hand cases, transposition, geometry and validation
   (`test_cubical_grid.py`); cubical measurements, landscapes, supported plots
   and explicit plot gating (`test_cubical_capabilities.py`).
+- The cached, path-compressed root lookup in the sweep and in barcode
+  extraction returns exactly the uncached root on every lookup, and every bar's
+  `root_id` equals `get_root` of its leaf, for the golden inputs and deep cubical
+  forests (`test_sweep_root_lookup.py`).
 - Both storage options (`storage="diffs"` default, `"cycles"`), including
   animations rendered from reconstructed representatives
   (`test_diff_only_cycle_queries.py`, `test_barcode_readiness.py`).
