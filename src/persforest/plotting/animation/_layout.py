@@ -31,6 +31,26 @@ def _add_radius_box(ax, text, corner="upper right"):
     ax.add_artist(box)
     return box
 
+def _is_grid(forest) -> bool:
+    """Cubical forests have no point cloud; their filtration values are grid values."""
+    return getattr(forest, "point_cloud", ()) is None
+
+def _filtration_symbol(forest) -> str:
+    """Label of the filtration value: radius ``r`` for point clouds, ``t`` for grids."""
+    return "t" if _is_grid(forest) else "r"
+
+def _filtration_axis_label(forest) -> str:
+    """Axis label of the filtration value, matching ``_filtration_symbol``."""
+    return "Filtration value t" if _is_grid(forest) else "Radius r"
+
+def _default_t_min(forest) -> float:
+    """Radii start at 0; grid values start at the first filtration value."""
+    return float(forest.filtration[0][1]) if _is_grid(forest) else 0.0
+
+def _point_cloud_defaults(forest, **defaults) -> dict[str, Any]:
+    """Default plot options that only exist for point clouds, or none for grids."""
+    return {} if _is_grid(forest) else defaults
+
 def _resolve_matplotlib_figsize(
     *,
     with_barcode: bool,

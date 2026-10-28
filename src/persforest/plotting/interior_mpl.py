@@ -427,6 +427,121 @@ def _plot_interior_simplex_activity_3d(
 
     return ax
 
+def _gaussian_blur(arr: np.ndarray, sigma: float) -> np.ndarray:
+    """Separable Gaussian blur over the last two axes with zero padding."""
+    sigma = float(sigma)
+    if sigma <= 0:
+        return arr
+
+    radius = max(1, int(np.ceil(3.0 * sigma)))
+    x = np.arange(-radius, radius + 1, dtype=float)
+    kernel = np.exp(-(x * x) / (2.0 * sigma * sigma))
+    kernel /= kernel.sum()
+
+    blurred = arr
+    for axis in (-1, -2):
+        blurred = np.apply_along_axis(
+            lambda values: np.convolve(
+                np.pad(values, radius, mode="constant"),
+                kernel,
+                mode="valid",
+            ),
+            axis,
+            blurred,
+        )
+    return blurred
+
+def _activity_mask_field(active_mask: np.ndarray, sigma: float) -> np.ndarray:
+    """Blurred union of active cells, normalized to ``[0, 1]``."""
+    mask_field = _gaussian_blur(active_mask, sigma)
+    if np.max(mask_field) > 0:
+        mask_field = mask_field / np.max(mask_field)
+    return np.clip(mask_field, 0.0, 1.0)
+
+def _activity_conflict(
+    first_values: np.ndarray,
+    second_values: np.ndarray,
+    first_rgb: np.ndarray,
+    second_rgb: np.ndarray,
+    plot_style: dict[str, Any],
+) -> np.ndarray:
+    """Whitening strength where the two strongest bar fields differ in color."""
+    color_distance = np.linalg.norm(first_rgb - second_rgb, axis=2) / np.sqrt(3.0)
+    threshold = float(plot_style["different_color_threshold"])
+    max_color_distance = 1.0
+    if threshold >= max_color_distance:
+        color_conflict = np.zeros_like(color_distance)
+    else:
+        threshold = max(0.0, threshold)
+        color_conflict = np.clip(
+            (color_distance - threshold) / (max_color_distance - threshold),
+            0.0,
+            1.0,
+        )
+    competition = second_values / np.maximum(first_values, np.finfo(float).eps)
+    return (
+        color_conflict
+        * np.clip(competition, 0.0, 1.0)
+        * float(plot_style["conflict_whitening"])
+    )
+
+def _compose_activity_image(
+    weight_sum: np.ndarray,
+    weighted_rgb: np.ndarray,
+    mask_field: np.ndarray,
+    conflict: np.ndarray,
+    plot_style: dict[str, Any],
+) -> np.ndarray:
+    """Fade the weight-averaged bar color into the background."""
+    ny, nx = weight_sum.shape
+    blended_rgb = np.ones((ny, nx, 3), dtype=float)
+    nonzero = weight_sum > np.finfo(float).eps
+    blended_rgb[nonzero] = weighted_rgb[nonzero] / weight_sum[nonzero, None]
+
+    strength_base = np.clip(weight_sum, 0.0, 1.0)
+    strength = np.clip(strength_base * mask_field * (1.0 - conflict), 0.0, 1.0)
+    background_rgb = np.array(mcolors.to_rgb(plot_style["background_color"]), dtype=float)
+    image = background_rgb + strength[:, :, None] * (blended_rgb - background_rgb)
+    return np.clip(image, 0.0, 1.0)
+
+def _blend_activity_fields(
+    fields: np.ndarray,
+    active_mask: np.ndarray,
+    rgb_colors: np.ndarray,
+    activity_scale: float,
+    plot_style: dict[str, Any],
+) -> np.ndarray:
+    """Blend per-bar activity rasters ``(bars, ny, nx)`` into an RGB image.
+
+    Fields are blurred and scaled by ``activity_scale``; the blurred union
+    mask fades the result into the background, and neighboring fields of
+    clearly different colors are whitened where they compete. Style keys are
+    those of ``_plot_interior_simplex_activity_gradient_2d``.
+    """
+    ny, nx = active_mask.shape
+    blurred_fields = _gaussian_blur(fields, float(plot_style["blur_sigma"]))
+    weights = np.clip(blurred_fields / activity_scale, 0.0, 1.0)
+    weights = weights ** float(plot_style["intensity_gamma"])
+    mask_field = _activity_mask_field(active_mask, float(plot_style["boundary_blur_sigma"]))
+
+    weight_sum = np.sum(weights, axis=0)
+    weighted_rgb = np.einsum("bhw,bc->hwc", weights, rgb_colors)
+
+    if len(rgb_colors) > 1:
+        top_indices = np.argpartition(weights, -2, axis=0)[-2:]
+        top_values = np.take_along_axis(weights, top_indices, axis=0)
+        order = np.argsort(top_values, axis=0)
+        second_idx = np.take_along_axis(top_indices, order[:1], axis=0)[0]
+        first_idx = np.take_along_axis(top_indices, order[1:], axis=0)[0]
+        first_values = np.take_along_axis(weights, first_idx[None, :, :], axis=0)[0]
+        second_values = np.take_along_axis(weights, second_idx[None, :, :], axis=0)[0]
+        conflict = _activity_conflict(
+            first_values, second_values, rgb_colors[first_idx], rgb_colors[second_idx], plot_style)
+    else:
+        conflict = np.zeros((ny, nx), dtype=float)
+
+    return _compose_activity_image(weight_sum, weighted_rgb, mask_field, conflict, plot_style)
+
 def plot_interior_simplex_activity_gradient(
     forest,
     ax=None,
@@ -539,35 +654,6 @@ def _plot_interior_simplex_activity_gradient_2d(
     if style is not None:
         plot_style.update(style)
 
-    def _gaussian_blur(arr: np.ndarray, sigma: float) -> np.ndarray:
-        sigma = float(sigma)
-        if sigma <= 0:
-            return arr
-
-        radius = max(1, int(np.ceil(3.0 * sigma)))
-        x = np.arange(-radius, radius + 1, dtype=float)
-        kernel = np.exp(-(x * x) / (2.0 * sigma * sigma))
-        kernel /= kernel.sum()
-
-        blurred = np.apply_along_axis(
-            lambda values: np.convolve(
-                np.pad(values, radius, mode="constant"),
-                kernel,
-                mode="valid",
-            ),
-            -1,
-            arr,
-        )
-        blurred = np.apply_along_axis(
-            lambda values: np.convolve(
-                np.pad(values, radius, mode="constant"),
-                kernel,
-                mode="valid",
-            ),
-            -2,
-            blurred,
-        )
-        return blurred
 
     pts = np.asarray(forest.point_cloud, dtype=float)
     color_map = forest._get_color_map(coloring=coloring)
@@ -660,57 +746,8 @@ def _plot_interior_simplex_activity_gradient_2d(
             mask = active_mask[y0:y1, x0:x1]
             mask[inside] = 1.0
 
-        blurred_fields = _gaussian_blur(fields, float(plot_style["blur_sigma"]))
-        weights = np.clip(blurred_fields / activity_scale, 0.0, 1.0)
-        weights = weights ** float(plot_style["intensity_gamma"])
-        mask_field = _gaussian_blur(active_mask, float(plot_style["boundary_blur_sigma"]))
-        if np.max(mask_field) > 0:
-            mask_field = mask_field / np.max(mask_field)
-        mask_field = np.clip(mask_field, 0.0, 1.0)
-
-        weight_sum = np.sum(weights, axis=0)
         rgb_colors = np.array([mcolors.to_rgb(color_map[bar]) for bar in bar_order], dtype=float)
-        weighted_rgb = np.einsum("bhw,bc->hwc", weights, rgb_colors)
-        blended_rgb = np.ones((ny, nx, 3), dtype=float)
-        nonzero = weight_sum > np.finfo(float).eps
-        blended_rgb[nonzero] = weighted_rgb[nonzero] / weight_sum[nonzero, None]
-
-        if len(bar_order) > 1:
-            top_indices = np.argpartition(weights, -2, axis=0)[-2:]
-            top_values = np.take_along_axis(weights, top_indices, axis=0)
-            order = np.argsort(top_values, axis=0)
-            second_idx = np.take_along_axis(top_indices, order[:1], axis=0)[0]
-            first_idx = np.take_along_axis(top_indices, order[1:], axis=0)[0]
-            first_values = np.take_along_axis(weights, first_idx[None, :, :], axis=0)[0]
-            second_values = np.take_along_axis(weights, second_idx[None, :, :], axis=0)[0]
-            first_rgb = rgb_colors[first_idx]
-            second_rgb = rgb_colors[second_idx]
-            color_distance = np.linalg.norm(first_rgb - second_rgb, axis=2) / np.sqrt(3.0)
-            threshold = float(plot_style["different_color_threshold"])
-            max_color_distance = 1.0
-            if threshold >= max_color_distance:
-                color_conflict = np.zeros_like(color_distance)
-            else:
-                threshold = max(0.0, threshold)
-                color_conflict = np.clip(
-                    (color_distance - threshold) / (max_color_distance - threshold),
-                    0.0,
-                    1.0,
-                )
-            competition = second_values / np.maximum(first_values, np.finfo(float).eps)
-            conflict = (
-                color_conflict
-                * np.clip(competition, 0.0, 1.0)
-                * float(plot_style["conflict_whitening"])
-            )
-        else:
-            conflict = np.zeros((ny, nx), dtype=float)
-
-        strength_base = np.clip(weight_sum, 0.0, 1.0)
-        strength = np.clip(strength_base * mask_field * (1.0 - conflict), 0.0, 1.0)
-        background_rgb = np.array(mcolors.to_rgb(plot_style["background_color"]), dtype=float)
-        image = background_rgb + strength[:, :, None] * (blended_rgb - background_rgb)
-        image = np.clip(image, 0.0, 1.0)
+        image = _blend_activity_fields(fields, active_mask, rgb_colors, activity_scale, plot_style)
 
         ax.imshow(
             image,

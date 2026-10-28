@@ -11,6 +11,7 @@ import numpy as np
 from persforest.landscapes.profiles import CycleValueFunc, MeasurementProfiles, _build_step_function_data
 from persforest.landscapes._validation import require_computed_barcode, positive_integer
 from ._export import _save_measurement_animation
+from ._layout import _default_t_min, _is_grid, _point_cloud_defaults
 
 def animate_barcode_measurement_generic(
         forest,
@@ -107,7 +108,7 @@ def animate_barcode_measurement_generic(
 
     # Optional restriction to a time window
     if t_min is None:
-        t_min = 0.0
+        t_min = _default_t_min(forest)
     if t_max is None:
         # Use the largest death time in the barcode
         deaths = [b.death for b in forest.barcode]
@@ -127,9 +128,9 @@ def animate_barcode_measurement_generic(
     # Reasonable defaults (only used if not explicitly overridden)
     filtration_kwargs = {
         "show_complex": True,
-        "vertex_size": 3,
+        **_point_cloud_defaults(forest, vertex_size=3),
         "coloring": "forest",
-        "title": "Alpha Filtration",
+        "title": "Cubical filtration" if _is_grid(forest) else "Alpha Filtration",
         "show": False,   # important: we manage the figure ourselves
         **filtration_kwargs,
     }
@@ -160,7 +161,8 @@ def animate_barcode_measurement_generic(
 
     # Provide sensible defaults, but allow user overrides
     meas_defaults = {
-        "x_range": (0, t_max*1.05), # type: ignore
+        "x_range": ((t_min, t_max + 0.05 * (t_max - t_min)) if _is_grid(forest)
+                    else (0, t_max*1.05)), # type: ignore
         "show_baseline": True,
         "title": "Barcode measurement",
     }
@@ -181,8 +183,9 @@ def animate_barcode_measurement_generic(
         forest.plot_at_filtration(filt_val=t, ax=ax_cloud, **filtration_kwargs)
 
         # Optional: overlay a small text box with the current filtration value.
+        symbol = "t" if _is_grid(forest) else r"\alpha"
         ax_cloud.text(
-            0.02, 0.98, rf"$\alpha = {t:.3g}$",
+            0.02, 0.98, rf"${symbol} = {t:.3g}$",
             transform=ax_cloud.transAxes,
             va="top", ha="left",
             fontsize=11,

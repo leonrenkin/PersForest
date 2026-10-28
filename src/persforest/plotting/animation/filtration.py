@@ -19,6 +19,11 @@ from ._export import (
 )
 from ._layout import (
     _add_radius_box,
+    _default_t_min,
+    _filtration_axis_label,
+    _filtration_symbol,
+    _is_grid,
+    _point_cloud_defaults,
     _parse_camera_eye,
     _resolve_figure_margins,
     _resolve_matplotlib_figsize,
@@ -181,7 +186,7 @@ def _animate_filtration_generic(
 
         # Optional restriction to a time window
         if t_min is None:
-            t_min = 0.0
+            t_min = _default_t_min(forest)
         if t_max is None:
             finite_deaths = [
                 float(bar.death)
@@ -224,14 +229,14 @@ def _animate_filtration_generic(
         if is_3d:
             filtration_kwargs = {
                 "show_complex": True,
-                "vertex_size": 3,
+                **_point_cloud_defaults(forest, vertex_size=3),
                 "coloring": coloring,
                 "show": False,
                 **filtration_kwargs,
             }
         else:
             filtration_kwargs = {
-                "vertex_size": 3,
+                **_point_cloud_defaults(forest, vertex_size=3),
                 "coloring": coloring,
                 "show": False,
                 **filtration_kwargs,
@@ -292,7 +297,7 @@ def _animate_filtration_generic(
             # Defaults for the barcode panel – user can override sort/title/xlabel
             barcode_kwargs = {
                 "sort": "length",
-                "xlabel": "Radius r",
+                "xlabel": _filtration_axis_label(forest),
                 "tight_layout": False,
                 "coloring": coloring,
                 **barcode_kwargs,
@@ -349,10 +354,11 @@ def _animate_filtration_generic(
             forest.plot_at_filtration(filt_val=t, ax=ax_cloud, **local_plot_kwargs)
 
             # Overlay the current radius with a fixed inset from the axes.
+            symbol = _filtration_symbol(forest)
             if alpha_digits is None:
-                radius_text = rf"$r = {t:.3g}$"
+                radius_text = rf"${symbol} = {t:.3g}$"
             else:
-                radius_text = rf"$r = {t:.{alpha_digits}f}$"
+                radius_text = rf"${symbol} = {t:.{alpha_digits}f}$"
             _add_radius_box(ax_cloud, radius_text, radius_box_corner)
 
         # ---- Animation callbacks ----
@@ -706,8 +712,6 @@ def animate_filtration_pair(
 
     # --- 1) Sanity checks -----------------------------------------------------
     for forest, name in ((forest1, "forest1"), (forest2, "forest2")):
-        if getattr(forest, "point_cloud", ()) is None:
-            raise NotImplementedError(f"{name} has no point cloud; cubical forests cannot be animated yet.")
         if not hasattr(forest, "filtration") or not forest.filtration:
             raise ValueError(f"{name} has no filtration data to animate.")
         if not getattr(forest, "barcode", None):
@@ -715,16 +719,21 @@ def animate_filtration_pair(
 
     # --- 2) Time grid ---------------------------------------------------------
     if t_min is None:
-        t_start: float = 0.0
+        t_start: float = min(_default_t_min(forest1), _default_t_min(forest2))
     else:
         t_start = float(t_min)
 
     if t_max is None:
         max1 = max(node.filt_val for node in forest1.nodes.values())
         max2 = max(node.filt_val for node in forest2.nodes.values())
-        t_end: float = float(max(max1, max2))*1.05
+        t_end: float = float(max(max1, max2))
     else:
-        t_end = float(t_max)*1.05
+        t_end = float(t_max)
+    # Radii end 5% past t_end; grid values, which may be negative, 5% of the range.
+    if _is_grid(forest1) or _is_grid(forest2):
+        t_end += 0.05 * max(t_end - t_start, np.finfo(float).eps)
+    else:
+        t_end *= 1.05
 
     n_frames: int = int(frames)
 
@@ -746,7 +755,7 @@ def animate_filtration_pair(
     # Base kwargs to resemble your existing barcode style
     base_barcode_kwargs = {
         "sort": "length",
-        "xlabel": "Radius r",
+        "xlabel": _filtration_axis_label(forest1),
         "tight_layout": False,
     }
 
@@ -772,7 +781,6 @@ def animate_filtration_pair(
 
     # --- 5) Filtration plot kwargs (match animate_filtration defaults) --------
     base_plot_kwargs = {
-        "vertex_size": 3,
         "coloring": "forest",  # uses the forest's color dict, shared with barcode
         "show": False,         # we manage figure/axes ourselves
     }
@@ -782,8 +790,8 @@ def animate_filtration_pair(
     if plot_kwargs_forest2 is None:
         plot_kwargs_forest2 = {}
 
-    kwargs_cloud_1 = {**base_plot_kwargs, **plot_kwargs_forest1}
-    kwargs_cloud_2 = {**base_plot_kwargs, **plot_kwargs_forest2}
+    kwargs_cloud_1 = {**base_plot_kwargs, **_point_cloud_defaults(forest1, vertex_size=3), **plot_kwargs_forest1}
+    kwargs_cloud_2 = {**base_plot_kwargs, **_point_cloud_defaults(forest2, vertex_size=3), **plot_kwargs_forest2}
 
     if "title" not in plot_kwargs_forest1:
         plot_kwargs_forest1["title"] = "Acitve Loops"
@@ -795,12 +803,12 @@ def animate_filtration_pair(
         # First forest
         ax_cloud_1.clear()
         forest1.plot_at_filtration(filt_val=t, ax=ax_cloud_1, **kwargs_cloud_1)
-        _add_radius_box(ax_cloud_1, rf"$r = {t:.3g}$", radius_box_corner)
+        _add_radius_box(ax_cloud_1, rf"${_filtration_symbol(forest1)} = {t:.3g}$", radius_box_corner)
 
         # Second forest
         ax_cloud_2.clear()
         forest2.plot_at_filtration(filt_val=t, ax=ax_cloud_2, **kwargs_cloud_2)
-        _add_radius_box(ax_cloud_2, rf"$r = {t:.3g}$", radius_box_corner)
+        _add_radius_box(ax_cloud_2, rf"${_filtration_symbol(forest2)} = {t:.3g}$", radius_box_corner)
 
     def _align_barcode_axes():
         # Make barcode axes have same left/right as their corresponding cloud axes

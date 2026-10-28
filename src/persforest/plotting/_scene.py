@@ -78,6 +78,12 @@ def _simplices_present_at_filtration(self, filt_val: float) -> Dict[str, Any]:
         dict
             Dictionary containing present simplices.
         """
+    # Cubical cell IDs are doubled coordinates, not vertex tuples; reading them
+    # as simplices would silently produce a wrong complex.
+    if getattr(self, "point_cloud", ()) is None:
+        raise NotImplementedError(
+            "Simplex snapshots need a point cloud; cubical forests use "
+            "persforest.plotting.cubical_mpl.")
     if self.dim not in (2, 3):
         raise ValueError("Plotting is only implemented for ambient dimensions 2 and 3.")
 
