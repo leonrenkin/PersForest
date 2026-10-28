@@ -1818,27 +1818,28 @@ class PersistenceForest:
                 **kwargs,
         ):
         """
-        Animate the filtration together with a barcode measurement.
+        Animate the filtration together with measurement profiles.
 
-        This is the animated analogue of :meth:`plot_barcode_measurement`.
+        This is the animated analogue of :meth:`plot_measurement_profiles`.
         The left panel shows :meth:`plot_at_filtration` at a moving
-        filtration value, while the right panel shows the associated
-        barcode measurement with a vertical line indicating the current
-        filtration value.
+        filtration value, while the right panel shows the measurement
+        profiles of the selected bars, a vertical line at the current
+        filtration value and a dot on each active profile.
 
         Parameters
         ----------
         cycle_func :
             Callable ``(chain, point_cloud) -> float`` that assigns a scalar
-            to each cycle representative associated to the chosen bar.
-            See :meth:`plot_barcode_measurement` for details.
+            to each cycle representative of the shown bars.
+            See :meth:`compute_measurement_profiles` for details.
         signed : bool, optional
             If ``True`` (default), ``cycle_func`` is called on the signed
             cycle representatives. If ``False``, the chains are first
             passed through ``chain.unsigned()``.
         bar :
-            Bar to use for the measurement. If ``None``, the method uses
-            ``self.max_bar()`` inside the generic helper.
+            If given, show only this bar's profile. If ``None``, show every
+            bar selected by ``measurement_kwargs`` (by default the bars and
+            colors of the filtration panel).
         *args, **kwargs :
             Forwarded to
             :func:`persforest.plotting.animation.measurements.animate_barcode_measurement_generic`.
@@ -1939,6 +1940,49 @@ class PersistenceForest:
             *args,
             **kwargs,
         )
+
+    def plot_measurement_profiles(self, profiles, **kwargs):
+        """
+        Overlay the measurement profiles of all selected bars, colored like the barcode.
+
+        Bars are selected as in ``plot_barcode`` and drawn on the same
+        filtration-axis limits, so the two plots align side by side. The
+        measurement axis starts at 0, or lower if a profile is negative.
+
+        Parameters
+        ----------
+        profiles : MeasurementProfiles | str
+            Result of ``compute_measurement_profiles`` on this forest, or its
+            label in ``self.measurement_profiles``.
+        ax : matplotlib.axes.Axes | None
+            Axes to draw on; if None, a new figure is created.
+        bars : iterable of bars | None
+            Restrict the plot to these bars of ``self.barcode``.
+        coloring : {"forest","bars","none","grey"}
+            Color scheme, as in ``plot_barcode`` (default "forest").
+        min_bar_length : float
+            Skip bars with lifespan < min_bar_length.
+        max_bars : int
+            If > 0, keep at most this many longest bars.
+        extend_baseline : bool
+            If True, draw each profile over the whole filtration axis, constant
+            at its baseline (0 by default) outside the bar. Default False.
+        legend : bool
+            Label each curve by its bar interval and draw a legend.
+        title, xlabel, ylabel : str | None
+            Axis annotations; ``ylabel`` defaults to the profile label.
+        show : bool
+            If True, call ``plt.show()`` after plotting.
+        **kwargs :
+            Remaining keywords are forwarded to ``ax.plot`` for every curve.
+
+        Returns
+        -------
+        matplotlib.axes.Axes
+            The axes the profiles were drawn on.
+        """
+        from persforest.plotting.landscapes import plot_measurement_profiles_generic
+        return plot_measurement_profiles_generic(self, profiles, **kwargs)
 
     def compute_measurement_profiles(
         self, cycle_func: CycleValueFunc, label: str, *, signed: bool = False,

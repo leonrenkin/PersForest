@@ -3,6 +3,61 @@
 from typing import Literal
 from ._dependencies import require_plotting
 
+def _bar_color_map(forest, coloring) -> dict:
+    """Return the bar -> color map for a barcode coloring scheme."""
+    # Same logic as plot_at_filtration; built lazily on first use.
+    if coloring == "forest":
+        if not hasattr(forest, "color_map_forest"):
+            forest._build_color_map_forest()
+        return forest.color_map_forest
+    if coloring == "bars":
+        if not hasattr(forest, "color_map_bars"):
+            forest._build_color_map_bars()
+        return forest.color_map_bars
+    return {}
+
+
+def _select_bars(forest, min_bar_length: float = 0.0, max_bars: int = 0, bars=None) -> list:
+    """Filter bars by minimum lifespan, then keep at most ``max_bars`` longest."""
+    bars = list(forest.barcode if bars is None else bars)
+
+    # Filter by minimum length (Gudhi-like)
+    if min_bar_length > 0.0:
+        bars = [b for b in bars if b.lifespan() >= min_bar_length]
+
+    if not bars:
+        raise ValueError(
+            "No bars to plot after applying min_bar_length filter "
+            f"(min_bar_length = {min_bar_length})."
+        )
+
+    # Limit to longest `max_bars` bars if requested (Gudhi-like)
+    if max_bars and max_bars > 0 and len(bars) > max_bars:
+        bars = sorted(bars, key=lambda b: b.lifespan(), reverse=True)[:max_bars]
+    return bars
+
+
+def _filtration_limits(bars) -> tuple[float, float, float]:
+    """Return ``(lower, limit, pad)`` of the filtration axis for ``bars``.
+
+    Infinite bars are drawn up to ``limit - 0.25*pad``.
+    """
+    import numpy as np
+
+    # Include births as well as finite deaths, including all-infinite barcodes.
+    births = np.array([b.birth for b in bars], dtype=float)
+    deaths = np.array([b.death for b in bars], dtype=float)
+    if not np.all(np.isfinite(births)) or np.any(np.isnan(deaths)) or np.any(np.isneginf(deaths)):
+        raise ValueError("Barcode births must be finite; deaths must be finite or +inf")
+    finite_deaths = deaths[np.isfinite(deaths)]
+    endpoints = np.concatenate((births, finite_deaths))
+    lower, upper = min(0., float(endpoints.min())), float(endpoints.max())
+    if not len(finite_deaths) or (np.isposinf(deaths).any() and upper <= births.max()):
+        upper += max(1., upper-lower)
+    pad = (upper-lower)*0.05 if upper > lower else 1.
+    return lower, upper + pad, pad
+
+
 def _plot_barcode_generic(
         forest,
         *,
@@ -69,7 +124,6 @@ def _plot_barcode_generic(
     """
     require_plotting()
     import math
-    import numpy as np
     import matplotlib.pyplot as plt
 
     if orientation not in ("horizontal", "vertical"):
@@ -78,34 +132,8 @@ def _plot_barcode_generic(
     if not getattr(forest, "barcode", None):
         raise ValueError("No bars to plot: `forest.barcode` is empty.")
 
-    # ---- Prepare color map (same logic as plot_at_filtration) ----
-    if coloring == "forest":
-        if not hasattr(forest, "color_map_forest"):
-            forest._build_color_map_forest()
-        color_map = forest.color_map_forest
-    elif coloring == "bars":
-        if not hasattr(forest, "color_map_bars"):
-            forest._build_color_map_bars()
-        color_map = forest.color_map_bars
-    else:
-        color_map = {}
-
-    # ---- Work on a copy so we don't mutate original order ----
-    bars = list(forest.barcode)
-
-    # Filter by minimum length (Gudhi-like)
-    if min_bar_length > 0.0:
-        bars = [b for b in bars if b.lifespan() >= min_bar_length]
-
-    if not bars:
-        raise ValueError(
-            "No bars to plot after applying min_bar_length filter "
-            f"(min_bar_length = {min_bar_length})."
-        )
-
-    # Limit to longest `max_bars` bars if requested (Gudhi-like)
-    if max_bars and max_bars > 0 and len(bars) > max_bars:
-        bars = sorted(bars, key=lambda b: b.lifespan(), reverse=True)[:max_bars]
+    color_map = _bar_color_map(forest, coloring)
+    bars = _select_bars(forest, min_bar_length, max_bars)
 
     # Optional sorting for display
     if sort == "birth":
@@ -144,18 +172,7 @@ def _plot_barcode_generic(
     else:
         fig = ax.figure
 
-    # Include births as well as finite deaths, including all-infinite barcodes.
-    births = np.array([b.birth for b in bars], dtype=float)
-    deaths = np.array([b.death for b in bars], dtype=float)
-    if not np.all(np.isfinite(births)) or np.any(np.isnan(deaths)) or np.any(np.isneginf(deaths)):
-        raise ValueError("Barcode births must be finite; deaths must be finite or +inf")
-    finite_deaths = deaths[np.isfinite(deaths)]
-    endpoints = np.concatenate((births, finite_deaths))
-    lower, upper = min(0., float(endpoints.min())), float(endpoints.max())
-    if not len(finite_deaths) or (np.isposinf(deaths).any() and upper <= births.max()):
-        upper += max(1., upper-lower)
-    pad = (upper-lower)*0.05 if upper > lower else 1.
-    limit = upper + pad
+    lower, limit, pad = _filtration_limits(bars)
     if vertical:
         ax.set_ylim(lower, limit)
     else:

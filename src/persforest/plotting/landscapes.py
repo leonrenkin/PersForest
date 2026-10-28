@@ -90,6 +90,137 @@ def plot_barcode_measurement_generic(
 
     return (ax, step_func)
 
+def plot_measurement_profiles_generic(
+        forest,
+        profiles,
+        *,
+        ax: Optional["matplotlib.axes.Axes"] = None,
+        bars=None,
+        coloring: str = "forest",
+        min_bar_length: float = 0.0,
+        max_bars: int = 0,
+        extend_baseline: bool = False,
+        legend: bool = False,
+        title: Optional[str] = None,
+        xlabel: str = "filtration value",
+        ylabel: Optional[str] = None,
+        show: bool = False,
+        **line_kwargs,
+    ) -> "matplotlib.axes.Axes":
+    """
+    Overlay the measurement profiles of all selected bars, colored like the barcode.
+
+    Bars are selected from ``forest.barcode`` exactly as in ``plot_barcode``
+    (``min_bar_length``, then ``max_bars`` longest) and restricted to bars that
+    have a profile. The filtration axis uses the barcode's limits, so both plots
+    align; profiles of infinite bars are drawn up to the barcode's arrow tip.
+    The measurement axis starts at 0, or lower if a profile is negative.
+
+    Parameters
+    ----------
+    forest :
+        Computed forest the profiles were measured on.
+    profiles : MeasurementProfiles | str
+        Profiles, or a label in ``forest.measurement_profiles``.
+    ax : matplotlib.axes.Axes, optional
+        Axis to draw on. If None, a new figure and axis are created.
+    bars : iterable of bars, optional
+        Restrict the plot to these bars of ``forest.barcode`` before filtering.
+    coloring : {"forest", "bars", "none", "grey"}
+        Color scheme, as in ``plot_barcode``.
+    min_bar_length : float
+        Skip bars with lifespan < min_bar_length.
+    max_bars : int
+        If > 0, keep at most this many longest bars.
+    extend_baseline : bool, default False
+        If True, draw each profile over the whole filtration axis, constant at
+        the profile baseline (0 by default) outside its bar. Otherwise each
+        profile is drawn on its bar interval only.
+    legend : bool, default False
+        Whether to label each curve by its bar interval and draw a legend.
+    title, xlabel, ylabel : str, optional
+        Axis annotations; ``ylabel`` defaults to the profile label.
+    show : bool, default False
+        Whether to call ``plt.show()`` after plotting.
+    **line_kwargs
+        Forwarded to ``ax.plot`` for every curve; ``color`` overrides the scheme.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The axis with the profiles.
+    """
+    ax, _ = _draw_measurement_profiles(
+        forest, profiles, ax=ax, bars=bars, coloring=coloring, min_bar_length=min_bar_length,
+        max_bars=max_bars, extend_baseline=extend_baseline, legend=legend, title=title,
+        xlabel=xlabel, ylabel=ylabel, **line_kwargs)
+    if show:
+        plt.show()
+    return ax
+
+
+def _draw_measurement_profiles(
+        forest, profiles, *, ax=None, bars=None, coloring="forest", min_bar_length=0.0,
+        max_bars=0, extend_baseline=False, legend=False, title=None,
+        xlabel="filtration value", ylabel=None, x_include=(), **line_kwargs,
+    ) -> Tuple["matplotlib.axes.Axes", List[Tuple[Any, StepFunctionData, Any]]]:
+    """Draw as ``plot_measurement_profiles_generic``; also return ``(bar, profile, line)`` per curve.
+
+    ``x_include`` lists filtration values the axis must cover, e.g. an animation window.
+    """
+    from persforest.plotting.barcode import _bar_color_map, _filtration_limits, _select_bars
+
+    if isinstance(profiles, str):
+        stored = getattr(forest, "measurement_profiles", {})
+        if profiles not in stored:
+            raise KeyError(f"No measurement profiles stored under {profiles!r}; "
+                           f"available labels: {sorted(stored)}")
+        profiles = stored[profiles]
+    source_bars = profiles._source_bars
+    if not source_bars or profiles._source_identity != id(forest):
+        raise ValueError("Measurement profiles were not computed on this forest; recompute profiles")
+
+    allowed = {id(bar) for bar in source_bars}
+    if bars is not None:
+        allowed &= {id(bar) for bar in bars}
+    selected = _select_bars(forest, min_bar_length, max_bars,
+                            bars=[bar for bar in forest.barcode if id(bar) in allowed])
+    selected.sort(key=lambda b: (b.birth, b.death))
+    color_map = _bar_color_map(forest, coloring)
+    lower, limit, pad = _filtration_limits(selected)
+    lower, limit = min((lower, *x_include)), max((limit, *x_include))
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7, 4))
+
+    drawn = []
+    for bar in selected:
+        profiles.require_source(forest, bar)
+        kwargs = {"linewidth": 1.5}
+        color = "black" if coloring == "grey" else color_map.get(bar)
+        if color is not None:
+            kwargs["color"] = color
+        if legend:
+            kwargs["label"] = f"[{bar.birth:.3g}, {bar.death:.3g})"
+        kwargs.update(line_kwargs)
+        stop = bar.death if np.isfinite(bar.death) else limit - 0.25*pad
+        if stop <= bar.birth:  # zero-length bar: nothing to draw
+            continue
+        step = profiles[bar]
+        # Outside [birth, death) a profile equals its baseline, so extending is exact.
+        step.plot(ax=ax, x_range=(lower, limit) if extend_baseline else (bar.birth, stop), **kwargs)
+        drawn.append((bar, step, ax.lines[-1]))
+
+    ax.set_xlim(lower, limit)
+    values = [np.min(line.get_ydata()) for _, _, line in drawn]
+    ax.set_ylim(bottom=min([0.0, *values]))
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(profiles.label if ylabel is None else ylabel)
+    ax.set_title(f"{profiles.label} profiles" if title is None else title)
+    if legend:
+        ax.legend()
+    return ax, drawn
+
 def plot_landscape_family(
         family: MeasurementLandscapeFamily,
         ks: Optional[List[int]] = None,

@@ -1,4 +1,4 @@
-"""Animate a filtration beside a barcode measurement profile."""
+"""Animate a filtration beside the measurement profiles of its bars."""
 
 from typing import Optional, Tuple
 from .._dependencies import require_plotting
@@ -8,7 +8,7 @@ require_plotting()
 import matplotlib.pyplot as plt
 import numpy as np
 
-from persforest.landscapes.profiles import CycleValueFunc, MeasurementProfiles, _build_step_function_data
+from persforest.landscapes.profiles import CycleValueFunc, MeasurementProfiles, compute_measurement_profiles
 from persforest.landscapes._validation import require_computed_barcode, positive_integer
 from ._export import _save_measurement_animation
 from ._layout import _default_t_min, _is_grid, _point_cloud_defaults
@@ -30,13 +30,12 @@ def animate_barcode_measurement_generic(
         measurement_kwargs: Optional[dict] = None,
     ):
     """
-    Animate the filtration of a forest together with a barcode measurement.
+    Animate the filtration of a forest together with its measurement profiles.
 
     The left panel shows ``forest.plot_at_filtration`` at a moving
-    filtration value :math:`alpha`. The right panel shows the step
-    function obtained from ``_build_step_function_data`` for a single
-    bar together with a vertical line that tracks the current value of
-    :math:`alpha`.
+    filtration value :math:`alpha`. The right panel shows
+    ``plot_measurement_profiles`` for the selected bars, a vertical line at
+    the current value of :math:`alpha` and a dot on each active profile.
 
     Parameters
     ----------
@@ -49,11 +48,12 @@ def animate_barcode_measurement_generic(
         - a method ``plot_at_filtration(filt_val, ax=None, **kwargs)``.
 
     cycle_func : CycleValueFunc
-        Callable ``(cycle_rep, point_cloud) -> float`` used to assign a
-        scalar to each cycle representative of ``bar``.
+        Callable ``(cycle_rep, point_cloud) -> float`` evaluated on the
+        stored (signed) cycle representatives. Its ``__name__`` labels the
+        measurement axis unless it is a lambda.
     bar :
-        Bar object in ``forest.barcode``. If ``None``, ``forest.max_bar()``
-        is used.
+        Bar object in ``forest.barcode``. If given, only its profile is shown;
+        otherwise all bars selected by ``measurement_kwargs`` are shown.
     profiles : MeasurementProfiles, optional
         Reuse this explicit result for the measurement panel. Supply either
         profiles or cycle_func, never both. Source/bar association is checked.
@@ -75,13 +75,15 @@ def animate_barcode_measurement_generic(
     filtration_kwargs : dict or None, optional
         Extra keyword arguments forwarded to
         ``forest.plot_at_filtration``. Useful keys include e.g.
-        ``show_complex``, ``vertex_size``, ``coloring``.
+        ``show_complex``, ``vertex_size``, ``coloring``, ``min_bar_length``.
     measurement_kwargs : dict or None, optional
-        Extra keyword arguments forwarded to
-        ``StepFunctionData.plot``, **except** for ``ax`` which is
-        managed by this function. This is the place to pass e.g.
-        ``x_range``, ``y_range``, ``show_baseline``, ``title`` or any
-        valid ``matplotlib`` line style keyword.
+        Extra keyword arguments forwarded to ``plot_measurement_profiles``
+        (``ax`` and ``bars`` are managed here), e.g. ``min_bar_length``,
+        ``max_bars``, ``coloring``, ``extend_baseline``, ``legend``, ``title``
+        or line styles.
+        ``coloring`` and ``min_bar_length`` default to the filtration
+        panel's values, so both panels show the same bars in the same colors.
+        With ``cycle_func``, only bars passing ``min_bar_length`` are measured.
 
     Returns
     -------
@@ -101,10 +103,6 @@ def animate_barcode_measurement_generic(
         raise TypeError("profiles must be MeasurementProfiles")
     if not hasattr(forest, "filtration") or not forest.filtration:
         raise ValueError("Forest has no filtration data to animate.")
-
-    # Choose bar if not specified
-    if bar is None:
-        bar = forest.max_bar()
 
     # Optional restriction to a time window
     if t_min is None:
@@ -135,12 +133,25 @@ def animate_barcode_measurement_generic(
         **filtration_kwargs,
     }
 
-    # ---- Build the step function data once ----
-    if profiles is not None:
+    # ---- Measurement panel: same bars and colors as the filtration panel ----
+    measurement_kwargs = {
+        "coloring": filtration_kwargs["coloring"],
+        # An explicitly chosen bar is shown even if the filtration panel hides it.
+        "min_bar_length": 0.0 if bar is not None else filtration_kwargs.get("min_bar_length", 0.0),
+        **{k: v for k, v in (measurement_kwargs or {}).items() if k not in {"ax", "bars", "x_include"}},
+    }
+    if profiles is None:
+        # Measure only bars that can be shown; a single bar needs no shorter bars.
+        min_length = measurement_kwargs["min_bar_length"]
+        if bar is not None and np.isfinite(bar.lifespan()):
+            min_length = max(min_length, bar.lifespan())
+        name = getattr(cycle_func, "__name__", "<lambda>")
+        profiles = compute_measurement_profiles(
+            forest, cycle_func, "measurement" if name == "<lambda>" else name,
+            signed=True, min_bar_length=min_length, cache=False)
+    elif bar is not None:
         profiles.require_source(forest, bar)
-        step_func = profiles[bar]
-    else:
-        step_func = _build_step_function_data(forest=forest, bar=bar, cycle_func=cycle_func)
+    measurement_kwargs.setdefault("title", f"{profiles.label} profiles")
 
     # ---- Figure and axes ----
     fig, (ax_cloud, ax_meas) = plt.subplots(
@@ -149,32 +160,28 @@ def animate_barcode_measurement_generic(
         gridspec_kw={"width_ratios": [3, 4]},
     )
 
-    # ---- Measurement panel: draw the static step function ----
-    if measurement_kwargs is None:
-        measurement_kwargs = {}
-
-    # Do not let the caller override the axis here
-    measurement_kwargs = {
-        k: v for k, v in measurement_kwargs.items()
-        if k not in {"ax"}
-    }
-
-    # Provide sensible defaults, but allow user overrides
-    meas_defaults = {
-        "x_range": ((t_min, t_max + 0.05 * (t_max - t_min)) if _is_grid(forest)
-                    else (0, t_max*1.05)), # type: ignore
-        "show_baseline": True,
-        "title": "Barcode measurement",
-    }
-    # Only fill in keys that the user did not specify
-    for k, v in meas_defaults.items():
-        measurement_kwargs.setdefault(k, v)
-
-    step_func.plot(ax=ax_meas, **measurement_kwargs)
+    from persforest.plotting.landscapes import _draw_measurement_profiles
+    try:
+        _, drawn = _draw_measurement_profiles(
+            forest, profiles, ax=ax_meas, bars=None if bar is None else [bar],
+            x_include=(t_min, t_max), **measurement_kwargs)  # time line stays visible
+    except Exception:
+        plt.close(fig)  # e.g. foreign profiles or no bars left: do not leak the figure
+        raise
 
     # Vertical line that will move with the filtration
     current_t0 = frame_times[0]
-    meas_line = ax_meas.axvline(current_t0, color="k", linewidth=2)
+    meas_line = ax_meas.axvline(current_t0, color="k", linewidth=1.5, alpha=0.7)
+    markers = ax_meas.scatter([], [], s=30, zorder=3, edgecolors="k", linewidths=0.5)
+
+    def _update_measurement(t: float):
+        """Move the time line and mark the current value of every active profile."""
+        meas_line.set_xdata([t, t])
+        # Bars are half-open [birth, death): a profile is active iff birth <= t < death.
+        active = [(step, line) for bar_, step, line in drawn if bar_.birth <= t < bar_.death]
+        offsets = [(t, step.eval_on_grid(np.array([t]))[0]) for step, _ in active]
+        markers.set_offsets(np.reshape(offsets, (-1, 2)))
+        markers.set_facecolors([line.get_color() for _, line in active])
 
     # ---- Helper to draw a single frame on the cloud panel ----
     def _draw_frame_at_time(t: float):
@@ -195,14 +202,13 @@ def animate_barcode_measurement_generic(
     # ---- Animation callbacks ----
     def init():
         _draw_frame_at_time(frame_times[0])
-        t0 = frame_times[0]
-        meas_line.set_xdata([t0, t0])
+        _update_measurement(frame_times[0])
         return []
 
     def update(frame_idx: int):
         t = frame_times[frame_idx]
         _draw_frame_at_time(t)
-        meas_line.set_xdata([t, t])
+        _update_measurement(t)
         return []
 
     anim = FuncAnimation(

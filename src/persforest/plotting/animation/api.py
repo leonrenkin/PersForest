@@ -340,27 +340,28 @@ def animate_barcode_measurement(
             **kwargs,
     ):
     """
-        Animate the filtration together with a barcode measurement.
+        Animate the filtration together with measurement profiles.
 
-        This is the animated analogue of :meth:`plot_barcode_measurement`.
+        This is the animated analogue of :meth:`plot_measurement_profiles`.
         The left panel shows :meth:`plot_at_filtration` at a moving
-        filtration value, while the right panel shows the associated
-        barcode measurement with a vertical line indicating the current
-        filtration value.
+        filtration value, while the right panel shows the measurement
+        profiles of the selected bars, a vertical line at the current
+        filtration value and a dot on each active profile.
 
         Parameters
         ----------
         cycle_func :
             Callable ``(chain, point_cloud) -> float`` that assigns a scalar
-            to each cycle representative associated to the chosen bar.
-            See :meth:`plot_barcode_measurement` for details.
+            to each cycle representative of the shown bars.
+            See :meth:`compute_measurement_profiles` for details.
         signed : bool, optional
             If ``True`` (default), ``cycle_func`` is called on the signed
             cycle representatives. If ``False``, the chains are first
             passed through ``chain.unsigned()``.
         bar :
-            Bar to use for the measurement. If ``None``, the method uses
-            ``self.max_bar()`` inside the generic helper.
+            If given, show only this bar's profile. If ``None``, show every
+            bar selected by ``measurement_kwargs`` (by default the bars and
+            colors of the filtration panel).
         *args, **kwargs :
             Forwarded to
             :func:`persforest.plotting.animation.measurements.animate_barcode_measurement_generic`.
@@ -431,11 +432,16 @@ def animate_barcode_measurement(
 
     kwargs["filtration_kwargs"] = filtration_kwargs
 
+    from functools import wraps
+
+    # `wraps` keeps the measurement's name, which labels the profile axis.
     if signed:
+        @wraps(cycle_func)
         def _cycle_value(chain, point_cloud):
             # `chain` is a SignedChain
             return float(cycle_func(chain, point_cloud))
     else:
+        @wraps(cycle_func)
         def _cycle_value(chain, point_cloud):
             # `chain` is a SignedChain
             return float(cycle_func(chain.unsigned(), point_cloud))
