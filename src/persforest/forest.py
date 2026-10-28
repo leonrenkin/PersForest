@@ -18,6 +18,7 @@ from typing import Optional
 from typing import Sequence
 from typing import Tuple
 from typing import Union
+import inspect
 import itertools
 import math
 import numpy as np
@@ -26,6 +27,7 @@ import warnings
 
 from .filtrations.cubical import prepare_cubical_filtration
 from .filtrations.delaunay import prepare_point_filtration
+from .geometry.cubical import CubicalGeometry
 from .geometry.cubical import make_cubical_geometry
 from .filtrations.simplicial import prepare_simplicial_filtration
 
@@ -35,6 +37,9 @@ if TYPE_CHECKING:
     from persforest.landscapes.family import MeasurementLandscapeFamily
 
 Storage = Literal["diffs", "cycles"]
+
+_POINT_CLOUD_ONLY = "only appl(y/ies) to point clouds; a cubical grid has no vertices to draw."
+_CUBICAL_ONLY = "only applies to forests built with from_cubical_grid."
 
 
 def _validated_options(reduce, compute_barcode, print_info, storage, filtration_tol) -> dict:
@@ -256,7 +261,15 @@ class PersistenceForest:
             raise NotImplementedError(
                 f"{method} draws a point-cloud complex and is not available for forests "
                 f"built with from_cubical_grid. plot_barcode, plot_persistence_forest and "
-                f"the measurement plots work for every forest.")
+                f"the other filtration, cycle and interior plots and the animations "
+                f"support 2D and 3D grids.")
+
+    def _reject_changed_options(self, method: str, reason: str, **options) -> None:
+        """Raise if an option differs from its default in the signature of ``method``."""
+        parameters = inspect.signature(getattr(type(self), method)).parameters
+        changed = sorted(name for name, value in options.items() if value != parameters[name].default)
+        if changed:
+            raise ValueError(f"{method}: {', '.join(changed)} {reason}")
 
     def _prepare_point_input(self, points: NDArray, filtration_type: str, print_info: bool) -> None:
         """Set point-cloud attributes and the Delaunay-based cell filtration."""
@@ -695,8 +708,15 @@ class PersistenceForest:
         min_activity_length: float = 0.0,
         style: dict[str, Any] | None = None,
         geometry: Literal["cells", "surface"] = "cells",
+        image_orientation: bool = False,
     ):
         """Plot 2D or 3D interior-simplex activity using Matplotlib.
+
+        For a cubical forest, pixels or voxels are colored by the bar whose
+        interior contains them, with ``geometry`` as for 3D point clouds. In
+        2D, ``show_complex`` shades the pixels present at
+        ``complex_max_filtration`` instead of drawing edges. ``style`` keys are
+        listed in ``persforest.plotting.cubical_mpl.plot_cubical_interior_activity``.
 
         Parameters
         ----------
@@ -726,13 +746,45 @@ class PersistenceForest:
             Renderer-specific style overrides.
         geometry : {"cells", "surface"}
             For 3D only, draw tetrahedral cells or per-bar region boundaries.
+        image_orientation : bool
+            Cubical forests only: draw array axis 0 downward and axis 1 to the
+            right, as an image viewer would. By default axis 0 runs along x and
+            axis 1 along y, the frame of the cell orientations.
 
         Returns
         -------
         matplotlib.axes.Axes
             Axes containing the activity plot.
+
+        Raises
+        ------
+        ValueError
+            For a cubical forest, if a point-cloud option (``vertex_size``) is changed,
+            or the grid has an unsupported number of axes; for a point
+            cloud, if a cubical-only option is set.
         """
-        self._require_point_cloud("plot_interior_simplex_activity")
+        if isinstance(self.geometry, CubicalGeometry):
+            self._reject_changed_options(
+                "plot_interior_simplex_activity", _POINT_CLOUD_ONLY, vertex_size=vertex_size)
+            from persforest.plotting.cubical_mpl import plot_cubical_interior_activity
+
+            return plot_cubical_interior_activity(
+                self,
+                ax=ax,
+                show=show,
+                figsize=figsize,
+                dpi=dpi,
+                coloring=coloring,
+                show_complex=show_complex,
+                complex_max_filtration=complex_max_filtration,
+                overlap=overlap,
+                min_activity_length=min_activity_length,
+                style=style,
+                geometry=geometry,
+                image_orientation=image_orientation,
+            )
+        self._reject_changed_options(
+            "plot_interior_simplex_activity", _CUBICAL_ONLY, image_orientation=image_orientation)
         from persforest.plotting.interior_mpl import plot_interior_simplex_activity
 
         return plot_interior_simplex_activity(
@@ -762,18 +814,42 @@ class PersistenceForest:
         title: str | None = None,
         min_activity_length: float = 0.0,
         style: dict[str, Any] | None = None,
+        image_orientation: bool = False,
     ):
         """Plot the smooth 2D interior-activity field.
 
         This representation is defined only for 2D forests. Parameters are
-        forwarded to ``persforest.plotting.interior_mpl`` without modification.
+        forwarded to ``persforest.plotting.interior_mpl`` without modification,
+        or for a cubical forest to
+        ``persforest.plotting.cubical_mpl.plot_cubical_interior_activity_gradient``,
+        which documents the grid ``style`` keys. ``image_orientation`` applies
+        to cubical forests only, as in ``plot_at_filtration``.
 
         Returns
         -------
         matplotlib.axes.Axes
             Axes containing the activity gradient.
         """
-        self._require_point_cloud("plot_interior_simplex_activity_gradient")
+        if isinstance(self.geometry, CubicalGeometry):
+            self._reject_changed_options(
+                "plot_interior_simplex_activity_gradient", _POINT_CLOUD_ONLY, vertex_size=vertex_size)
+            from persforest.plotting.cubical_mpl import plot_cubical_interior_activity_gradient
+
+            return plot_cubical_interior_activity_gradient(
+                self,
+                ax=ax,
+                show=show,
+                figsize=figsize,
+                dpi=dpi,
+                coloring=coloring,
+                title=title,
+                min_activity_length=min_activity_length,
+                style=style,
+                image_orientation=image_orientation,
+            )
+        self._reject_changed_options(
+            "plot_interior_simplex_activity_gradient", _CUBICAL_ONLY,
+            image_orientation=image_orientation)
         from persforest.plotting.interior_mpl import plot_interior_simplex_activity_gradient
 
         return plot_interior_simplex_activity_gradient(
@@ -868,7 +944,30 @@ class PersistenceForest:
         plotly.graph_objects.Figure
             Interactive 3D figure.
         """
-        self._require_point_cloud("plot_interior_simplex_activity_plotly")
+        if isinstance(self.geometry, CubicalGeometry):
+            # Voxels: "surface" is the boundary of each bar's voxel region and
+            # "cells" every active voxel; point styling keys are rejected.
+            self._reject_changed_options(
+                "plot_interior_simplex_activity_plotly", _POINT_CLOUD_ONLY, vertex_size=vertex_size)
+            from persforest.plotting.cubical_plotly import plot_cubical_interior_activity_plotly
+
+            return plot_cubical_interior_activity_plotly(
+                self,
+                coloring=coloring,
+                show_complex=show_complex,
+                complex_max_filtration=complex_max_filtration,
+                overlap=overlap,
+                min_activity_length=min_activity_length,
+                geometry=geometry,
+                cell_shrink=cell_shrink,
+                opacity=opacity,
+                show=show,
+                renderer=renderer,
+                width=width,
+                height=height,
+                style=style,
+                edge_mode=edge_mode,
+            )
         from persforest.plotting.interior_plotly import plot_interior_simplex_activity_plotly
 
         return plot_interior_simplex_activity_plotly(
@@ -953,9 +1052,25 @@ class PersistenceForest:
         dpi: int = 100,
         style_2d: Optional[dict[str, Any]] = None,
         style_3d: Optional[dict[str, Any]] = None,
+        image_orientation: bool = False,
+        show_image: Optional[bool] = None,
     ):
         """
         Plot the simplicial filtration at a fixed filtration value.
+
+        For a cubical forest, the cells present at ``filt_val`` are shaded
+        (pixels in 2D, the boundary of the voxels in 3D) and the active cycles
+        are drawn along grid edges or faces. ``style_2d`` then accepts
+        ``image_cmap``, ``image_alpha``, ``complex_face_color``,
+        ``complex_face_alpha``, ``absent_veil_alpha`` (veil over pixels not
+        yet present when ``show_image`` is set), ``domain_edge_color``,
+        ``domain_edge_width``, ``cycle_edge_width``,
+        ``show_orientation_arrows``, ``arrow_linewidth`` and ``arrow_scale``;
+        ``style_3d`` accepts ``camera_eye``, ``remove_axes``,
+        ``complex_color``, ``complex_face_alpha``, ``complex_edge_color``,
+        ``complex_edge_width``, ``complex_edge_alpha``, ``cycle_face_alpha``,
+        ``cycle_edge_color``, ``cycle_edge_width``, ``cycle_edge_alpha``,
+        ``antialiased`` and ``zsort``.
 
         Parameters
         ----------
@@ -1008,12 +1123,56 @@ class PersistenceForest:
             ``antialiased``, ``zsort``, ``desaturate_complex``.
         dpi : int
             DPI used when a new Matplotlib figure is created.
+        image_orientation : bool
+            Cubical forests only: draw array axis 0 downward and axis 1 to the
+            right, as an image viewer would. By default axis 0 runs along x and
+            axis 1 along y, the frame of the cell orientations.
+        show_image : bool or None
+            2D cubical forests only: draw all grid values in grayscale beneath
+            the cycles, with a colorbar (style keys ``image_cmap``,
+            ``image_alpha``, ``image_colorbar``, ``colorbar_label``). None
+            (default) shows them for 2D grids; with ``show_complex`` the pixels
+            not yet present are veiled. Pass False for the tinted complex.
 
         Returns
         -------
         matplotlib.axes.Axes
+
+        Raises
+        ------
+        ValueError
+            For a cubical forest, if a point-cloud option (``vertex_size``, ``point_zorder``) is changed,
+            or the grid has an unsupported number of axes; for a point
+            cloud, if a cubical-only option is set.
         """
-        self._require_point_cloud("plot_at_filtration")
+        if isinstance(self.geometry, CubicalGeometry):
+            self._reject_changed_options(
+                "plot_at_filtration", _POINT_CLOUD_ONLY,
+                vertex_size=vertex_size, point_zorder=point_zorder)
+            from persforest.plotting.cubical_mpl import plot_cubical_at_filtration
+
+            return plot_cubical_at_filtration(
+                self,
+                filt_val=filt_val,
+                ax=ax,
+                show=show,
+                show_complex=show_complex,
+                figsize=figsize,
+                coloring=coloring,
+                title=title,
+                show_cycles=show_cycles,
+                signed=signed,
+                min_bar_length=min_bar_length,
+                cycle_zorder=cycle_zorder,
+                dpi=dpi,
+                style_2d=style_2d,
+                style_3d=style_3d,
+                image_orientation=image_orientation,
+                show_image=show_image,
+            )
+        self._reject_changed_options(
+            "plot_at_filtration", _CUBICAL_ONLY,
+            image_orientation=image_orientation, show_image=show_image or None)
         from persforest.plotting.filtration_mpl import _plot_at_filtration_generic
 
         return _plot_at_filtration_generic(
@@ -1123,13 +1282,15 @@ class PersistenceForest:
         remove_double_edges: bool = False,
         linewidth_cycle: float = 0.8,
         style_2d: Optional[dict[str, Any]] = None,
+        image_orientation: bool = False,
+        show_image: Optional[bool] = None,
     ):
         """
         Plot one representative cycle for each sufficiently long barcode bar.
 
         The representative for each selected bar is sampled at
         ``birth + lifespan * relative_position``. This method is implemented
-        only for 2D point clouds.
+        only for 2D point clouds and 2D cubical grids.
 
         Parameters
         ----------
@@ -1164,13 +1325,56 @@ class PersistenceForest:
             ``plot_at_filtration``. For vertex styling, use
             ``point_color`` and ``point_alpha``. ``cycle_edge_width`` is used
             when supplied; otherwise ``linewidth_cycle`` is kept for backward
-            compatibility.
+            compatibility. For cubical forests, the keys are those listed in
+            ``plot_at_filtration``.
+        image_orientation : bool
+            Cubical forests only: draw array axis 0 downward and axis 1 to the
+            right, as an image viewer would. By default axis 0 runs along x and
+            axis 1 along y, the frame of the cell orientations.
+        show_image : bool or None
+            2D cubical forests only: draw all grid values in grayscale beneath
+            the cycles, with a colorbar (style keys ``image_cmap``,
+            ``image_alpha``, ``image_colorbar``, ``colorbar_label``). None
+            (default) shows them for 2D grids; with ``show_complex`` the pixels
+            not yet present are veiled. Pass False for the tinted complex.
 
         Returns
         -------
         matplotlib.axes.Axes
+
+        Raises
+        ------
+        ValueError
+            For a cubical forest, if a point-cloud option (``vertex_size``, ``point_zorder``) is changed,
+            or the grid has an unsupported number of axes (only 2D grids are
+            supported); for a point
+            cloud, if a cubical-only option is set.
         """
-        self._require_point_cloud("plot_barcode_cycle_reps")
+        if isinstance(self.geometry, CubicalGeometry):
+            self._reject_changed_options(
+                "plot_barcode_cycle_reps", _POINT_CLOUD_ONLY,
+                vertex_size=vertex_size, point_zorder=point_zorder)
+            from persforest.plotting.cubical_mpl import plot_cubical_barcode_cycle_reps
+
+            return plot_cubical_barcode_cycle_reps(
+                self,
+                min_bar_length=min_bar_length,
+                relative_position=relative_position,
+                ax=ax,
+                show=show,
+                figsize=figsize,
+                coloring=coloring,
+                title=title,
+                show_orientation_arrows=show_orientation_arrows,
+                remove_double_edges=remove_double_edges,
+                linewidth_cycle=linewidth_cycle,
+                style_2d=style_2d,
+                image_orientation=image_orientation,
+                show_image=show_image,
+            )
+        self._reject_changed_options(
+            "plot_barcode_cycle_reps", _CUBICAL_ONLY,
+            image_orientation=image_orientation, show_image=show_image or None)
         from persforest.plotting.filtration_mpl import plot_barcode_cycle_reps
 
         return plot_barcode_cycle_reps(
@@ -1206,6 +1410,8 @@ class PersistenceForest:
         vertex_size: float = 3.0,
         width: Optional[int] = None,
         height: Optional[int] = None,
+        image_orientation: bool = False,
+        show_image: Optional[bool] = None,
     ):
         """
         Plot the complex and active cycles at a single filtration value using Plotly.
@@ -1242,12 +1448,43 @@ class PersistenceForest:
             Plotly marker size for point-cloud vertices.
         width, height : int | None
             Figure dimensions in pixels, forwarded to Plotly layout.
+        image_orientation, show_image : bool
+            2D cubical forests only; see ``plot_at_filtration`` (``show_image``
+            defaults to None, which shows the image on 2D grids). For cubical
+            forests, ``show_complex`` also applies in 2D (``complex_opacity``
+            tints the pixels present) and ``fill_triangles`` and
+            ``vertex_size`` must keep their defaults.
 
         Returns
         -------
         plotly.graph_objects.Figure
         """
-        self._require_point_cloud("plot_at_filtration_plotly")
+        if isinstance(self.geometry, CubicalGeometry):
+            self._reject_changed_options(
+                "plot_at_filtration_plotly", _POINT_CLOUD_ONLY,
+                fill_triangles=fill_triangles, vertex_size=vertex_size)
+            from persforest.plotting.cubical_plotly import plot_cubical_at_filtration_plotly
+
+            return plot_cubical_at_filtration_plotly(
+                self,
+                filt_val=filt_val,
+                coloring=coloring,
+                show_cycles=show_cycles,
+                signed=signed,
+                min_bar_length=min_bar_length,
+                show_complex=show_complex,
+                complex_opacity=complex_opacity,
+                cycle_opacity=cycle_opacity,
+                show=show,
+                renderer=renderer,
+                width=width,
+                height=height,
+                image_orientation=image_orientation,
+                show_image=show_image,
+            )
+        self._reject_changed_options(
+            "plot_at_filtration_plotly", _CUBICAL_ONLY,
+            image_orientation=image_orientation, show_image=show_image or None)
         from persforest.plotting.filtration_plotly import plot_at_filtration_plotly
 
         return plot_at_filtration_plotly(
@@ -1285,6 +1522,8 @@ class PersistenceForest:
         vertex_size: float = 3.0,
         width: Optional[int] = None,
         height: Optional[int] = None,
+        image_orientation: bool = False,
+        show_image: Optional[bool] = None,
     ):
         """
         Create a Plotly slider that moves through filtration values.
@@ -1301,7 +1540,9 @@ class PersistenceForest:
             If False, removes simplices which appear with both orientations.
         filt_max : float | None
             Maximum filtration value for the slider. If None, uses
-            ``1.03 * max(bar.death for bar in self.barcode)``.
+            ``1.03 * max(bar.death for bar in self.barcode)``; for cubical
+            forests the slider starts at the smallest grid value and ends 3% of
+            the value range past the last finite death.
         min_bar_length : float
             Only show bars with lifespan >= min_bar_length.
         show_complex : bool
@@ -1323,12 +1564,45 @@ class PersistenceForest:
             Plotly marker size for point-cloud vertices.
         width, height : int | None
             Figure dimensions in pixels, forwarded to Plotly layout.
+        image_orientation, show_image : bool
+            2D cubical forests only; see ``plot_at_filtration`` (``show_image``
+            defaults to None, which shows the image on 2D grids). For cubical
+            forests, ``show_complex`` also applies in 2D (``complex_opacity``
+            tints the pixels present; the slider outlines
+            them instead, so frames update without redrawing the image) and ``fill_triangles`` and
+            ``vertex_size`` must keep their defaults.
 
         Returns
         -------
         plotly.graph_objects.Figure
         """
-        self._require_point_cloud("plot_filtration_interactive")
+        if isinstance(self.geometry, CubicalGeometry):
+            self._reject_changed_options(
+                "plot_filtration_interactive", _POINT_CLOUD_ONLY,
+                fill_triangles=fill_triangles, vertex_size=vertex_size)
+            from persforest.plotting.cubical_plotly import plot_cubical_filtration_interactive
+
+            return plot_cubical_filtration_interactive(
+                self,
+                coloring=coloring,
+                show_cycles=show_cycles,
+                signed=signed,
+                filt_max=filt_max,
+                min_bar_length=min_bar_length,
+                show_complex=show_complex,
+                complex_opacity=complex_opacity,
+                cycle_opacity=cycle_opacity,
+                resolution=resolution,
+                show=show,
+                renderer=renderer,
+                width=width,
+                height=height,
+                image_orientation=image_orientation,
+                show_image=show_image,
+            )
+        self._reject_changed_options(
+            "plot_filtration_interactive", _CUBICAL_ONLY,
+            image_orientation=image_orientation, show_image=show_image or None)
         from persforest.plotting.filtration_plotly import plot_filtration_interactive
 
         return plot_filtration_interactive(
@@ -1532,7 +1806,6 @@ class PersistenceForest:
             - 3D MP4 path: output filename string.
             - 3D HTML path: Plotly figure.
         """
-        self._require_point_cloud("animate_filtration")
         from persforest.plotting.animation.api import animate_filtration
         return animate_filtration(self, filename, format, with_barcode, fps, frames, t_min, t_max, coloring, signed, show_cycles, show_complex, dpi, figsize, pixel_size, panel_width_ratios, panel_spacing, figure_margins, filtration_kwargs, barcode_kwargs, camera_mode, cloud_figsize, total_figsize, plot_kwargs, alpha_digits, radius_box_corner)
 
@@ -1586,7 +1859,6 @@ class PersistenceForest:
             :class:`matplotlib.animation.FuncAnimation` and ``fig`` is the
             underlying figure.
         """
-        self._require_point_cloud("animate_barcode_measurement")
         from persforest.plotting.animation.api import animate_barcode_measurement
         return animate_barcode_measurement(self, cycle_func, signed, bar, *args, **kwargs)
 
