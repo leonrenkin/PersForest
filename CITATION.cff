@@ -9,7 +9,8 @@ authors:
     given-names: Leon
   - family-names: Lenzen
     given-names: Fabian
-version: 0.1.0
+version: 0.2.0
+date-released: 2026-10-30
 license: MIT
 repository-code: "https://github.com/leonrenkin/persforest"
 keywords:

@@ -1,6 +1,6 @@
 [project]
 name = "persforest"
-version = "0.1.0"
+version = "0.2.0"
 description = "Persistence forests, cycle progression barcodes and measurement landscapes for codimension-one persistent homology."
 authors = [
     {name = "Leon Renkin",email = "leon.renkin@gmail.com"},

@@ -170,7 +170,6 @@ Start with [`examples/tutorials/README.md`](examples/tutorials/README.md):
 - `applications/droplet_segmentation/` – droplet segmentation (`dropseg`).
 - `research/` – manuscript figures and the tendril regression experiment.
 - `benchmarks/` – runtime and memory benchmarks.
-- `docs/` – notes on the restructuring and [migration](docs/migration.md).
 - `tests/` – hand-written tests and [agent-written tests](tests/tests-by-agents/README.md).
 
 ## Tests
