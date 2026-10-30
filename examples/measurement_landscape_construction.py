@@ -10,7 +10,7 @@ import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.patches import ConnectionPatch
 
-from construction_point_clouds import (
+from point_cloud_sampling import (
     sample_circle_rounded_rectangle_intersection,
     sample_circle_star_pair,
     sample_compartmented_oval,

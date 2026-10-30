@@ -218,7 +218,7 @@ fig.savefig('paper_figures/point_clouds_landscape_comparisons.pdf', transparent=
 plt.show()
 
 # %% Mixed bouquet non-circularity measurement-landscape construction
-from construction_point_clouds import sample_mixed_bouquet
+from point_cloud_sampling import sample_mixed_bouquet
 from measurement_landscape_construction import (
     OUTPUT_DIRECTORY,
     plot_measurement_landscape_construction,
