@@ -10,7 +10,7 @@ them in order if you are new to `persforest`:
 5. `05_measurement_landscapes.ipynb` - compute, plot, compare, and vectorize measurement landscapes on a star-shaped example.
 6. `06_plotting_persistence_forests.ipynb` - plot a 2D forest and compare it with a vertical barcode using matching colors.
 7. `07_plotting_cubical_grids.ipynb` - plot cubical filtrations of images and volumes: image backgrounds, cycles, interior activity, Plotly views and animations.
-8. `08_cycle_shapes_from_loops.ipynb` - turn representatives into raw, midpoint and smoothed planar loops, measure and plot them, and use them in profiles and landscapes.
+8. `08_cycle_shapes_from_loops.ipynb` - turn representatives into raw, midpoint, smoothed, averaged and taut planar loops, measure and plot them, and use them in profiles and landscapes.
 
 Optional extras:
 
