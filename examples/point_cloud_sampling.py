@@ -447,3 +447,308 @@ def sample_noisy_sphere(
     # Add Gaussian noise
     noise = rng.normal(0.0, noise_std, size=(n, dim))
     return sphere_points + noise
+
+
+# Point clouds for measurement-landscape construction figures.
+
+
+def _resample_polyline(
+    vertices: np.ndarray,
+    n_points: int,
+    *,
+    closed: bool,
+) -> np.ndarray:
+    """Resample a polyline at approximately uniform arclength spacing."""
+    vertices = np.asarray(vertices, dtype=float)
+    path = np.vstack((vertices, vertices[0])) if closed else vertices
+    segments = np.diff(path, axis=0)
+    lengths = np.linalg.norm(segments, axis=1)
+    cumulative = np.concatenate(([0.0], np.cumsum(lengths)))
+    distances = np.linspace(
+        0.0,
+        cumulative[-1],
+        n_points,
+        endpoint=not closed,
+    )
+    segment_indices = np.searchsorted(cumulative, distances, side="right") - 1
+    segment_indices = np.minimum(segment_indices, len(segments) - 1)
+    fractions = (
+        (distances - cumulative[segment_indices]) / lengths[segment_indices]
+    )
+    return (
+        path[segment_indices]
+        + fractions[:, None] * segments[segment_indices]
+    )
+
+
+def _ellipse(
+    center: tuple[float, float],
+    semi_axes: tuple[float, float],
+    n_points: int,
+    *,
+    angle: float = 0.0,
+) -> np.ndarray:
+    parameter = np.linspace(0.0, 2.0 * np.pi, 2048, endpoint=False)
+    points = np.column_stack(
+        (semi_axes[0] * np.cos(parameter), semi_axes[1] * np.sin(parameter))
+    )
+    rotation = np.array(
+        [[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]]
+    )
+    points = points @ rotation.T + np.asarray(center)
+    return _resample_polyline(points, n_points, closed=True)
+
+
+def _superellipse(
+    center: tuple[float, float],
+    semi_axes: tuple[float, float],
+    n_points: int,
+    *,
+    exponent: float,
+    angle: float = 0.0,
+) -> np.ndarray:
+    parameter = np.linspace(0.0, 2.0 * np.pi, 2048, endpoint=False)
+    cosine = np.cos(parameter)
+    sine = np.sin(parameter)
+    power = 2.0 / exponent
+    points = np.column_stack(
+        (
+            semi_axes[0] * np.sign(cosine) * np.abs(cosine) ** power,
+            semi_axes[1] * np.sign(sine) * np.abs(sine) ** power,
+        )
+    )
+    rotation = np.array(
+        [[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]]
+    )
+    points = points @ rotation.T + np.asarray(center)
+    return _resample_polyline(points, n_points, closed=True)
+
+
+def _pointy_star(
+    center: tuple[float, float],
+    outer_radius: float,
+    inner_radius: float,
+    n_points: int,
+    *,
+    spikes: int = 5,
+    angle: float = 0.0,
+) -> np.ndarray:
+    vertex_angles = angle + np.arange(2 * spikes) * np.pi / spikes
+    radii = np.empty(2 * spikes)
+    radii[0::2] = outer_radius
+    radii[1::2] = inner_radius
+    vertices = np.column_stack(
+        (radii * np.cos(vertex_angles), radii * np.sin(vertex_angles))
+    )
+    vertices += np.asarray(center)
+    return _resample_polyline(vertices, n_points, closed=True)
+
+
+def _add_noise(
+    points: np.ndarray,
+    noise: float,
+    *,
+    seed: int,
+) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    return points + rng.normal(scale=noise, size=points.shape)
+
+
+def sample_mixed_loops(*, noise: float = 0.004, seed: int = 11) -> np.ndarray:
+    """Sample a separated circle, elongated ellipse, and pointy star."""
+    circle = _ellipse((-1.0, -1.0), (0.55, 0.55), 52)
+    circle = np.delete(
+        circle,
+        [1, 2],
+        axis=0,
+    )  # A controlled gap delays this birth.
+    ellipse = _ellipse((0.0, 0.0), (0.82, 0.36), 58, angle=-0.25 * np.pi)
+    star = _pointy_star(
+        (1.0, 1.0),
+        outer_radius=0.76,
+        inner_radius=0.33,
+        n_points=82,
+        angle=-0.5 * np.pi,
+    )
+    return _add_noise(np.vstack((circle, ellipse, star)), noise, seed=seed)
+
+
+def sample_compartmented_oval(
+    *,
+    noise: float = 0.003,
+    seed: int = 12,
+) -> np.ndarray:
+    """Sample an oval split into three asymmetric compartments."""
+    x_dense = np.linspace(-1.4, 1.4, 2048)
+    normalized_x = x_dense / 1.4
+    envelope = np.sqrt(np.maximum(0.0, 1.0 - normalized_x**2))
+
+    top = _resample_polyline(
+        np.column_stack((x_dense, 0.92 * envelope)),
+        70,
+        closed=False,
+    )
+    upper = _resample_polyline(
+        np.column_stack(
+            (
+                x_dense,
+                (1.0 - normalized_x**2)
+                * (0.33 + 0.07 * np.sin(3.0 * np.pi * normalized_x)),
+            )
+        ),
+        44,
+        closed=False,
+    )
+    upper = np.delete(upper, [21, 22], axis=0)
+    lower = _resample_polyline(
+        np.column_stack(
+            (
+                x_dense,
+                (1.0 - normalized_x**2)
+                * (-0.20 - 0.10 * np.sin(2.0 * np.pi * normalized_x)),
+            )
+        ),
+        40,
+        closed=False,
+    )
+    bottom = _resample_polyline(
+        np.column_stack((x_dense, -0.92 * envelope)),
+        72,
+        closed=False,
+    )
+
+    # The four paths share their two endpoints.
+    points = np.vstack((top, upper[1:-1], lower[1:-1], bottom[1:-1]))
+    return _add_noise(points, noise, seed=seed)
+
+
+def sample_tendril_triplet(
+    *,
+    noise: float = 0.003,
+    seed: int = 13,
+) -> np.ndarray:
+    """Sample a circle, pointy star, and circle with an inward tendril."""
+    circle = _ellipse((-0.95, -0.95), (0.48, 0.48), 52)
+    star = _pointy_star(
+        (0.0, 0.0),
+        outer_radius=0.67,
+        inner_radius=0.29,
+        n_points=78,
+        angle=0.5 * np.pi,
+    )
+    tendril_loop = _ellipse((0.95, 0.95), (0.56, 0.56), 62)
+    tendril = np.column_stack(
+        (
+            np.full(14, 0.95),
+            np.linspace(0.39, 0.83, 14),
+        )
+    )
+    points = np.vstack((circle, star, tendril_loop, tendril[1:]))
+    return _add_noise(points, noise, seed=seed)
+
+
+def sample_three_cavities(*, n_points: int = 1400, seed: int = 14) -> np.ndarray:
+    """Sample a filled rectangle with circular, elliptical, and star cavities."""
+    rng = np.random.default_rng(seed)
+    accepted: list[np.ndarray] = []
+    while sum(len(batch) for batch in accepted) < n_points:
+        points = rng.uniform((-1.65, -1.25), (1.65, 1.25), size=(n_points, 2))
+
+        circle_hole = np.linalg.norm(points - (-0.85, 0.45), axis=1) < 0.36
+
+        ellipse_points = points - (0.78, 0.45)
+        cosine, sine = np.cos(0.25), np.sin(0.25)
+        ellipse_x = cosine * ellipse_points[:, 0] + sine * ellipse_points[:, 1]
+        ellipse_y = -sine * ellipse_points[:, 0] + cosine * ellipse_points[:, 1]
+        ellipse_hole = (ellipse_x / 0.58) ** 2 + (ellipse_y / 0.27) ** 2 < 1.0
+
+        star_points = points - (0.0, -0.58)
+        angles = np.arctan2(star_points[:, 1], star_points[:, 0])
+        star_radius = 0.31 * (1.0 + 0.42 * np.cos(5.0 * angles))
+        star_hole = np.linalg.norm(star_points, axis=1) < star_radius
+
+        accepted.append(points[~(circle_hole | ellipse_hole | star_hole)])
+
+    return np.vstack(accepted)[:n_points]
+
+
+def sample_circle_star_pair(
+    *,
+    noise: float = 0.003,
+    seed: int = 15,
+) -> np.ndarray:
+    """Sample an overlapping circle and pointy star with three cavities."""
+    separation = 0.74
+    circle = _ellipse((-separation / 2.0, 0.0), (0.68, 0.68), 80)
+    circle = np.delete(circle, [40, 41, 42, 43], axis=0)
+    star = _pointy_star(
+        (separation / 2.0, 0.0),
+        outer_radius=0.80,
+        inner_radius=0.34,
+        n_points=60,
+        angle=np.pi,
+    )
+    star = np.delete(star, [10, 11], axis=0)
+    return _add_noise(np.vstack((circle, star)), noise, seed=seed)
+
+
+def sample_circle_rounded_rectangle_intersection(
+    *,
+    noise: float = 0.003,
+    seed: int = 17,
+) -> np.ndarray:
+    """Sample an intersecting circle and tilted rounded rectangle."""
+    separation = 0.75
+    circle = _ellipse((-separation / 2.0, 0.0), (0.68, 0.68), 76)
+    rounded_rectangle = _superellipse(
+        (separation / 2.0, 0.0),
+        (0.92, 0.40),
+        48,
+        exponent=4.0,
+        angle=0.30,
+    )
+    rounded_rectangle = np.delete(rounded_rectangle, [20, 21], axis=0)
+    return _add_noise(
+        np.vstack((circle, rounded_rectangle)),
+        noise,
+        seed=seed,
+    )
+
+
+def sample_mixed_bouquet(
+    *,
+    noise: float = 0.012,
+    seed: int = 16,
+) -> np.ndarray:
+    """Sample three irregular, differently shaped petals at one junction."""
+
+    def petal(
+        direction: float,
+        length: float,
+        width: float,
+        n_points: int,
+        modulation: float,
+    ) -> np.ndarray:
+        parameter = np.linspace(0.0, 1.0, 2048)
+        longitudinal = length * np.sin(np.pi * parameter)
+        transverse = (
+            width
+            * np.sin(2.0 * np.pi * parameter)
+            * (1.0 + modulation * np.cos(6.0 * np.pi * parameter))
+        )
+        tangent = np.array((np.cos(direction), np.sin(direction)))
+        normal = np.array((-np.sin(direction), np.cos(direction)))
+        vertices = (
+            longitudinal[:, None] * tangent
+            + transverse[:, None] * normal
+        )
+        return _resample_polyline(vertices, n_points + 1, closed=False)
+
+    rounded = petal(np.pi, 1.35, 0.58, 72, 0.0)
+    rounded = np.delete(rounded, [20, 21, 22], axis=0)
+    elongated = petal(-np.pi / 3.0, 1.55, 0.26, 42, 0.05)
+    pointed = petal(np.pi / 3.0, 0.95, 0.375, 84, 0.65)
+
+    # Keep one shared junction; the rounded-petal gap makes its bar born last.
+    points = np.vstack((rounded[:-1], elongated[1:-1], pointed[1:-1]))
+    return _add_noise(points, noise, seed=seed)

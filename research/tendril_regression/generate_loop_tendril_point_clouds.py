@@ -3,6 +3,13 @@ import numpy as np
 import pandas as pd
 import json
 
+
+def derive_sample_seed(master_seed: int, sample_id: int) -> int:
+    """Derive a stable, independent seed for one generated sample."""
+    seed_sequence = np.random.SeedSequence([int(master_seed), int(sample_id)])
+    return int(seed_sequence.generate_state(1, dtype=np.uint32)[0])
+
+
 def generate_params(
     n: int,
     seed: int = 0,
@@ -83,22 +90,26 @@ def generate_params(
 
 if __name__ == "__main__":
 
-    out_dir = Path("classification_benchmarks/outputs")
-    out_dir.mkdir(exist_ok=True)
+    base_dir = Path(__file__).resolve().parent
+    out_dir = base_dir / "outputs"
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     metadata = {
         "dataset": "loop_tendril_point_clouds",
         "n_samples": 1000,
-        "parameter_seed": 123,
-        "sampling_seed": 123,
+        "seeds": {
+            "parameter": 123,
+            "graph": 456,
+            "scale_sampling": 789,
+            "final_sampling": 101112,
+        },
+        "seed_derivation": "numpy.random.SeedSequence([master_seed, sample_id])",
         "death_normalization_target": 1.0,
         "parameter_generation": {
             "tendril_range": [0, 20],  # inclusive lower, inclusive upper
             "tendril_length_range": [0.1, 0.4],
             "mode_scenarios": [
-                ["single", "uniform", 0.5],
-                ["branching", "uniform", 0.25],
-                ["single", "polarized", 0.25],
+                ["single", "uniform", 1.0],
             ],
             "branching_probability_range": [0.5, 0.8],
         },
@@ -118,9 +129,9 @@ if __name__ == "__main__":
             "post_sample_noise_std": 0.0,
         },
         "outputs": {
-            "params_csv": "loop_tendril_branched_polarized_params.csv",
-            "metadata_json": "loop_tendril_branched_polarized_metadata.json",
-            "point_cloud_dir": "point_clouds_branched_polarized",
+            "params_csv": "loop_tendril_single_uniform_params.csv",
+            "metadata_json": "loop_tendril_single_uniform_metadata.json",
+            "point_cloud_dir": "point_clouds_single_uniform",
         },
     }
 
@@ -131,12 +142,12 @@ if __name__ == "__main__":
 
     params = generate_params(
         n=metadata["n_samples"],
-        seed=metadata["parameter_seed"],
+        seed=metadata["seeds"]["parameter"],
         **parameter_config,
     )
 
     point_cloud_dir = out_dir / metadata["outputs"]["point_cloud_dir"]
-    point_cloud_dir.mkdir(exist_ok = True)
+    point_cloud_dir.mkdir(parents=True, exist_ok=True)
 
     rows = []
 
@@ -145,30 +156,38 @@ if __name__ == "__main__":
     from persforest import PersistenceForest
 
     for row in params.itertuples(index=False):
+        graph_seed = derive_sample_seed(metadata["seeds"]["graph"], row.sample_id)
+        scale_sampling_seed = derive_sample_seed(
+            metadata["seeds"]["scale_sampling"], row.sample_id
+        )
+        final_sampling_seed = derive_sample_seed(
+            metadata["seeds"]["final_sampling"], row.sample_id
+        )
         graph = generate_parametric_loop_tendrils(
             n_tendrils=row.n_tendrils,          # type: ignore
             tendril_length=row.tendril_length,  # type: ignore
             tendril_mode=row.tendril_mode,      # type: ignore
             root_mode=row.root_mode,            # type: ignore
             branching_probability=row.branching_probability,# type: ignore
+            seed=graph_seed,
             **graph_config,
         )
 
         #determine scaling to rescale death to 1
         point_cloud = sample_planar_graph(
             graph=graph,
-            seed=metadata["sampling_seed"],
+            seed=scale_sampling_seed,
             **scale_sampling_config,
         )
         forest = PersistenceForest(point_cloud)
-        scaling = 1/forest.max_bar().death
+        scaling = metadata["death_normalization_target"] / forest.max_bar().death
 
         point_cloud = sample_planar_graph(
             graph=graph,
             target_spacing=final_sampling_config["target_spacing"] / scaling,
             pre_sample_noise_std=final_sampling_config["pre_sample_noise_std"] / scaling,
             post_sample_noise_std=final_sampling_config["post_sample_noise_std"] / scaling,
-            seed=metadata["sampling_seed"],
+            seed=final_sampling_seed,
             return_metadata=False,
         ) * scaling   # type: ignore
 
@@ -185,7 +204,13 @@ if __name__ == "__main__":
             "root_mode": row.root_mode,
             "branching_probability": row.branching_probability,
             "scaling": scaling,
-            "save_path": str(point_cloud_dir / f"{row.sample_id}.npy")
+            "graph_seed": graph_seed,
+            "scale_sampling_seed": scale_sampling_seed,
+            "final_sampling_seed": final_sampling_seed,
+            "save_path": str(
+                Path(metadata["outputs"]["point_cloud_dir"])
+                / f"{row.sample_id}.npy"
+            ),
         })
 
     df = pd.DataFrame(rows)

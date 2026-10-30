@@ -1,116 +1,41 @@
 # AI-generated regression tests
 
-These AI-generated tests accompany the manually written tests in
-[`test_persistence_forest_pipeline.py`](../test_persistence_forest_pipeline.py).
-They use standard-library `unittest` and the package's existing dependencies.
+These tests accompany the hand-written tests in the parent directory
+([`test_persistence_forest_pipeline.py`](../test_persistence_forest_pipeline.py) and others).
+They use standard-library `unittest`.
 
 ## Run
 
-From the repository root, with Python 3.11–3.14, run all tests:
+From the repository root, run everything (hand-written and agent tests):
 
 ```sh
 uv sync --all-extras --locked
-PYTHONDONTWRITEBYTECODE=1 MPLBACKEND=Agg MPLCONFIGDIR=/tmp/persforest-tests-mpl \
-  uv run --locked python tests/tests-by-agents/run_restructured_suite.py --implementation src
+MPLBACKEND=Agg uv run --locked python -m unittest discover -s tests -t .
 ```
 
-[`test_agent_suite.py`](../test_agent_suite.py) includes this directory in normal
-discovery. The runner asserts all loaded package paths and guards child processes.
-The old root-level package and reference mode have been removed. After editable
-installation, plain root-level unittest discovery also selects src. For a focused
-src run:
+[`test_agent_suite.py`](../test_agent_suite.py) pulls this directory into normal
+discovery. To run a subset, use the runner with a filename pattern:
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 MPLBACKEND=Agg MPLCONFIGDIR=/tmp/persforest-tests-mpl \
-  uv run --locked python tests/tests-by-agents/run_restructured_suite.py \
+MPLBACKEND=Agg uv run --locked python tests/tests-by-agents/run_restructured_suite.py \
   --implementation src --pattern 'test_measurement*.py'
 ```
 
-To run one module:
+Plotly checks are skipped when the extra is missing, and the MP4 test is skipped
+when ffmpeg is missing. `test_installation.py` checks a core-only install with all
+optional dependencies blocked.
 
-```sh
-PYTHONDONTWRITEBYTECODE=1 MPLBACKEND=Agg MPLCONFIGDIR=/tmp/persforest-tests-mpl \
-  uv run --locked python tests/tests-by-agents/run_restructured_suite.py \
-  --implementation src --pattern test_filtration_ties.py
-```
+## What is covered
 
-Use a writable temporary directory for `MPLCONFIGDIR`. Tests run without a display;
-Plotly checks skip when that extra is unavailable. The MP4 smoke test exports
-and decodes three frames with ffmpeg, and skips when ffmpeg is unavailable.
-Export files are created in a temporary directory and removed automatically.
-
-For a core-only installation, run `python tests/tests-by-agents/test_installation.py`.
-This test computes an alpha complex and manual-filtration landscapes while blocking
-all optional dependencies, and checks actionable plotting installation hints.
-When Matplotlib is installed, it also renders both barcode color schemes with
-Seaborn and pandas blocked. CI checks a clean `plot` installation without either.
-The full suite requires the `plot` extra; Plotly cases additionally use
-`plotly`. CI also runs the suite against installed wheels from
-outside the checkout and checks minimum direct dependency versions on Python 3.11.
-
-## Coverage
-
-- The public `PersistenceForest` entry point, canonical class definitions, and
-  removal of legacy import shims (`test_package_imports.py`).
-- Core computation without visualization dependencies and missing-plotting
-  installation errors (`test_installation.py`).
-- Literal simplicial filtrations, signed chains, cycle progressions, interiors,
-  filtration ties, and half-open activity intervals.
-- Custom-filtration canonical vertex order and rejection of simplices above the
-  ambient dimension (`test_manual_filtration_validation.py`).
-- The internal cell-filtration contract: simplicial and cubical boundaries and
-  engine imports limited to cell-neutral modules (`test_cell_interface.py`).
-- Construction factories, their equivalence with the shorthand constructor, and
-  Delaunay–Čech barcodes against GUDHI's own persistence (`test_construction_factories.py`).
-- Cubical grids in 1D–4D for both conventions against `gudhi.CubicalComplex`,
-  bounded representatives, hand cases, transposition, geometry and validation
-  (`test_cubical_grid.py`); cubical measurements, landscapes, supported plots
-  and explicit plot gating (`test_cubical_capabilities.py`).
-- The cached, path-compressed root lookup in the sweep and in barcode
-  extraction returns exactly the uncached root on every lookup, and every bar's
-  `root_id` equals `get_root` of its leaf, for the golden inputs and deep cubical
-  forests (`test_sweep_root_lookup.py`).
-- Both storage options (`storage="diffs"` default, `"cycles"`), including
-  animations rendered from reconstructed representatives
-  (`test_diff_only_cycle_queries.py`, `test_barcode_readiness.py`).
-- Golden snapshots of bars, representatives, interiors and interior activity for
-  small fixtures and seeded alpha clouds in every storage mode
-  (`test_engine_golden.py`). Regenerate `data/engine_golden.json` with
+- Public API, package imports, and installation without plotting extras.
+- Simplicial and cubical filtrations, signed chains, cycle progressions,
+  interiors, filtration ties, and root normalization.
+- Both storage modes (`"diffs"`, `"cycles"`) and golden snapshots of small
+  fixtures (`data/engine_golden.json`). Regenerate the snapshots with
   `python tests/tests-by-agents/engine_golden.py` only after an intended change.
-- Deferred barcode-diff accumulation, source ownership, and root-reaching bars
-  (`test_barcode_diff_accumulation.py`).
-- Barcode-diff readiness, rejection of incomplete interior/reconstruction data,
-  empty results, failed builds, and internal builder dispatch hooks
-  (`test_barcode_readiness.py`).
-- Reduced root normalization, simultaneous births, root representatives, and
-  preserved signed cycle progressions across storage modes
-  (`test_root_normalization.py`).
-- Analytic geometric measurements, profiles, landscape kernels, and sampled
-  landscape values, using independent algebra and integration checks.
-- Explicit measurement-profile composition, source/endpoint snapshots, read-only
-  arrays, ordered bar identity, validation before cache publication, rendering
-  reuse, and two-grid regression features (`test_measurement_profiles.py`,
-  `test_profile_composition.py`, `test_landscape_readiness.py`).
-- Real GUDHI alpha complexes, public queries, validation, caching, and storage modes.
-- Plot data, animation frames, optional dependencies, MP4 export, and 3D HTML export.
-- Animation writer settings, ffmpeg diagnostics,
-  paired markers, and 3D cycle/camera updates (`test_animation_package.py`).
-- Benchmark scheduling, seeds, RSS units/watchdog, resume behavior, mocked phase
-  timing, and synthetic summary plots (`test_performance_harness.py`). These
-  checks do not execute real PersistenceForest benchmarks.
+- Measurements, measurement profiles and landscapes, checked against
+  independent analytic computations.
+- Plot data, animations, MP4/HTML export, droplet segmentation, and the
+  benchmark harness (with mocked timings).
 
-Fixtures and random seeds are deterministic. The earlier iterator, barcode
-orientation and interior-volume regressions are discovered directly in
-`test_bar_cycle_iterator.py`, `test_barcode_orientation.py` and
-`test_interior_volume.py`. The obsolete `old_test_*` import bridge was removed;
-none of those regression classes was deleted.
-
-The [report](../../docs/restructuring-report.md) records the historical
-restructuring baseline and installation checks. The src implementation now rejects
-interior queries and diff-based reconstruction when the eager builder did not
-prepare accumulated barcode diffs. The root reference and its comparison-only
-hash, AST, and differential checks have been retired; behavioral regressions and
-canonical import identity checks remain active.
-
-`verify_restructured_distribution.py DIST_DIR` compares built wheel/sdist
-members byte-for-byte with the src package and rejects reference/private artifacts.
+Fixtures and random seeds are deterministic.
