@@ -1,9 +1,10 @@
 [project]
 name = "persforest"
 version = "0.1.0"
-description = ""
+description = "Persistence forests, cycle progression barcodes and measurement landscapes for codimension-one persistent homology."
 authors = [
-    {name = "Leon Renkin",email = "leon.renkin@gmail.com"}
+    {name = "Leon Renkin",email = "leon.renkin@gmail.com"},
+    {name = "Fabian Lenzen"}
 ]
 readme = "README.md"
 requires-python = ">=3.13, <3.14"

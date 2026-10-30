@@ -4,6 +4,31 @@ Implementation accompanying the manuscript on persistent cycle progressions
 and measurement landscapes, available at
 https://doi.org/10.48550/arXiv.2512.09668.
 
+## Paper version and citation
+
+Release `v0.1.0` is the version of the code used for the results and figures
+in the paper. It is archived on Zenodo; the DOI is shown on the GitHub release
+page and in the README on the `main` branch. Later versions may change the
+API and numerical results, so use `v0.1.0` to reproduce the paper:
+
+```bash
+pip install "persforest @ git+https://github.com/leonrenkin/persforest.git@v0.1.0"
+```
+
+Citation metadata is in [`CITATION.cff`](CITATION.cff).
+
+To reproduce the figures, install the `examples` extra and run
+`examples/paper-examples.py` from inside `examples/` (it imports sibling
+modules and writes PDFs to `examples/paper_figures/`). Figures are rendered
+with `text.usetex=True`, which requires a LaTeX installation.
+
+The tendril regression experiment in `examples/tendril_regression/` runs in
+three steps from inside that directory: `generate_loop_tendril_point_clouds.py`
+generates the seeded point clouds, `featurize_point_clouds.py` computes the
+features, and `loop_tendril_regression.ipynb` fits and evaluates the
+regressions. Intermediate data is written to `outputs/` together with the
+seeds and parameters used.
+
 ## What this repo provides
 - `PersistenceForest` (primary entry point) builds the forest of optimal cycles for an alpha complex by default, together with barcodes and cycle representatives over the filtration. Custom simplicial filtrations are also supported under the requirements below.
 - Plotting and animation methods for cycle representatives, barcodes and persistence forests in codimension 1.
@@ -130,9 +155,9 @@ The tutorial notebooks are intended to be read in this order:
 - `persforest/interior_activity_plotly.py` - Plotly interior-activity plotting.
 - `examples/tutorials/` - guided tutorial notebooks.
 - `examples/pers_forest_example.py` - compact runnable quickstart.
-- `examples/animation_tutorial.ipynb` - animation example.
 - `examples/benchmark.py` - runtime benchmark script.
-- `examples/paper-examples.ipy` - manuscript figure examples.
+- `examples/paper-examples.py` - manuscript figure examples.
+- `examples/tendril_regression/` - tendril regression experiment.
 - `examples/point_cloud_sampling.py` - synthetic point-cloud samplers used by examples.
 
 ## Notes

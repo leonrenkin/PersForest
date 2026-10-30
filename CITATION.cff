@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite the accompanying paper. To reproduce
+  the paper's results, use the archived software release v0.1.0.
+title: "persforest: Persistence Forests and Measurement Landscapes"
+type: software
+authors:
+  - family-names: Renkin
+    given-names: Leon
+  - family-names: Lenzen
+    given-names: Fabian
+version: 0.1.0
+license: MIT
+repository-code: "https://github.com/leonrenkin/persforest"
+keywords:
+  - persistent homology
+  - topological data analysis
+  - cycle representatives
+  - persistence landscapes
+preferred-citation:
+  type: article
+  title: >-
+    Cycle Progression Barcodes and Measurement Landscapes for
+    Codimension 1 Persistent Homology
+  authors:
+    - family-names: Lenzen
+      given-names: Fabian
+    - family-names: Renkin
+      given-names: Leon
+  year: 2025
+  doi: 10.48550/arXiv.2512.09668
+  url: "https://arxiv.org/abs/2512.09668"
