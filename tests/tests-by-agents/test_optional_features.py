@@ -105,8 +105,14 @@ assert not f.barcode
             filtration_kwargs={'show': False, 'show_complex': False,
                                'style_2d': {'show_orientation_arrows': False}})
         fig.canvas.draw()
+        panel = fig.axes[1]
+        # Bars [1, 7) (area 6, then 2) and [3, 5) (area 4); dots only on active, half-open bars.
+        expected_dots = {1: [[1, 6]], 4: [[4, 2], [4, 4]], 7: np.empty((0, 2))}
         for frame, time in enumerate([1, 4, 7]):
             anim._func(frame)
-            np.testing.assert_array_equal(fig.axes[1].lines[-1].get_xdata(), [time, time])
-        # The animation panel extends beyond the bar, displaying zero baseline.
-        np.testing.assert_array_equal(fig.axes[1].lines[0].get_ydata(), [0, 0, 6, 6, 2, 2, 0, 0])
+            np.testing.assert_array_equal(panel.lines[-1].get_xdata(), [time, time])
+            np.testing.assert_array_equal(panel.collections[-1].get_offsets(), expected_dots[time])
+        np.testing.assert_array_equal(panel.lines[0].get_ydata(), [6, 6, 2, 2])
+        np.testing.assert_array_equal(panel.lines[1].get_ydata(), [4, 4])
+        self.assertEqual(panel.get_ylim()[0], 0)
+        self.assertEqual(panel.get_ylabel(), "signed_chain_area")
