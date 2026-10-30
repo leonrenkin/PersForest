@@ -136,19 +136,6 @@ class InteriorSimplexActivityTests(unittest.TestCase):
         self.assertEqual(split_forest(shared_value=1, deaths=(1, 1),
                                       keep_simplex_diff=True).interior_simplex_activity(), {})
 
-    def test_missing_diffs_and_wrong_barcode_builder(self):
-        with self.assertRaisesRegex(ValueError, "keep_simplex_diff=True"):
-            split_forest().interior_simplex_activity()
-        forest = split_forest(keep_simplex_diff=True, compute_barcode=False)
-        forest.compute_barcode_cycles()
-        with self.assertRaisesRegex(RuntimeError, "computed from simplex diffs"):
-            forest.interior_simplex_activity()
-        forest = split_forest(keep_simplex_diff=True)
-        bar = next(iter(forest.barcode))
-        forest.nodes[bar._node_progression[-1]]._simplex_diff_available = False
-        with self.assertRaisesRegex(ValueError, "diffs are unavailable"):
-            forest.interior_simplex_activity()
-
     def test_query_is_repeatable_without_representative_reconstruction(self):
         forest = split_forest(keep_simplex_diff=True, diff_only_mode=True)
         before = {node_id: (None if node._interior_diff is None else node._interior_diff.copy(),

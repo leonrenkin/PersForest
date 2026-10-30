@@ -45,10 +45,5 @@ GIF output is created in a temporary directory and removed automatically.
   landscape values, using independent algebra and integration checks.
 - Real GUDHI alpha complexes, public queries, validation, caching, and storage modes.
 - Plot data, animation frames, optional dependencies, and small GIF exports.
-- Benchmark scheduling, seeds, RSS units/watchdog, resume behavior, mocked phase
-  timing, and synthetic summary plots (`test_performance_harness.py`). These
-  checks do not execute real PersistenceForest benchmarks.
 
-Fixtures and random seeds are deterministic. `test_existing_regressions.py` loads
-the `old_test_*.py` cases; retain the default `test*.py` discovery pattern to avoid
-running them twice.
+Fixtures and random seeds are deterministic.
