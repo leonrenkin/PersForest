@@ -59,7 +59,7 @@ def _resolve_style_2d(style_2d: Optional[dict[str, Any]]) -> dict[str, Any]:
 
     Supported keys are ``point_color``, ``point_alpha``,
     ``complex_face_color``, ``complex_face_alpha``, ``complex_edge_color``,
-    ``complex_edge_width``, ``cycle_edge_width``,
+    ``complex_edge_width``, ``complex_edge_alpha``, ``cycle_edge_width``,
     ``show_orientation_arrows``, ``arrow_linewidth`` and ``arrow_scale``.
     """
     style = {
@@ -69,6 +69,7 @@ def _resolve_style_2d(style_2d: Optional[dict[str, Any]]) -> dict[str, Any]:
         "complex_face_alpha": 0.2,
         "complex_edge_color": "0.3",
         "complex_edge_width": 0.6,
+        "complex_edge_alpha": None,
         "cycle_edge_width": 1.8,
         "show_orientation_arrows": False,
         "arrow_linewidth": 0.8,
@@ -296,6 +297,8 @@ def _plot_at_filtration_2d(
             edges_xy,
             linewidths=float(style["complex_edge_width"]),
             colors=style["complex_edge_color"],
+            alpha=(None if style["complex_edge_alpha"] is None
+                   else float(style["complex_edge_alpha"])),
             zorder=2,
             label="edges",
         )
@@ -304,7 +307,7 @@ def _plot_at_filtration_2d(
     if show_cycles:
         for bar in forest.barcode:
             if filt_val >= bar.birth and filt_val < bar.death and bar.lifespan()>=min_bar_length:
-                cycle = bar.cycle_at_filtration_value(filt_val=filt_val)
+                cycle = forest.cycle_for_bar_at(bar, filt_val)
                 if cycle.dim() != 1:
                     raise ValueError(
                         f"plot_at_filtration expected a 1-chain, got dim={cycle.dim()}"
@@ -319,7 +322,7 @@ def _plot_at_filtration_2d(
                     segments,
                     linewidths=float(style["cycle_edge_width"]),
                     colors=[color_map[bar]],
-                    capstyle="round",
+                    capstyle="butt",
                     joinstyle="round",
                     zorder=cycle_zorder,
                 )
@@ -570,7 +573,7 @@ def _plot_at_filtration_with_dual_2d(
     if show_cycles:
         for bar in forest.barcode:
             if filt_val >= bar.birth and filt_val < bar.death:
-                cycle = bar.cycle_at_filtration_value(filt_val=filt_val)
+                cycle = forest.cycle_for_bar_at(bar, filt_val)
                 segments = [
                     np.array(pts[list(signed_simplex[0])])
                     for signed_simplex in cycle.signed_simplices
@@ -850,8 +853,8 @@ def plot_barcode_cycle_reps(
             continue
         cycle_zorder = bar.lifespan()
 
-        cycle = bar.cycle_at_filtration_value(
-            filt_val=bar.birth + bar.lifespan() * relative_position
+        cycle = forest.cycle_for_bar_at(
+            bar, bar.birth + bar.lifespan() * relative_position
         )
         if cycle.dim() != 1:
             raise ValueError(

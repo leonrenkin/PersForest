@@ -125,9 +125,9 @@ for i, (name,forest) in enumerate(name_forest_list):
                         coloring="grey", 
                         title="", 
                         bar_width = 1)
-    axes[1,i].set_xlim((0,8))
+    axes[1,i].set_xlim((0,4))
     axes[1,i].grid(False)
-    axes[1,i].set_xticks(np.linspace(0,8,3))
+    axes[1,i].set_xticks(np.linspace(0,4,3))
     axes[1,i].set_xlabel(None)
 axes[1,0].set_ylabel("barcode $H_1$", fontsize = 8)
 
@@ -163,7 +163,7 @@ for i, (func_name, cycle_func) in enumerate(cycle_funcs_list):
         forest.compute_measurement_landscapes(
             cycle_func=cycle_func,
             max_k=6,
-            x_grid=np.linspace(0,8,20000),
+            x_grid=np.linspace(0,4,20000),
             label=func_name,
             signed=use_signed,
             cache_functionals=True) 
@@ -186,8 +186,8 @@ for i, (func_name, cycle_func) in enumerate(cycle_funcs_list):
 
 
     axes[1, i].set_title(None)
-    axes[1, i].set_xlim((0,8)) 
-    axes[1, i].set_xticks(np.linspace(0,8,3))
+    axes[1, i].set_xlim((0,4))
+    axes[1, i].set_xticks(np.linspace(0,4,3))
     axes[1, i].set_xlabel(None)
     axes[1, i].set_ylabel(None) 
     axes[1, i].grid(False)
@@ -199,14 +199,14 @@ for i, (func_name, cycle_func) in enumerate(cycle_funcs_list):
                                         signed=use_signed, 
                                         label = name, 
                                         show_baseline = False, 
-                                        x_range = (0,8),
+                                        x_range = (0,4),
                                         color = color_palette[j],
                                         linewidth=1.5)
 
         
     axes[0, i].set_title(func_name)
-    axes[0, i].set_xlim((0,8)) 
-    axes[0, i].set_xticks(np.linspace(0,8,3))
+    axes[0, i].set_xlim((0,4))
+    axes[0, i].set_xticks(np.linspace(0,4,3))
     axes[0, i].set_ylim(bottom=0) 
     axes[0, i].grid(False)
 
@@ -253,7 +253,7 @@ plt.show()
 #%% Non-circularity landscapes
 cmap = "viridis"
 higher_layers_on_top = True
-x_max = 31
+x_max = 15.5
 seed =5
 from point_cloud_sampling import sample_points_without_balls
 points_with_6_holes = sample_points_without_balls(3000, dim=2, num_discs=6, radius_range=[0.09,0.15], seed=seed) * 100
@@ -335,9 +335,10 @@ fig.savefig(f"paper_figures/circle_6holes_random_points_non-circularity-landscap
 plt.show()
 
 #%% Non-convexity landscapes
+import persforest
 cmap = "viridis"
 higher_layers_on_top = True
-x_max = 31
+x_max = 15.5
 seed =5
 from point_cloud_sampling import sample_points_without_balls
 points_with_6_holes = sample_points_without_balls(3000, dim=2, num_discs=6, radius_range=[0.09,0.15], seed=seed) * 100
@@ -394,7 +395,7 @@ forest_6_holes.plot_measurement_landscapes(ax=axes[2],
                                            linewidth=1.3,
                                            cmap = cmap,
                                            higher_layers_on_top=higher_layers_on_top)
-axes[2].set_title("Non-Circularity Landscapes")
+axes[2].set_title("Hull Area Deficit Landscapes")
 axes[2].legend(
     frameon=False,
     fontsize=6,

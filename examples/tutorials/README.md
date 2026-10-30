@@ -7,6 +7,7 @@ them in order if you are new to `persforest`:
 2. `02_extracting_cycle_representatives.ipynb` - extract representatives and convert them to simplices, vertex coordinates, and planar paths.
 3. `03_animating_cycle_representatives.ipynb` - create 2D animations, barcode-panel animations, barcode-measurement animations, and optional 3D exports.
 4. `04_measurement_landscapes.ipynb` - compute, plot, compare, and vectorize measurement landscapes on a star-shaped example.
+5. `05_plotting_persistence_forests.ipynb` - plot a 2D forest and compare it with a vertical barcode using matching colors.
 
 Optional extras:
 

@@ -8,7 +8,9 @@ object which provides:
 - forest.barcode: iterable of bar objects, where each bar has
       bar.birth: float
       bar.death: float (can be math.inf)
-      bar.cycle_reps: iterable of cycle representatives
+
+- forest.iter_bar_cycle_reps(bar): iterator of cycle representatives in
+      descending filtration order
 
 - each cycle representative has
       rep.active_start: float
@@ -35,6 +37,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from bisect import bisect_right
 import math
+from ._validation import validate_landscape_kernel_input, validate_landscape_request
 
 
 CycleValueFunc = Callable[[Any, np.ndarray], float]
@@ -338,7 +341,9 @@ class MeasurementLandscapeFamily:
     functional.
 
     - bar_kernels: per-bar kernels (typically already rescaled if mode="pyramid")
-    - landscapes: k -> λ_k (k-th landscape) as PiecewiseLinearFunction
+    - landscapes: k -> sampled λ_k (k-th landscape) as PiecewiseLinearFunction
+
+    Landscape values are grid approximations.
     """
     forest_id: str 
     label: str
@@ -350,22 +355,21 @@ class MeasurementLandscapeFamily:
     
     def evaluate_on_grid(
         self,
-        grid: NDArray[np.float64],
-        levels: Union[int, Sequence[int]] = 1,
-        *,
-        fill_value: float = 0.0,
+        grid: NDArray[np.float64] | None = None,
+        levels: Union[int, Sequence[int]] | None = None,
     ) -> NDArray[np.float64]:
-        """Evaluate selected measurement landscape levels on a common grid.
+        """Retrieve selected measurement landscape levels on a stored-grid subset.
 
         Parameters
         ----------
         grid:
-            One-dimensional, monotonically non-decreasing sample grid.
+            One-dimensional, monotonically non-decreasing sample grid. Every
+            coordinate must exactly match a coordinate in ``self.x_grid``;
+            if None, uses the full stored grid.
         levels:
             If an int m is given, evaluates levels k=1..m. If a sequence is
-            given, evaluates those k-values in the provided order.
-        fill_value:
-            Value used when a requested landscape level is unavailable.
+            given, evaluates those k-values in the provided order. If None,
+            evaluates levels 1 through the highest computed level (``max_k``).
 
         Returns
         -------
@@ -373,6 +377,9 @@ class MeasurementLandscapeFamily:
             Array of shape (L, G) where G=len(grid) and L is the number of
             requested levels.
         """
+        if grid is None:
+            grid = self.x_grid
+
         grid_arr = np.asarray(grid, dtype=float).ravel()
         if grid_arr.size == 0:
             raise ValueError("grid must be non-empty")
@@ -381,7 +388,21 @@ class MeasurementLandscapeFamily:
         if np.any(np.diff(grid_arr) < 0):
             raise ValueError("grid must be sorted in non-decreasing order")
 
-        if isinstance(levels, int):
+        # Match grid coordinates exactly: snapping nearby points could conceal
+        # an unsampled peak or crossing on a finely spaced construction grid.
+        indices = np.searchsorted(self.x_grid, grid_arr)
+        if (np.any(indices >= self.x_grid.size)
+                or not np.array_equal(self.x_grid[indices], grid_arr)):
+            raise ValueError(
+                "Evaluation grid must be a subset of the stored landscape x_grid "
+                "(exact coordinate matches required). Recompute landscapes with "
+                "x_grid set to the requested grid or a larger grid containing all "
+                "requested points."
+            )
+
+        if levels is None:
+            ks = list(range(1, max(self.landscapes, default=0) + 1))
+        elif isinstance(levels, int):
             if levels < 1:
                 raise ValueError("levels must be >= 1")
             ks = list(range(1, levels + 1))
@@ -390,12 +411,18 @@ class MeasurementLandscapeFamily:
             if any(k < 1 for k in ks):
                 raise ValueError("all requested landscape levels must be >= 1")
 
-        out = np.full((len(ks), grid_arr.size), float(fill_value), dtype=float)
+        missing = sorted({k for k in ks if k not in self.landscapes})
+        if missing:
+            raise ValueError(
+                f"Landscape levels {missing} were not computed. "
+                f"Recompute landscapes with max_k >= {max(missing)} "
+                "or request only computed levels."
+            )
+
+        out = np.empty((len(ks), grid_arr.size), dtype=float)
         for i, k in enumerate(ks):
-            f = self.landscapes.get(k)
-            if f is None:
-                continue
-            out[i, :] = np.asarray(f(grid_arr), dtype=float) # evaluate landscape f on grid with method __call__ in PiecewiseLinearFunction
+            f = self.landscapes[k]
+            out[i, :] = f.ys[indices]
 
         return out
 
@@ -418,6 +445,7 @@ def _build_step_function_data(
         ----------
         forest :
             Forest-like object providing ``point_cloud`` and ``barcode``.
+            Requires ``iter_bar_cycle_reps(bar)`` in descending filtration order.
         bar :
             Bar instance taken from ``forest.barcode``.
         cycle_func : CycleValueFunc
@@ -433,18 +461,16 @@ def _build_step_function_data(
         if bar not in forest.barcode:
             raise ValueError("Bar is not in barcode of forest")
 
-        starts = np.array(
-            [cycle.active_start for cycle in bar.cycle_reps],
-            dtype=float,
-        )
-        ends = np.array(
-            [cycle.active_end for cycle in bar.cycle_reps],
-            dtype=float,
-        )
-        vals = np.array(
-            [cycle_func(cycle, forest.point_cloud) for cycle in bar.cycle_reps],
-            dtype=float,
-        )
+        records = [
+            (cycle.active_start, cycle.active_end,
+             float(cycle_func(cycle, forest.point_cloud)))
+            for cycle in forest.iter_bar_cycle_reps(bar)
+        ]
+        # The iterator runs from death toward birth. Reverse only scalar
+        # records so reconstructed chains need not be retained.
+        records.reverse()
+        data = np.asarray(records, dtype=float).reshape(-1, 3)
+        starts, ends, vals = data.T
 
         if starts.size == 0:
             # Degenerate: no representatives
@@ -516,6 +542,8 @@ def compute_barcode_functionals(
     )
 
     if cache:
+        if not hasattr(forest, "barcode_functionals"):
+            forest.barcode_functionals = {}
         key = label
         forest.barcode_functionals[key] = bf
 
@@ -824,6 +852,8 @@ def compute_landscape_kernel_for_bar(
         """
         Build the kernel used for landscapes for a single bar.
 
+        cycle_func values must be finite and nonnegative.
+
         - mode="raw":      return g(x) = (f * 1_[birth,death])(x)
         - mode="pyramid":  return λ(x) = 1/2 * g(2x)
 
@@ -850,6 +880,12 @@ def compute_landscape_kernel_for_bar(
         PiecewiseLinearFunction
             Kernel ready to be sampled on a grid.
         """
+        if sf is None:
+            sf = _build_step_function_data(
+                forest=forest, bar=bar, cycle_func=cycle_func, baseline=0.0
+            )
+        validate_landscape_kernel_input(bar, sf)
+
         raw_kernel = compute_convolution_kernel_for_bar(
             forest = forest,
             bar=bar,
@@ -919,7 +955,8 @@ def compute_measurement_landscape_family(
             Forest-like object with ``barcode``, ``point_cloud``,
             ``landscape_families`` and ``barcode_functionals``.
         cycle_func:
-            Function ``f(cycle_rep, point_cloud) -> scalar``.
+            Function ``f(cycle_rep, point_cloud) -> scalar``. 
+            cycle_func values must be finite and nonnegative.
         label:
             Key used to store the family in ``forest.landscape_families``.
         max_k:
@@ -950,6 +987,7 @@ def compute_measurement_landscape_family(
         """
         if not hasattr(forest, "barcode"):
             raise AttributeError("Forest object has no 'barcode' attribute. Did you compute it?")
+        x_grid = validate_landscape_request(max_k, num_grid_points, mode, x_grid)
 
         # 1. Filter bars by length
         bars = [
@@ -969,11 +1007,6 @@ def compute_measurement_landscape_family(
             if x_grid is None:
                 # No bars => no natural domain; choose a stable default
                 x_grid = np.linspace(0.0, 1.0, num_grid_points)
-            else:
-                x_grid = np.asarray(x_grid, dtype=float)
-                if x_grid.ndim != 1 or x_grid.size < 2:
-                    raise ValueError("x_grid must be a 1D array with at least 2 points")
-
             # Build zero landscapes on the chosen grid
             xmin, xmax = float(x_grid[0]), float(x_grid[-1])
 
@@ -1022,15 +1055,8 @@ def compute_measurement_landscape_family(
                 cycle_func=cycle_func,
                 label=functionals_label,
                 min_bar_length=min_bar_length,
-                cache=cache_functionals,
+                cache=False,
             )
-
-        if cache_functionals and compute_functionals:
-            # Ensure cached functionals are available
-            if not hasattr(forest, "barcode_functionals"):
-                forest.barcode_functionals = {}
-            key = functionals_label
-            forest.barcode_functionals[key] = bf
 
         bar_kernels: Dict[int, PiecewiseLinearFunction] = {}
         global_min_x = float("inf")
@@ -1060,10 +1086,6 @@ def compute_measurement_landscape_family(
         # 3. Common grid
         if x_grid is None:
             x_grid = np.linspace(global_min_x, global_max_x, num_grid_points)
-        else:
-            x_grid = np.asarray(x_grid, dtype=float)
-            if x_grid.ndim != 1 or x_grid.size < 2:
-                raise ValueError("x_grid must be a 1D array with at least 2 points")
         num_grid_points = x_grid.size  # ensure consistency
 
         # 4. Evaluate all kernels on the grid
@@ -1114,7 +1136,11 @@ def compute_measurement_landscape_family(
             },
         )
 
-        # Cache on the forest instance.
+        # Publish caches only after the complete family succeeds.
+        if cache_functionals and compute_functionals:
+            if not hasattr(forest, "barcode_functionals"):
+                forest.barcode_functionals = {}
+            forest.barcode_functionals[functionals_label] = bf
         if cache:
             if not hasattr(forest, "landscape_families"):
                 forest.landscape_families = {}
@@ -1421,6 +1447,12 @@ def animate_barcode_measurement_generic(
     """
     from matplotlib.animation import FuncAnimation, FFMpegWriter
 
+    if getattr(forest, "diff_only_mode", False):
+        raise ValueError(
+            "Animations are unavailable with diff_only_mode=True because "
+            "reconstructing cycles for every frame can be slow. "
+            "Build the forest with diff_only_mode=False to animate it."
+        )
     if not hasattr(forest, "filtration") or not forest.filtration:
         raise ValueError("Forest has no filtration data to animate.")
 
