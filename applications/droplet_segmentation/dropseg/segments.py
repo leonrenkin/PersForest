@@ -1,29 +1,23 @@
-"""From selected cycles to a label image, and its comparison with the truth.
+"""Steps 5 to 7: from outlines to a label image.
 
-A segment is the set of pixels whose centers lie inside the outer loop of a
-cycle: a staircase for cubical cycles, a polygon on grid vertices for alpha
-lobes. Taking the outer loop fills holes, the dim pixels a noisy outline
-leaves out inside a droplet.
+A segment starts as the set of pixels whose centers lie inside the outer
+loop of a cycle: a staircase for cubical cycles, a polygon on grid vertices
+for alpha lobes. Taking the outer loop fills holes, the dim pixels a noisy
+outline leaves out inside a droplet. A *region* is an outline or one of its
+lobes.
 
-A *region* is a stage-2 outline or one of its lobes. A region holding at most
-one candidate peak is one segment. A region holding several peaks (droplets
-whose bars split off above the maximal search value) is seeded with one
-*core* per peak, the peak's cycle just above its last split, and the rest of
-it is filled in. The fill-in hands each uncovered pixel of a *container*, a
-region with several peaks or a split outline whose lobes leave a strip
-uncovered, to one of its segments:
-
-``"flood"``
-    Pixels are visited from bright to dark, and each joins the segment of an
-    already labelled neighbor. This continues the superlevel filtration below
-    the saddle, so the boundary between two droplets follows the valley.
-``"nearest"``
-    Each pixel joins the segment with the nearest pixel.
+The lobes of a split outline leave a strip along the outline and across the
+waist uncovered. ``fill_in`` hands each of these pixels to one of the lobes
+by flooding: pixels are visited from bright to dark, and each joins the
+segment of an already labelled neighbor. This continues the superlevel
+filtration below the saddle, so the boundary between two lobes follows the
+valley.
 
 An outline is one level set of its droplet, so it leaves out the flanks below
-that level. ``grow`` extends every segment by the same flood, outside any
-container, down to a *floor* intensity. Segments compete for pixels, so two
-growing droplets meet in the valley between them.
+that level. ``grow`` extends every segment by the same flood down to a
+*floor* intensity. Segments compete for pixels, so two growing droplets meet
+in the valley between them. ``open_labels`` smooths the boundaries with an
+alpha opening and ``drop_segments`` removes small pieces.
 """
 
 import heapq
@@ -35,7 +29,7 @@ from numpy.typing import NDArray
 
 from persforest import PersistenceForest
 
-from splitting import outer_loop
+from .lobes import outer_loop
 
 _NEIGHBORS = ((-1, 0), (1, 0), (0, -1), (0, 1))
 
@@ -65,116 +59,15 @@ def paint(masks: list[NDArray[np.bool_]], shape: tuple[int, int]) -> NDArray[np.
     return labels
 
 
-def label_regions(regions: list[NDArray[np.bool_]], peaks: dict, cores: dict,
-                  shape: tuple[int, int]) -> tuple[NDArray[np.int_], list, list[NDArray[np.bool_]]]:
-    """Label regions, splitting those that hold several peaks into seeded cores.
-
-    Parameters
-    ----------
-    regions : list of ndarray of bool
-        Disjoint regions.
-    peaks : dict
-        Peak pixel ``(row, column)`` of every candidate.
-    cores : dict
-        Core mask of every candidate, used where a region holds several peaks.
-    shape : tuple of int
-
-    Returns
-    -------
-    labels : ndarray of int
-        Single-peak regions fully labelled, crowded regions only at their cores.
-    owners : list
-        ``owners[label - 1]`` is the candidate of the label, or None for a region
-        without a peak (a droplet without a maximum of its own).
-    crowded : list of ndarray of bool
-        Regions holding several peaks, to be filled in.
-    """
-    labels = np.zeros(shape, dtype=int)
-    owners, crowded = [], []
-    for region in regions:
-        inside = [candidate for candidate, pixel in peaks.items() if region[pixel]]
-        if len(inside) <= 1:
-            owners.append(inside[0] if inside else None)
-            labels[region & (labels == 0)] = len(owners)
-            continue
-        for candidate in inside:
-            owners.append(candidate)
-            labels[cores[candidate] & region] = len(owners)
-        crowded.append(region)
-    return labels, owners, crowded
-
-
-def fill_in(labels: NDArray[np.int_], container: NDArray[np.bool_], image: NDArray[np.float64],
-            method: str = "flood") -> NDArray[np.int_]:
-    """Label the unlabelled pixels of ``container`` from its labelled ones.
-
-    Parameters
-    ----------
-    labels : ndarray of int
-        Current labels; 0 is unlabelled.
-    container : ndarray of bool
-        Pixels to fill.
-    image : ndarray
-        Brightness, which orders the flooding.
-    method : {"flood", "nearest"}
-        Flooding leaves pixels unreachable from a segment inside the container
-        to the nearest segment.
-    """
-    labels = labels.copy()
-    if not (labels[container] > 0).any():
-        return labels
-    if method == "flood":
-        heap = []
-
-        def push_neighbors(row, column, label):
-            for d_row, d_column in _NEIGHBORS:
-                r, c = row + d_row, column + d_column
-                if 0 <= r < labels.shape[0] and 0 <= c < labels.shape[1] and container[r, c] and not labels[r, c]:
-                    heapq.heappush(heap, (-image[r, c], r, c, label))
-
-        for row, column in np.argwhere(container & (labels > 0)):
-            push_neighbors(row, column, labels[row, column])
-        while heap:
-            _, row, column, label = heapq.heappop(heap)
-            if not labels[row, column]:
-                labels[row, column] = label
-                push_neighbors(row, column, label)
-    elif method != "nearest":
-        raise ValueError(f"method must be 'flood' or 'nearest', got {method!r}")
-    pending = np.argwhere(container & (labels == 0))
-    if len(pending):
-        seeds = np.argwhere(container & (labels > 0))
-        distances = ((pending[:, None, :] - seeds[None, :, :]) ** 2).sum(axis=2)
-        labels[tuple(pending.T)] = labels[tuple(seeds[distances.argmin(axis=1)].T)]
-    return labels
-
-
-
-def grow(labels: NDArray[np.int_], image: NDArray[np.float64], floor: float) -> NDArray[np.int_]:
-    """Extend every segment into unlabelled pixels at least as bright as ``floor``, from bright to dark.
-
-    Parameters
-    ----------
-    labels : ndarray of int
-        Segments; 0 is unlabelled.
-    image : ndarray
-        Brightness, which orders the flooding.
-    floor : float
-        Pixels below it are never added.
-
-    Returns
-    -------
-    ndarray of int
-        A pixel joins the segment whose flood reaches it first, i.e. the
-        segment with the brightest path to it; segments never shrink.
-    """
+def _flood(labels: NDArray[np.int_], image: NDArray[np.float64], allowed: NDArray[np.bool_]) -> NDArray[np.int_]:
+    """Extend the segments into unlabelled ``allowed`` pixels from bright to dark."""
     labels = labels.copy()
     heap = []
 
     def push_neighbors(row, column, label):
         for d_row, d_column in _NEIGHBORS:
             r, c = row + d_row, column + d_column
-            if 0 <= r < labels.shape[0] and 0 <= c < labels.shape[1] and not labels[r, c] and image[r, c] >= floor:
+            if 0 <= r < labels.shape[0] and 0 <= c < labels.shape[1] and allowed[r, c] and not labels[r, c]:
                 heapq.heappush(heap, (-image[r, c], r, c, label))
 
     for row, column in np.argwhere(labels > 0):
@@ -185,6 +78,34 @@ def grow(labels: NDArray[np.int_], image: NDArray[np.float64], floor: float) -> 
             labels[row, column] = label
             push_neighbors(row, column, label)
     return labels
+
+
+def fill_in(labels: NDArray[np.int_], container: NDArray[np.bool_], image: NDArray[np.float64]) -> NDArray[np.int_]:
+    """Label the unlabelled pixels of ``container`` by flooding from its labelled ones.
+
+    Pixels the flood cannot reach inside the container go to the segment with
+    the nearest pixel.
+    """
+    if not (labels[container] > 0).any():
+        return labels.copy()
+    inside = np.where(container, labels, 0)
+    flooded = _flood(inside, image, container)
+    labels = np.where(container & (labels == 0), flooded, labels)
+    pending = np.argwhere(container & (labels == 0))
+    if len(pending):
+        seeds = np.argwhere(container & (labels > 0))
+        distances = ((pending[:, None, :] - seeds[None, :, :]) ** 2).sum(axis=2)
+        labels[tuple(pending.T)] = labels[tuple(seeds[distances.argmin(axis=1)].T)]
+    return labels
+
+
+def grow(labels: NDArray[np.int_], image: NDArray[np.float64], floor: float) -> NDArray[np.int_]:
+    """Extend every segment into unlabelled pixels at least as bright as ``floor``, from bright to dark.
+
+    A pixel joins the segment whose flood reaches it first, i.e. the segment
+    with the brightest path to it; segments never shrink.
+    """
+    return _flood(labels, image, image >= floor)
 
 
 def boundary_vertices(mask: NDArray[np.bool_]) -> NDArray[np.float64]:
@@ -276,11 +197,10 @@ def outline_groups(labels: NDArray[np.int_], region_labels: NDArray[np.int_],
     """Label image of the outline each segment comes from.
 
     Segments of one group were divided inside one outline (lobes of an
-    8-shaped outline, or peaks seeded in it); segments of different groups
-    had outlines of their own, separated by the forest. ``region_labels``
-    are the segments before growing, ``outline_labels`` the outlines; a
-    segment lies in the outline holding most of its region, or forms a group
-    of its own if it lies in none.
+    8-shaped outline); segments of different groups had outlines of their
+    own, separated by the forest. ``region_labels`` are the segments before
+    growing, ``outline_labels`` the outlines; a segment lies in the outline
+    holding most of its region, or forms a group of its own if it lies in none.
     """
     n_labels = max(int(labels.max()), int(region_labels.max())) + 1
     n_outlines = int(outline_labels.max()) + 1

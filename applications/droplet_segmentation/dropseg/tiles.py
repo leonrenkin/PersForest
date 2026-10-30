@@ -5,8 +5,8 @@ a margin on every side. A tile is upsampled and segmented on its own, and a
 segment is kept by the tile whose core holds its centroid, so every segment
 is kept at most once. A droplet smaller than the margin, centered in a core,
 lies inside that tile, away from its edge. Segments touching the tile's edge
-inside the image are cut by the tile and dropped; they are counted, since
-they are droplets larger than the margin or merges spanning tiles.
+inside the image are cut by the tile and dropped; they are counted, and a
+tile that cut a segment it owns is segmented again with a wider margin.
 
 Beyond the grid counts as brighter than everything, so within a margin of a
 tile's edge the forest differs from that of the whole image; the margin must
@@ -21,8 +21,8 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy import ndimage
 
-from pipeline import Settings
-from pipeline import segment
+from .pipeline import Settings
+from .pipeline import segment
 
 
 @dataclass(frozen=True)
@@ -55,10 +55,10 @@ class TileResult:
     labels : ndarray of int
         Fine labels of the tile with only the kept segments.
     groups : ndarray of int
-        The outline each kept segment comes from (``segmentation.outline_groups``).
+        The outline each kept segment comes from (``segments.outline_groups``).
     outlines, late, split, cut : int
-        Stage-2 outlines, late peaks, split outlines, and segments centered in
-        the core but dropped because they touch the tile's edge.
+        Outlines, merged peaks, split outlines, and segments centered in the
+        core but dropped because they touch the tile's edge.
     seconds : float
     broken : int
         Kept segments the smoothing cut into several pieces of at least the
@@ -103,9 +103,8 @@ def segment_tile(image: NDArray[np.float64], tile: Tile, settings: Settings, ups
     seconds = sum(result.timings.values())
     keep = np.isin(labels, kept)
     return TileResult(tile, np.where(keep, labels, 0), np.where(keep, result.groups, 0), len(result.selections),
-                      len(result.late),
-                      sum(bool(split.lobes) for split in result.splits.values()), int((in_core & touching).sum()),
-                      seconds, int(np.isin(result.broken, kept).sum()))
+                      len(result.late), sum(bool(split.lobes) for split in result.splits.values()),
+                      int((in_core & touching).sum()), seconds, int(np.isin(result.broken, kept).sum()))
 
 
 def segment_tiled(image: NDArray[np.float64], settings: Settings, upsampler: Callable, factor: int,
@@ -122,7 +121,7 @@ def segment_tiled(image: NDArray[np.float64], settings: Settings, upsampler: Cal
     upsampler : callable
         Maps a tile to its upsampled image ``factor`` times larger; it must be
         picklable for ``workers > 1``, e.g. a ``functools.partial`` of
-        ``real_images.gaussian_upsample``.
+        ``images.gaussian_upsample``.
     factor : int
     size, margin : int
         Core size and margin in original pixels. A tile that cuts a segment

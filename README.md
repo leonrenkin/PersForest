@@ -9,6 +9,7 @@ https://doi.org/10.48550/arXiv.2512.09668.
 - Plotting and animation methods for cycle representatives, barcodes and persistence forests in codimension 1.
 - Measurement landscapes using cycle functionals such as length, enclosed area or volume, and excess curvature.
 - Beginner-friendly tutorial notebooks in `examples/tutorials/`.
+- A droplet segmentation application for 2D microscopy images, with a command line and a tuning notebook, in [`applications/droplet_segmentation/`](applications/droplet_segmentation/README.md).
 - Runnable script quickstart in `examples/pers_forest_example.py`.
 
 ## Installation
@@ -157,13 +158,54 @@ family = forest.compute_measurement_landscapes(cubical_chain_interior_volume, "a
 | Capability | Point clouds | Cubical grids |
 | --- | --- | --- |
 | Barcode, representatives, interiors, interior activity | yes | yes |
-| Measurement profiles and landscapes | `persforest.measurements.basic`, `.shape` | `persforest.measurements.cubical`, `constant_one_functional` |
+| Measurement profiles and landscapes | `persforest.measurements.basic`, `.shape`, `.loops` | `persforest.measurements.cubical`, `.loops` (2D), `constant_one_functional` |
 | `plot_barcode`, `plot_persistence_forest`, measurement plots | yes | yes |
-| Filtration, cycle and interior plots; animations | 2D and 3D | not yet (raise `NotImplementedError`) |
+| Filtration, cycle and interior plots (Matplotlib and Plotly), animations | yes | 2D and 3D, as for point clouds (1D raises `ValueError`) |
+| `plot_at_filtration_with_dual` (Delaunay dual) | 2D | no (raises `NotImplementedError`) |
 
 Measurements are callables `(chain, geometry)`, where `geometry` is
 `forest.geometry`: the point array for point clouds, a `CubicalGeometry` for
 grids. Point-cloud measurements raise a `TypeError` when given a grid.
+
+Shape measurements of 2D cycles act on planar loops. `persforest.geometry.loops`
+turns a representative into loops: `raw_loops` (the polygon or pixel
+staircase), `midpoint_loops` (through the midpoints of the grid edges),
+`smoothed_loops` (Gaussian, width `sigma`), `averaged_loops` (local neighbour
+averaging) or `taut_loops` (the shortest curve within half a pixel of the
+staircase). The `loops_*` functionals of `persforest.measurements.loops`
+measure them, and `on_raw_loops`, `on_smoothed_loops`, ... combine both steps
+into a measurement. On grids, avoid the staircase for length-based scores such
+as circularity, which it distorts:
+
+```python
+from persforest.measurements.loops import loops_circularity, on_taut_loops
+circularity = on_taut_loops(loops_circularity)
+profiles = forest.compute_measurement_profiles(circularity, "circularity")
+```
+
+Grid plots place cells at their physical position. Array axis 0 runs along x and
+axis 1 along y (and axis 2 along z), the frame of the cell orientations; in 2D,
+pass `image_orientation=True` to draw rows downward as an image viewer would
+(this reflects the picture, so signed orientations appear reversed). 2D plots
+show the grid values in grayscale with a colorbar beneath the cycles and veil
+the pixels not yet present; `show_complex=False` shows the full image and
+`show_image=False` tints the present pixels instead. Options that only exist
+for point clouds, such as `vertex_size`, raise a `ValueError` for grids.
+
+```python
+forest.plot_at_filtration(0.3, image_orientation=True)
+forest.plot_interior_simplex_activity(image_orientation=True)
+```
+
+`examples/tutorials/07_plotting_cubical_grids.ipynb` tours these plots.
+
+In 2D the bars are loops of the sublevel filtration, which enclose regions
+brighter than their surroundings. By Alexander duality, the bars of a bright
+spot are its superlevel H0 pairs: build the forest from the image itself for
+bright objects and from its negative for dark ones.
+`tests/tests-by-agents/test_cubical_superlevel_duality.py` checks this against
+GUDHI, and `applications/droplet_segmentation` segments bright droplets from
+their representatives.
 
 Representatives use half-open activity intervals `[active_start, active_end)`:
 birth is included and death is excluded.
@@ -198,8 +240,11 @@ The tutorial notebooks are intended to be read in this order:
 1. `examples/tutorials/01_visualizing_cycle_representatives.ipynb` - plot barcodes and cycle representatives in 2D and 3D.
 2. `examples/tutorials/02_extracting_cycle_representatives.ipynb` - extract representatives as simplices, coordinates and planar paths.
 3. `examples/tutorials/03_animating_cycle_representatives.ipynb` - create filtration and measurement animations.
-4. `examples/tutorials/04_measurement_landscapes.ipynb` - compute, plot and vectorize measurement landscapes.
-5. `examples/tutorials/05_plotting_persistence_forests.ipynb` - plot persistence forests and compare them with barcodes.
+4. `examples/tutorials/04_measurement_profiles.ipynb` - compute, plot and animate measurement profiles along each bar.
+5. `examples/tutorials/05_measurement_landscapes.ipynb` - compute, plot and vectorize measurement landscapes.
+6. `examples/tutorials/06_plotting_persistence_forests.ipynb` - plot persistence forests and compare them with barcodes.
+7. `examples/tutorials/07_plotting_cubical_grids.ipynb` - plot filtrations, cycles, interiors and animations of 2D images and 3D volumes.
+8. `examples/tutorials/08_cycle_shapes_from_loops.ipynb` - turn representatives into raw, midpoint, smoothed, averaged and taut planar loops and measure their shapes.
 
 ## Measurement profiles and landscapes
 
@@ -229,6 +274,12 @@ mutation requires explicit remeasurement if fresh data is wanted. Measurement
 callbacks borrow chains and coordinates and must not modify them.
 Both the forest method and standalone `compute_measurement_profiles` default
 to `signed=False`; use `signed=True` to measure stored signed representatives.
+
+`forest.plot_measurement_profiles(profiles)` overlays the profiles of all bars,
+selected and colored as in `plot_barcode` (`min_bar_length`, `max_bars`,
+`coloring`) and on the same filtration axis; `extend_baseline=True` draws each
+profile as zero outside its bar. `forest.animate_barcode_measurement`
+shows these profiles next to the filtration, with a moving time line.
 
 `forest.measurement_profiles[label]` and `forest.landscape_families[label]` are
 optional result registries. The one-call method accepts `cache_profiles=True`
@@ -274,6 +325,7 @@ methods remain convenient label-based entry points.
 - `examples/point_cloud_sampling.py` - shared synthetic point-cloud samplers.
 - `benchmarks/benchmark.py` - legacy runtime benchmark script.
 - `benchmarks/performance/` - runtime and memory benchmark harness.
+- `applications/droplet_segmentation/` - segmentation of bright droplets in 2D images (`dropseg`), with notebooks and a command line.
 - `research/paper_examples/paper-examples.py` - manuscript figure examples.
 - `research/tendril_regression/` - synthetic-data and regression experiments.
 

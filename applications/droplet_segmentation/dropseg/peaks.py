@@ -1,12 +1,12 @@
-"""Stage 1: candidate bars and the branches that split off them.
+"""Steps 1 and 2: candidate bars and the branches that split off them.
 
 A bar's representatives run from its birth, where it splits off an elder bar
 (or where its tree starts), to its death. A long bar ``child`` *splits off*
 ``parent`` if the forest node at which ``child`` is born lies on the
 progression of ``parent``. Before that split, ``parent``'s cycle still
 encloses ``child``'s region; from the split on, the two cycles bound disjoint
-regions. Searching ``parent`` for a segment only from its last long split on
-therefore keeps segments from containing each other. Splits above a given
+regions. Searching ``parent`` for an outline only from its last long split on
+therefore keeps outlines from containing each other. Splits above a given
 value can be ignored, leaving those droplets inside their elder's outline.
 
 The functions work on any persistence forest, cubical or simplicial.
@@ -19,11 +19,15 @@ from persforest import PersistenceForest
 from persforest.barcode import PFBar
 
 
-def long_bars(forest: PersistenceForest, min_lifespan: float = 0.0,
-              min_death: float = float("-inf")) -> list[PFBar]:
-    """Bars with ``lifespan >= min_lifespan`` and ``death >= min_death``, longest first."""
-    bars = [bar for bar in forest.barcode if bar.lifespan() >= min_lifespan and bar.death >= min_death]
-    return sorted(bars, key=lambda bar: (-bar.lifespan(), bar.birth, bar.death))
+def long_bars(forest: PersistenceForest, min_lifespan: float = 0.0) -> list[PFBar]:
+    """Bars with ``lifespan >= min_lifespan``, longest first.
+
+    ``forest.barcode`` is a set; ties, common in 8-bit images with saturated
+    peaks, are broken by the forest's node ids, so that the order and hence
+    the labels are the same in every run.
+    """
+    bars = [bar for bar in forest.barcode if bar.lifespan() >= min_lifespan]
+    return sorted(bars, key=lambda bar: (-bar.lifespan(), bar.birth, bar.death, bar._node_progression[0]))
 
 
 @dataclass(frozen=True)
@@ -53,13 +57,6 @@ class Branches:
         maximal search value; ties are common in 8-bit images.
         """
         return max([bar.birth] + [child.birth for child in self.children[bar] if child.birth < until])
-
-    def descendants(self, bar: PFBar) -> list[PFBar]:
-        """All selected bars below ``bar``, excluding ``bar``."""
-        found = list(self.children[bar])
-        for child in found:
-            found.extend(self.children[child])
-        return found
 
 
 def branch_structure(forest: PersistenceForest, bars: list[PFBar]) -> Branches:

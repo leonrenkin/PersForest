@@ -47,6 +47,13 @@ examples = [
     "pandas>=2.2",
     "scikit-learn>=1.4",
 ]
+droplets = [
+    "persforest[plot]",
+    "scipy>=1.11",
+    "pillow>=10.0",
+    "pandas>=2.2",
+    "ipywidgets>=8.1",
+]
 
 [build-system]
 requires = ["uv_build>=0.13.6,<0.14"]

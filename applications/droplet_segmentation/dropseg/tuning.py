@@ -1,6 +1,6 @@
 """Interactive views of the droplet pipeline, one per step, on a window of the image.
 
-``Tuner`` holds the current ``droplets.Parameters`` and a ``droplets.Stages``
+``Tuner`` holds the current ``Parameters`` and a ``stages.Stages``
 cache of the window. ``Tuner.step(name)`` shows the view of one step with
 sliders for its parameters; moving a slider updates ``Tuner.parameters``, so
 the later steps start from the values chosen for the earlier ones. Only the
@@ -22,17 +22,17 @@ import matplotlib.pyplot as plt
 from matplotlib import patheffects
 import numpy as np
 
-from droplets import STEPS
-from droplets import Parameters
-from droplets import Stages
-from pipeline import peak
-from pipeline import search_start
-from plots import draw_cycle
-from plots import outline_segments
-from plots import show_image
-from plots import show_labels
-from plots import zoom
-from segmentation import outline_mask
+from .parameters import STEPS
+from .parameters import Parameters
+from .pipeline import peak
+from .pipeline import search_start
+from .plots import draw_cycle
+from .plots import outline_segments
+from .plots import show_image
+from .plots import show_labels
+from .plots import zoom
+from .segments import outline_mask
+from .stages import Stages
 
 _SLIDER = dict(continuous_update=False, readout_format=".2f", style={"description_width": "120px"},
                layout=widgets.Layout(width="420px"))
@@ -201,7 +201,7 @@ def search_starts(stages: Stages, parameters: Parameters) -> dict:
         start = search_start(branches, bar, settings)
         if start > parameters.min_level and math.isclose(start, bar.birth + settings.birth_offset):
             reason = "birth offset"
-        elif start > parameters.min_level and start == branches.search_start(bar, until=settings.max_value):
+        elif start > parameters.min_level and start == branches.search_start(bar, until=settings.split_level):
             reason = "split"
         else:
             reason = "min_level"
@@ -466,6 +466,7 @@ class Tuner:
         step = step_of(name)
         if step not in VIEWS:  # upsample and kernel_width change the image itself: show the peaks
             step = "peaks"
+        columns = min(columns, len(values))
         rows = -(-len(values) // columns)
         fig, axes = plt.subplots(rows, columns, figsize=(columns * size, rows * (size + 0.4)), squeeze=False)
         for ax, value in zip(axes.ravel(), values):
