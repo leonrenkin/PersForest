@@ -47,8 +47,12 @@ class Branches:
     children: dict[PFBar, list[PFBar]]
 
     def search_start(self, bar: PFBar, until: float = math.inf) -> float:
-        """Birth of ``bar``, or the birth of its last child born at most ``until``, if later."""
-        return max([bar.birth] + [child.birth for child in self.children[bar] if child.birth <= until])
+        """Birth of ``bar``, or the birth of its last child born below ``until``, if later.
+
+        A child born at ``until`` counts as late, like the bars born at the
+        maximal search value; ties are common in 8-bit images.
+        """
+        return max([bar.birth] + [child.birth for child in self.children[bar] if child.birth < until])
 
     def descendants(self, bar: PFBar) -> list[PFBar]:
         """All selected bars below ``bar``, excluding ``bar``."""

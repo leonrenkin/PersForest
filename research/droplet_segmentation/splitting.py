@@ -5,11 +5,17 @@ brightness has a single maximum. Their outline is still 8-shaped, and the
 waist shows in the alpha filtration of the outline's grid vertices, taken as
 plain points. The interior hole of the alpha complex is born when the
 outline closes, splits in two when the alpha radius reaches half the width of
-the waist, and each part dies at about the radius of its lobe. A lobe is
-therefore a bar with
+the waist, and each part dies at about the radius of its lobe. The bar of
+the smaller lobe is therefore born at the split radius s, about half the
+waist width, and dies at its lobe radius rho. A lobe is a bar with either
 
-- ``death >= min_lobe_radius``: the lobe is droplet-sized, and
-- ``lifespan >= min_lobe_lifespan``: the waist is narrower than the lobe.
+- ``death >= min_lobe_radius`` and ``lifespan >= min_lobe_lifespan``, in
+  pixels (the original rule), or
+- ``birth / death <= waist_ratio``: the waist is at most that fraction of
+  the lobe's width. The ratio does not depend on the size of the droplet or
+  the resolution of the grid; only lobes of at least
+  ``STAIRCASE_LOBE_RADIUS`` grid pixels count, since smaller ones are the
+  corners of the pixel staircase.
 
 The concave pockets *outside* the outline also become holes of the alpha
 complex; only bars whose region lies inside the outline count. Every lobe is
@@ -18,14 +24,16 @@ are grid vertices, so it maps back to pixels exactly.
 """
 
 from dataclasses import dataclass
+from dataclasses import field
 from typing import Callable
+import math
 
 import numpy as np
 from matplotlib.path import Path
 from numpy.typing import NDArray
 
 from persforest import PersistenceForest
-from persforest.geometry.loops import cycle_loops
+from persforest.geometry.loops import raw_loops
 from persforest.geometry.planar import polygon_area
 
 from candidates import Branches
@@ -35,6 +43,9 @@ from selection import Selection
 from selection import Threshold
 from selection import select_cycle
 
+# Alpha lobes of a staircase outline up to a domino (circumradius sqrt(5) / 2) are its corners, not droplets.
+STAIRCASE_LOBE_RADIUS = 1.2
+
 
 def outer_loop(cycle, geometry) -> NDArray[np.float64]:
     """Vertices of the loop of ``cycle`` that encloses the largest area.
@@ -42,7 +53,7 @@ def outer_loop(cycle, geometry) -> NDArray[np.float64]:
     For a cubical cycle these are the grid vertices of its outer staircase,
     which ignores holes and outlying pieces of the region.
     """
-    loops = cycle_loops(cycle, geometry)
+    loops = raw_loops(cycle, geometry)
     return max(loops, key=lambda loop: abs(polygon_area(loop, signed=True)))
 
 
@@ -65,6 +76,12 @@ class Split:
     lobes : list of Selection
         One selection per lobe bar; empty if fewer than two lobes were found,
         in which case the outline is kept.
+    radius : float
+        Equivalent radius of the outline, ``sqrt(area / pi)``, in pixels.
+    dim_lobes : list of Selection
+        The lobes too dim to be droplets (set by ``pipeline.find_lobes``);
+        they are also in ``lobes``, take part in the flooding and are removed
+        after it.
     """
 
     selection: Selection
@@ -73,10 +90,12 @@ class Split:
     lobe_bars: list
     branches: Branches
     lobes: list[Selection]
+    radius: float
+    dim_lobes: list[Selection] = field(default_factory=list)
 
 
 def split_selection(selection: Selection, geometry, min_lobe_radius: float, min_lobe_lifespan: float,
-                    measure: Callable, max_defect: float) -> Split:
+                    measure: Callable, max_defect: float, waist_ratio: float | None = None) -> Split:
     """Look for lobes of a stage-2 outline in the alpha forest of its vertices.
 
     Parameters
@@ -91,16 +110,24 @@ def split_selection(selection: Selection, geometry, min_lobe_radius: float, min_
         Shape measure of the alpha representatives, ``(chain, points) -> float``.
     max_defect : float
         Threshold of the lobe search.
+    waist_ratio : float, optional
+        If given, lobes are the bars with ``birth / death <= waist_ratio`` and
+        a death of at least ``STAIRCASE_LOBE_RADIUS``, instead of the two minima.
     """
     outline = outer_loop(selection.cycle, geometry)
+    radius = math.sqrt(abs(polygon_area(outline, signed=True)) / math.pi)
     points = np.unique(outline, axis=0)
     forest = PersistenceForest.from_points(points, storage="cycles")
     inside = Path(outline)
-    lobe_bars = [bar for bar in long_bars(forest, min_lobe_lifespan, min_lobe_radius)
+    if waist_ratio is None:
+        candidates = long_bars(forest, min_lobe_lifespan, min_lobe_radius)
+    else:
+        candidates = [bar for bar in long_bars(forest, 0.0, STAIRCASE_LOBE_RADIUS) if bar.birth <= waist_ratio * bar.death]
+    lobe_bars = [bar for bar in candidates
                  if inside.contains_point(outer_loop(bar.cycle_reps[-1], points).mean(axis=0))]
     branches = branch_structure(forest, lobe_bars)
     lobes = []
     if len(lobe_bars) > 1:
         lobes = [select_cycle(forest, bar, measure, Threshold(max_defect), branches.search_start(bar))
                  for bar in lobe_bars]
-    return Split(selection, points, forest, lobe_bars, branches, lobes)
+    return Split(selection, points, forest, lobe_bars, branches, lobes, radius)

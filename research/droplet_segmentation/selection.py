@@ -123,7 +123,7 @@ def defect_profile(forest: PersistenceForest, bar: PFBar, measure: Callable, sta
     forest : PersistenceForest
     bar : PFBar
     measure : callable
-        ``(chain, geometry) -> float``, e.g. a ``LoopMeasurement``.
+        ``(chain, geometry) -> float``, e.g. from ``on_midpoint_loops``.
     start, end : float
         Search interval; ``end`` defaults to the death of the bar.
     until : callable, optional

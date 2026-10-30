@@ -19,11 +19,17 @@ uncovered, to one of its segments:
     the saddle, so the boundary between two droplets follows the valley.
 ``"nearest"``
     Each pixel joins the segment with the nearest pixel.
+
+An outline is one level set of its droplet, so it leaves out the flanks below
+that level. ``grow`` extends every segment by the same flood, outside any
+container, down to a *floor* intensity. Segments compete for pixels, so two
+growing droplets meet in the valley between them.
 """
 
 import heapq
 
 import numpy as np
+from scipy import ndimage
 from matplotlib.path import Path
 from numpy.typing import NDArray
 
@@ -144,6 +150,43 @@ def fill_in(labels: NDArray[np.int_], container: NDArray[np.bool_], image: NDArr
 
 
 
+def grow(labels: NDArray[np.int_], image: NDArray[np.float64], floor: float) -> NDArray[np.int_]:
+    """Extend every segment into unlabelled pixels at least as bright as ``floor``, from bright to dark.
+
+    Parameters
+    ----------
+    labels : ndarray of int
+        Segments; 0 is unlabelled.
+    image : ndarray
+        Brightness, which orders the flooding.
+    floor : float
+        Pixels below it are never added.
+
+    Returns
+    -------
+    ndarray of int
+        A pixel joins the segment whose flood reaches it first, i.e. the
+        segment with the brightest path to it; segments never shrink.
+    """
+    labels = labels.copy()
+    heap = []
+
+    def push_neighbors(row, column, label):
+        for d_row, d_column in _NEIGHBORS:
+            r, c = row + d_row, column + d_column
+            if 0 <= r < labels.shape[0] and 0 <= c < labels.shape[1] and not labels[r, c] and image[r, c] >= floor:
+                heapq.heappush(heap, (-image[r, c], r, c, label))
+
+    for row, column in np.argwhere(labels > 0):
+        push_neighbors(row, column, labels[row, column])
+    while heap:
+        _, row, column, label = heapq.heappop(heap)
+        if not labels[row, column]:
+            labels[row, column] = label
+            push_neighbors(row, column, label)
+    return labels
+
+
 def boundary_vertices(mask: NDArray[np.bool_]) -> NDArray[np.float64]:
     """Grid vertices on the outer boundary of a mask, as ``(row, column)`` points.
 
@@ -202,3 +245,49 @@ def open_labels(labels: NDArray[np.int_], radius: float) -> NDArray[np.int_]:
         result = open_mask(window, radius)
         opened[low[0]:high[0], low[1]:high[1]][result] = label
     return opened
+
+
+def drop_segments(labels: NDArray[np.int_], min_area: float = 0.0) -> tuple[NDArray[np.int_], list[int]]:
+    """Remove pieces smaller than ``min_area`` pixels; their pixels become background.
+
+    A piece is a connected component of a segment: the whole segment, or one
+    of the parts the smoothing (an opening) broke it into. Returns the labels
+    and the segments left with several pieces of at least ``min_area``, which
+    the smoothing has cut into droplet-sized parts.
+    """
+    labels = labels.copy()
+    broken = []
+    for label, window in enumerate(ndimage.find_objects(labels), start=1):
+        if window is None:
+            continue
+        mask = labels[window] == label
+        pieces, n_pieces = ndimage.label(mask)
+        sizes = np.bincount(pieces.ravel(), minlength=n_pieces + 1)
+        small = sizes < min_area
+        small[0] = False
+        labels[window][small[pieces] & mask] = 0
+        if (sizes[1:] >= min_area).sum() > 1:
+            broken.append(label)
+    return labels, broken
+
+
+def outline_groups(labels: NDArray[np.int_], region_labels: NDArray[np.int_],
+                   outline_labels: NDArray[np.int_]) -> NDArray[np.int_]:
+    """Label image of the outline each segment comes from.
+
+    Segments of one group were divided inside one outline (lobes of an
+    8-shaped outline, or peaks seeded in it); segments of different groups
+    had outlines of their own, separated by the forest. ``region_labels``
+    are the segments before growing, ``outline_labels`` the outlines; a
+    segment lies in the outline holding most of its region, or forms a group
+    of its own if it lies in none.
+    """
+    n_labels = max(int(labels.max()), int(region_labels.max())) + 1
+    n_outlines = int(outline_labels.max()) + 1
+    inside = (region_labels > 0) & (outline_labels > 0)
+    counts = np.zeros((n_labels, n_outlines), dtype=int)
+    np.add.at(counts, (region_labels[inside], outline_labels[inside]), 1)
+    group = counts.argmax(axis=1)
+    alone = counts.max(axis=1) == 0
+    group[alone] = n_outlines + np.arange(alone.sum())
+    return np.where(labels > 0, group[labels], 0)
