@@ -861,6 +861,14 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+droplets = [
+    { name = "ipywidgets" },
+    { name = "matplotlib" },
+    { name = "pandas" },
+    { name = "pillow" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
 examples = [
     { name = "matplotlib" },
     { name = "pandas" },
@@ -885,18 +893,23 @@ plotly = [
 requires-dist = [
     { name = "anywidget", marker = "extra == 'notebook'", specifier = ">=0.9" },
     { name = "gudhi", specifier = ">=3.11" },
+    { name = "ipywidgets", marker = "extra == 'droplets'", specifier = ">=8.1" },
     { name = "ipywidgets", marker = "extra == 'notebook'", specifier = ">=8.1" },
     { name = "matplotlib", marker = "extra == 'plot'", specifier = ">=3.8" },
     { name = "nbformat", marker = "extra == 'notebook'", specifier = ">=5.10" },
     { name = "numpy", specifier = ">=1.26" },
+    { name = "pandas", marker = "extra == 'droplets'", specifier = ">=2.2" },
     { name = "pandas", marker = "extra == 'examples'", specifier = ">=2.2" },
+    { name = "persforest", extras = ["plot"], marker = "extra == 'droplets'" },
     { name = "persforest", extras = ["plot"], marker = "extra == 'examples'" },
     { name = "persforest", extras = ["plot"], marker = "extra == 'plotly'" },
     { name = "persforest", extras = ["plotly"], marker = "extra == 'notebook'" },
+    { name = "pillow", marker = "extra == 'droplets'", specifier = ">=10.0" },
     { name = "plotly", marker = "extra == 'plotly'", specifier = ">=6.0" },
     { name = "scikit-learn", marker = "extra == 'examples'", specifier = ">=1.4" },
+    { name = "scipy", marker = "extra == 'droplets'", specifier = ">=1.11" },
 ]
-provides-extras = ["plot", "plotly", "notebook", "examples"]
+provides-extras = ["plot", "plotly", "notebook", "examples", "droplets"]
 
 [[package]]
 name = "pexpect"
