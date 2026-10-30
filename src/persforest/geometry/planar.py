@@ -176,21 +176,6 @@ def _polygon_max_convexity_defect_depth(points: NDArray[np.float64]) -> float:
 
     return maximum_depth
 
-def _planar_signed_chain_vertices(
-    signed_chain: SignedChain,
-    point_cloud: NDArray[np.float64],
-) -> NDArray[np.float64]:
-    """Validate a planar signed 1-chain and return its support vertices."""
-    coordinates = np.asarray(point_cloud, dtype=float)
-    if coordinates.ndim != 2 or coordinates.shape[1] != 2:
-        raise ValueError("point_cloud must have shape (n_points, 2)")
-    if not signed_chain.signed_simplices:
-        return np.empty((0, 2), dtype=float)
-    if signed_chain.dim() != 1:
-        raise ValueError("Function only defined for 1-dimensional chains")
-
-    return signed_chain.vertex_coordinates(coordinates, signed=True)
-
 def polygon_length(points: Iterable[Tuple[float, float]]) -> float:
     """
     Perimeter (sum of edge lengths) of the closed polygonal loop.

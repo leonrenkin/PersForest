@@ -217,9 +217,13 @@ def compute_measurement_profiles(
     cache : bool, default True
         Publish the result to ``forest.measurement_profiles`` only on success.
     measurement_name : str, optional
-        Descriptive name; defaults to label, never used as a callable identity.
+        Descriptive name, never used as a callable identity. Defaults to the
+        ``measurement_name`` attribute of ``cycle_func`` if it has one (as
+        the ``on_*_loops`` measurements do), else to label.
     measurement_params : mapping, optional
-        Explicit descriptive parameters; not inferred from the callable.
+        Descriptive parameters. Defaults to the ``measurement_params``
+        attribute of ``cycle_func`` if it has one, else empty; never guessed
+        from other properties of the callable.
 
     Returns
     -------
@@ -237,6 +241,12 @@ def compute_measurement_profiles(
         raise TypeError("cache must be a boolean")
     if not isinstance(label, str):
         raise TypeError("label must be a string")
+    # Measurements may describe themselves through these two attributes;
+    # attributes of other types (e.g. on mocks) are ignored.
+    if measurement_name is None and isinstance(getattr(cycle_func, "measurement_name", None), str):
+        measurement_name = cycle_func.measurement_name
+    if measurement_params is None and isinstance(getattr(cycle_func, "measurement_params", None), Mapping):
+        measurement_params = cycle_func.measurement_params
     if measurement_name is not None and not isinstance(measurement_name, str):
         raise TypeError("measurement_name must be a string")
     if measurement_params is not None and not isinstance(measurement_params, Mapping):

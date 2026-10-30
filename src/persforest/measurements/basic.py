@@ -2,8 +2,9 @@
 
 from numpy.typing import NDArray
 from persforest.chains import SignedChain
-from persforest.geometry.planar import polygon_area
-from persforest.geometry.planar import signed_chain_to_polyhedral_paths
+from persforest.geometry.cubical import CubicalGeometry
+from persforest.geometry.loops import _polygon_loops
+from persforest.measurements.loops import loops_area
 from typing import Dict
 from typing import Set
 import math
@@ -57,6 +58,17 @@ def constant_one_functional(signed_chain: SignedChain, point_cloud = None) -> fl
         return 0
     else:
         return 1
+
+def _reject_cubical_geometry(geometry, cubical_counterpart: str) -> None:
+    """Reject grid geometry in functionals that never read the point array.
+
+    They interpret simplices as vertex ids and would silently misread the
+    doubled coordinates of grid cells.
+    """
+    if isinstance(geometry, CubicalGeometry):
+        raise TypeError(
+            "This measurement reads simplex vertex ids, but the forest was built from a "
+            f"cubical grid. Use persforest.measurements.cubical.{cubical_counterpart}.")
 
 def _support_graph_component_count(signed_chain: SignedChain) -> int:
     """Count components of the underlying edge support, ignoring orientation.
@@ -117,6 +129,7 @@ def signed_chain_connected_components(signed_chain: SignedChain, point_cloud: ND
     int
         Number of support components, or zero for an empty chain.
     """
+    _reject_cubical_geometry(point_cloud, "cubical_chain_connected_components")
     return _support_graph_component_count(signed_chain)
 
 def signed_chain_excess_connected_components(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> int:
@@ -135,6 +148,7 @@ def signed_chain_excess_connected_components(signed_chain: SignedChain, point_cl
     int
         Number of support components minus one, or zero for an empty chain.
     """
+    _reject_cubical_geometry(point_cloud, "cubical_chain_excess_connected_components")
     return max(0, _support_graph_component_count(signed_chain) - 1)
 
 def signed_chain_connected_components_only_signed_simplices(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> int:
@@ -153,7 +167,7 @@ def signed_chain_connected_components_only_signed_simplices(signed_chain: Signed
     int
         Number of support components formed by doubled simplices.
     """
-    
+    _reject_cubical_geometry(point_cloud, "cubical_chain_connected_components_only_signed_simplices")
     purely_signed_chain = signed_chain.only_double_simplices()
     if len(purely_signed_chain.signed_simplices)==0:
         return 0
@@ -164,11 +178,11 @@ def signed_chain_area(signed_chain: SignedChain, point_cloud:  NDArray[np.float6
     """
     Return the area enclosed by a planar signed 1-cycle.
 
-    Intended for cycles produced by the persistence forest, whose boundary
-    paths consist of one outer boundary and possibly hole boundaries.
-    Stored interior data is not required. General cycles are unsupported;
-    for disconnected interiors, the result is not guaranteed to equal the
-    enclosed area.
+    The cycles of the persistence forest bound one connected component of the
+    complement: one counterclockwise outer boundary and possibly clockwise
+    hole boundaries. The area is the absolute sum of the signed areas of the
+    chain's closed paths, ``loops_area`` of its polygon loops, which is the
+    outer area minus the hole areas. Stored interior data is not required.
 
     Parameters
     ----------
@@ -186,20 +200,7 @@ def signed_chain_area(signed_chain: SignedChain, point_cloud:  NDArray[np.float6
         return 0.0
     if signed_chain.dim() != 1:
         raise ValueError("Function only defined for 1-dimensional chains")
-
-    paths = signed_chain_to_polyhedral_paths(signed_chain=signed_chain, point_cloud=point_cloud)
-    x_max_list = np.array([point_cloud[path, 0].max() for path in paths])
-    index_max = np.argmax(x_max_list)
-
-    signed_areas = []
-
-    for index, path in enumerate(paths):
-        if len(path) < 2:
-            print(paths)
-            raise ValueError("Paths too short")
-        path_area = polygon_area(point_cloud[path])
-        signed_areas.append(path_area if index == index_max else -path_area)
-    return math.fsum(signed_areas)
+    return loops_area(_polygon_loops(signed_chain, point_cloud))
 
 def _require_chain_interior(signed_chain: SignedChain) -> None:
     """Raise an actionable error when a chain has no interior data.

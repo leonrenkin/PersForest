@@ -2007,9 +2007,11 @@ class PersistenceForest:
         cache : bool, default True
             Publish the result only after successful measurement.
         measurement_name : str, optional
-            Descriptive name, defaulting to label.
+            Descriptive name, defaulting to the ``measurement_name`` attribute
+            of ``cycle_func`` (set by the ``on_*_loops`` measurements) or label.
         measurement_params : dict, optional
-            Explicit descriptive parameters, not inferred from the callable.
+            Descriptive parameters, defaulting to the ``measurement_params``
+            attribute of ``cycle_func`` or empty.
 
         Returns
         -------
@@ -2068,9 +2070,11 @@ class PersistenceForest:
             intervals narrower than tol, distinct from filtration_tol.
             Measurement amplitudes are not thresholded.
         measurement_name : str, optional
-            Descriptive name, defaulting to label.
+            Descriptive name, defaulting to the ``measurement_name`` attribute
+            of ``cycle_func`` (set by the ``on_*_loops`` measurements) or label.
         measurement_params : dict, optional
-            Explicit descriptive measurement parameters.
+            Descriptive measurement parameters, defaulting to the
+            ``measurement_params`` attribute of ``cycle_func`` or empty.
 
         Returns
         -------

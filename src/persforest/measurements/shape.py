@@ -1,39 +1,28 @@
-"""measurements.shape: mechanically extracted reference implementation."""
+"""measurements.shape: shape and tendril measurements of planar simplicial 1-chains.
+
+The shape functionals measure the raw polygon loops of the chain with the
+functionals of ``persforest.measurements.loops``.
+"""
 
 from numpy.typing import NDArray
 from persforest.chains import SignedChain
-from persforest.geometry.planar import _convex_hull_indices
-from persforest.geometry.planar import _convex_polygon_diameter
-from persforest.geometry.planar import _planar_signed_chain_vertices
-from persforest.geometry.planar import _polygon_max_convexity_defect_depth
-from persforest.geometry.planar import curvature_excess
-from persforest.geometry.planar import polygon_area
-from persforest.geometry.planar import polygon_length
-from persforest.geometry.planar import signed_chain_to_polyhedral_paths
+from persforest.geometry.loops import _polygon_loops
+from persforest.measurements.basic import _reject_cubical_geometry
 from persforest.measurements.basic import _support_graph_component_count
-from persforest.measurements.basic import signed_chain_area
 from persforest.measurements.basic import signed_chain_connected_components_only_signed_simplices
 from persforest.measurements.basic import signed_chain_edge_length
+from persforest.measurements.loops import loops_circularity
+from persforest.measurements.loops import loops_circularity_complement
+from persforest.measurements.loops import loops_circularity_complement_squared
+from persforest.measurements.loops import loops_circularity_squared_complement
+from persforest.measurements.loops import loops_convex_hull_area_deficit
+from persforest.measurements.loops import loops_convex_hull_perimeter_deficit
+from persforest.measurements.loops import loops_excess_curvature
+from persforest.measurements.loops import loops_max_convexity_defect_depth
+from persforest.measurements.loops import loops_non_circularity
 from typing import Dict
 import math
 import numpy as np
-
-_UNIT_INTERVAL_TOL = 64 * np.finfo(np.float64).eps
-
-def _require_unit_interval(value: float, measurement_name: str) -> float:
-    """Validate a normalized geometric measurement."""
-    if not math.isfinite(value):
-        raise ValueError(f"{measurement_name} must be finite, got {value}")
-    if -_UNIT_INTERVAL_TOL <= value < 0.0:
-        return 0.0
-    if 1.0 < value <= 1.0 + _UNIT_INTERVAL_TOL:
-        return 1.0
-    if not 0.0 <= value <= 1.0:
-        raise ValueError(
-            f"{measurement_name} must lie in [0, 1], got {value}. "
-            "This indicates inconsistent cycle and convex-hull geometry."
-        )
-    return float(value)
 
 def signed_chain_avg_tendril_length(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
@@ -53,6 +42,7 @@ def signed_chain_avg_tendril_length(signed_chain: SignedChain, point_cloud: NDAr
         underlying edge is counted once, preserving the factor of two used
         to convert signed length to geometric length.
     """
+    _reject_cubical_geometry(point_cloud, "cubical_chain_avg_tendril_length")
     tendril_chain = signed_chain.only_double_simplices()
     if len(tendril_chain.signed_simplices)==0:
         return 0
@@ -78,6 +68,7 @@ def signed_chain_num_of_branching_points(signed_chain: SignedChain, point_cloud:
     int
         Number of vertices contained in more than two signed 1-simplices.
     """
+    _reject_cubical_geometry(point_cloud, "cubical_chain_num_of_branching_points")
     if signed_chain.dim() != 1:
         raise ValueError("Function only defined for 1-dimensional chains")
 
@@ -90,6 +81,7 @@ def signed_chain_num_of_branching_points(signed_chain: SignedChain, point_cloud:
     return sum(1 for count in vertex_counts.values() if count > 2)
 
 def signed_chain_num_of_branching_points_only_signed_simplices(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
+    _reject_cubical_geometry(point_cloud, "cubical_chain_num_of_branching_points_only_signed_simplices")
     purely_signed_chain = signed_chain.only_double_simplices()
     if len(purely_signed_chain.signed_simplices)==0:
         return 0
@@ -97,6 +89,7 @@ def signed_chain_num_of_branching_points_only_signed_simplices(signed_chain: Sig
     return signed_chain_num_of_branching_points(signed_chain=purely_signed_chain, point_cloud=point_cloud)
 
 def signed_chain_tendril_branching_ratio(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
+    _reject_cubical_geometry(point_cloud, "cubical_chain_tendril_branching_ratio")
     tendril_branching_count = signed_chain_num_of_branching_points_only_signed_simplices(signed_chain=signed_chain, point_cloud=point_cloud)
     tendril_count = signed_chain_connected_components_only_signed_simplices(signed_chain=signed_chain, point_cloud=point_cloud)
     if tendril_count == 0:
@@ -109,20 +102,11 @@ def signed_chain_convex_hull_area_deficit(
 ) -> float:
     """Return the relative area missing from the chain's convex hull.
 
-    The measurement is
-
-    ``1 - enclosed_area / convex_hull_area``.
-
-    It is zero for a convex enclosed region and approaches one as the enclosed
-    area becomes small relative to its convex hull. A chain with zero convex
-    hull area is treated as convex and returns zero.
-
-    Intended for cycles with connected interior, as produced by the
-    persistence forest. The enclosed-area computation assumes one outer
-    boundary and possibly hole boundaries. Stored interior data is not
-    required. Disconnected interiors are outside this functional's supported
-    scope. One global hull is computed from all chain vertices, including
-    hole boundaries and signed tendrils; it is not computed componentwise.
+    ``loops_convex_hull_area_deficit`` of the chain's polygon loops:
+    ``1 - enclosed_area / convex_hull_area``, zero for a convex enclosed region
+    and approaching one as the enclosed area becomes small relative to its
+    convex hull. One global hull is computed from all chain vertices,
+    including hole boundaries and signed tendrils.
 
     Parameters
     ----------
@@ -136,24 +120,7 @@ def signed_chain_convex_hull_area_deficit(
     float
         Area deficit in ``[0, 1]``.
     """
-    vertices = _planar_signed_chain_vertices(signed_chain, point_cloud)
-    if len(vertices) == 0:
-        return 0.0
-
-    hull = vertices[_convex_hull_indices(vertices)]
-    hull_area = polygon_area(hull)
-    enclosed_area = signed_chain_area(signed_chain, point_cloud)
-    if hull_area == 0.0:
-        if enclosed_area != 0.0:
-            raise ValueError(
-                "Convex hull has zero area but the signed chain encloses "
-                f"area {enclosed_area}"
-            )
-        return 0.0
-
-    return _require_unit_interval(
-        1.0 - enclosed_area / hull_area, "area deficit"
-    )
+    return loops_convex_hull_area_deficit(_polygon_loops(signed_chain, point_cloud))
 
 def signed_chain_convex_hull_perimeter_deficit(
     signed_chain: SignedChain,
@@ -161,20 +128,10 @@ def signed_chain_convex_hull_perimeter_deficit(
 ) -> float:
     """Return the relative perimeter excess over the chain's convex hull.
 
-    The measurement is
-
-    ``max(1 - convex_hull_perimeter / chain_edge_length, 0)``.
-
-    It is zero for a convex polygonal cycle. Doubled signed edges contribute
-    to the chain length and therefore increase the deficit. A zero-length
-    chain is treated as convex and returns zero.
-
-    Intended for cycles with connected interior, as produced by the
-    persistence forest. Stored interior data is not required. Disconnected
-    interiors are outside this functional's supported scope; the hull is not
-    computed componentwise. The clipping implements the nonnegative deficit
-    definition when the global hull perimeter exceeds the chain length;
-    a zero result alone does not establish convexity for disconnected input.
+    ``loops_convex_hull_perimeter_deficit`` of the chain's polygon loops:
+    ``max(1 - convex_hull_perimeter / chain_edge_length, 0)``, zero for a
+    convex polygonal cycle. Doubled signed edges contribute to the chain
+    length and therefore increase the deficit.
 
     Parameters
     ----------
@@ -188,24 +145,7 @@ def signed_chain_convex_hull_perimeter_deficit(
     float
         Perimeter deficit in ``[0, 1]``.
     """
-    vertices = _planar_signed_chain_vertices(signed_chain, point_cloud)
-    if len(vertices) == 0:
-        return 0.0
-
-    hull = vertices[_convex_hull_indices(vertices)]
-    hull_perimeter = polygon_length(hull)
-    chain_length = signed_chain_edge_length(signed_chain, point_cloud)
-    if chain_length == 0.0:
-        if hull_perimeter != 0.0:
-            raise ValueError(
-                "Signed chain has zero length but its convex hull has perimeter "
-                f"{hull_perimeter}"
-            )
-        return 0.0
-
-    return _require_unit_interval(
-        max(1.0 - hull_perimeter / chain_length, 0.0), "perimeter deficit"
-    )
+    return loops_convex_hull_perimeter_deficit(_polygon_loops(signed_chain, point_cloud))
 
 def signed_chain_max_convexity_defect_depth(
     signed_chain: SignedChain,
@@ -214,11 +154,10 @@ def signed_chain_max_convexity_defect_depth(
 ) -> float:
     """Return the maximum hull-chord indentation depth of the chain.
 
-    Convexity defects are computed separately on each closed polygonal path,
-    and the largest depth is returned. With the default normalization, depth
-    is divided by the diameter of the convex hull of the entire chain. Thus a
-    convex or degenerate chain returns zero and the normalized result lies in
-    ``[0, 1]``.
+    ``loops_max_convexity_defect_depth`` of the chain's polygon loops:
+    defects are computed separately on each closed polygonal path, and the
+    largest depth is returned, by default divided by the diameter of the
+    convex hull of the entire chain.
 
     Parameters
     ----------
@@ -235,34 +174,7 @@ def signed_chain_max_convexity_defect_depth(
     float
         Maximum normalized or absolute convexity-defect depth.
     """
-    vertices = _planar_signed_chain_vertices(signed_chain, point_cloud)
-    if len(vertices) == 0:
-        return 0.0
-
-    coordinates = np.asarray(point_cloud, dtype=float)
-    paths = signed_chain_to_polyhedral_paths(signed_chain, coordinates)
-    if not paths:
-        raise ValueError("Non-empty signed chain produced no polygonal paths")
-    maximum_depth = max(
-        _polygon_max_convexity_defect_depth(coordinates[path])
-        for path in paths
-    )
-
-    if not normalize:
-        return maximum_depth
-
-    hull = vertices[_convex_hull_indices(vertices)]
-    hull_diameter = _convex_polygon_diameter(hull)
-    if hull_diameter == 0.0:
-        if maximum_depth != 0.0:
-            raise ValueError(
-                "Convex hull has zero diameter but the chain has "
-                f"convexity-defect depth {maximum_depth}"
-            )
-        return 0.0
-    return _require_unit_interval(
-        maximum_depth / hull_diameter, "normalized convexity-defect depth"
-    )
+    return loops_max_convexity_defect_depth(_polygon_loops(signed_chain, point_cloud), normalize=normalize)
 
 def signed_chain_excess_curvature(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
@@ -272,8 +184,8 @@ def signed_chain_excess_curvature(signed_chain: SignedChain, point_cloud: NDArra
     ----------
     signed_chain : SignedChain
         Signed 1-chain.
-    point_cloud : ndarray, shape (n_points, dim)
-        Coordinates indexed by the chain vertices.
+    point_cloud : ndarray, shape (n_points, 2)
+        Planar coordinates indexed by the chain vertices.
 
     Returns
     -------
@@ -284,16 +196,7 @@ def signed_chain_excess_curvature(signed_chain: SignedChain, point_cloud: NDArra
         return 0.0
     if signed_chain.dim() != 1:
         raise ValueError("Function only defined for 1-dimensional chains")
-
-    paths = signed_chain_to_polyhedral_paths(signed_chain=signed_chain, point_cloud=point_cloud)
-    total = 0
-    for path in paths:
-        if len(path) < 2:
-            print(paths)
-            raise ValueError("Paths too short")
-        total += curvature_excess(point_cloud[path], normalize=False)
-
-    return total
+    return loops_excess_curvature(_polygon_loops(signed_chain, point_cloud))
 
 def signed_chain_excess_curvature_diff_to_unsigned(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
@@ -303,8 +206,8 @@ def signed_chain_excess_curvature_diff_to_unsigned(signed_chain: SignedChain, po
     ----------
     signed_chain : SignedChain
         Signed 1-chain.
-    point_cloud : ndarray, shape (n_points, dim)
-        Coordinates indexed by the chain vertices.
+    point_cloud : ndarray, shape (n_points, 2)
+        Planar coordinates indexed by the chain vertices.
 
     Returns
     -------
@@ -322,8 +225,8 @@ def signed_chain_excess_curvature_normalized(signed_chain: SignedChain, point_cl
     ----------
     signed_chain : SignedChain
         Signed 1-chain.
-    point_cloud : ndarray, shape (n_points, dim)
-        Coordinates indexed by the chain vertices.
+    point_cloud : ndarray, shape (n_points, 2)
+        Planar coordinates indexed by the chain vertices.
 
     Returns
     -------
@@ -331,6 +234,14 @@ def signed_chain_excess_curvature_normalized(signed_chain: SignedChain, point_cl
         Normalized excess curvature.
     """
     return signed_chain_excess_curvature(signed_chain, point_cloud) / (2.0*math.pi)
+
+def _nonzero_planar_loops(signed_chain: SignedChain, point_cloud: NDArray[np.float64]):
+    """Return the polygon loops of a non-zero chain, or None for the zero chain."""
+    if not signed_chain.signed_simplices:
+        return None
+    if signed_chain.dim() != 1:
+        raise ValueError("Function only defined for 1-dimensional chains")
+    return _polygon_loops(signed_chain, point_cloud)
 
 def signed_chain_circularity(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
@@ -340,8 +251,8 @@ def signed_chain_circularity(signed_chain: SignedChain, point_cloud: NDArray[np.
     ----------
     signed_chain : SignedChain
         Signed 1-chain.
-    point_cloud : ndarray, shape (n_points, dim)
-        Coordinates indexed by the chain vertices.
+    point_cloud : ndarray, shape (n_points, 2)
+        Planar coordinates indexed by the chain vertices.
 
     Returns
     -------
@@ -349,82 +260,54 @@ def signed_chain_circularity(signed_chain: SignedChain, point_cloud: NDArray[np.
         Circularity score; 1 is circular, lower values are less circular.
         The zero chain has score zero by convention.
     """
-    if not signed_chain.signed_simplices:
-        return 0.0
-    if signed_chain.dim() != 1:
-        raise ValueError("Function only defined for 1-dimensional chains")
-    
-    length = signed_chain_edge_length(signed_chain=signed_chain, point_cloud=point_cloud)
-    area = signed_chain_area(signed_chain=signed_chain,point_cloud=point_cloud)
-    circularity = (4.0*math.pi*area)/length**2
-
-    return circularity
+    loops = _nonzero_planar_loops(signed_chain, point_cloud)
+    return 0.0 if loops is None else loops_circularity(loops)
 
 def signed_chain_circularity_complement(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
-    Return ``1 - signed_chain_circularity(...)``.
+    Return ``1 - signed_chain_circularity(...)``; zero for the zero chain.
 
     Parameters
     ----------
     signed_chain : SignedChain
         Signed 1-chain.
-    point_cloud : ndarray, shape (n_points, dim)
-        Coordinates indexed by the chain vertices.
-
-    Returns
-    -------
-    float
-        Complement of the circularity score; zero for the zero chain.
+    point_cloud : ndarray, shape (n_points, 2)
+        Planar coordinates indexed by the chain vertices.
     """
-    if not signed_chain.signed_simplices:
-        return 0.0
-    return 1- signed_chain_circularity(signed_chain=signed_chain, point_cloud=point_cloud)
+    loops = _nonzero_planar_loops(signed_chain, point_cloud)
+    return 0.0 if loops is None else loops_circularity_complement(loops)
 
 def signed_chain_circularity_squared_complement(
     signed_chain: SignedChain,
     point_cloud: NDArray[np.float64],
 ) -> float:
-    """Return ``1 - signed_chain_circularity(...)**2``.
+    """Return ``1 - signed_chain_circularity(...)**2``; zero for the zero chain.
 
     Parameters
     ----------
     signed_chain : SignedChain
         Signed 1-chain.
-    point_cloud : ndarray, shape (n_points, dim)
-        Coordinates indexed by the chain vertices.
-
-    Returns
-    -------
-    float
-        Complement of the squared circularity score; zero for the zero chain.
+    point_cloud : ndarray, shape (n_points, 2)
+        Planar coordinates indexed by the chain vertices.
     """
-    if not signed_chain.signed_simplices:
-        return 0.0
-    circularity = signed_chain_circularity(signed_chain, point_cloud)
-    return 1 - circularity**2
+    loops = _nonzero_planar_loops(signed_chain, point_cloud)
+    return 0.0 if loops is None else loops_circularity_squared_complement(loops)
 
 def signed_chain_circularity_complement_squared(
     signed_chain: SignedChain,
     point_cloud: NDArray[np.float64],
 ) -> float:
-    """Return ``(1 - signed_chain_circularity(...))**2``.
+    """Return ``(1 - signed_chain_circularity(...))**2``; zero for the zero chain.
 
     Parameters
     ----------
     signed_chain : SignedChain
         Signed 1-chain.
-    point_cloud : ndarray, shape (n_points, dim)
-        Coordinates indexed by the chain vertices.
-
-    Returns
-    -------
-    float
-        Squared complement of the circularity score; zero for the zero chain.
+    point_cloud : ndarray, shape (n_points, 2)
+        Planar coordinates indexed by the chain vertices.
     """
-    if not signed_chain.signed_simplices:
-        return 0.0
-    complement = signed_chain_circularity_complement(signed_chain, point_cloud)
-    return complement**2
+    loops = _nonzero_planar_loops(signed_chain, point_cloud)
+    return 0.0 if loops is None else loops_circularity_complement_squared(loops)
 
 def signed_chain_non_circularity(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
@@ -434,8 +317,8 @@ def signed_chain_non_circularity(signed_chain: SignedChain, point_cloud: NDArray
     ----------
     signed_chain : SignedChain
         Signed 1-chain.
-    point_cloud : ndarray, shape (n_points, dim)
-        Coordinates indexed by the chain vertices.
+    point_cloud : ndarray, shape (n_points, 2)
+        Planar coordinates indexed by the chain vertices.
 
     Returns
     -------
@@ -444,8 +327,4 @@ def signed_chain_non_circularity(signed_chain: SignedChain, point_cloud: NDArray
     """
     if signed_chain.dim() != 1:
         raise ValueError("Function only defined for 1-dimensional chains")
-    length = signed_chain_edge_length(signed_chain=signed_chain, point_cloud=point_cloud)
-    area = signed_chain_area(signed_chain=signed_chain,point_cloud=point_cloud)
-    non_circularity = length**2/(4.0*math.pi*area) - 1
-
-    return non_circularity
+    return loops_non_circularity(_polygon_loops(signed_chain, point_cloud))
