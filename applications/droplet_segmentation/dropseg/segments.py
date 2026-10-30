@@ -16,8 +16,10 @@ valley.
 An outline is one level set of its droplet, so it leaves out the flanks below
 that level. ``grow`` extends every segment by the same flood down to a
 *floor* intensity. Segments compete for pixels, so two growing droplets meet
-in the valley between them. ``open_labels`` smooths the boundaries with an
-alpha opening and ``drop_segments`` removes small pieces.
+in the valley between them. ``merge_small_lobes`` then hands lobes too
+small to be droplets to a neighboring lobe of their outline.
+``open_labels`` smooths the boundaries with an alpha opening and
+``drop_segments`` removes small pieces.
 """
 
 import heapq
@@ -106,6 +108,53 @@ def grow(labels: NDArray[np.int_], image: NDArray[np.float64], floor: float) -> 
     with the brightest path to it; segments never shrink.
     """
     return _flood(labels, image, image >= floor)
+
+
+def merge_small_lobes(labels: NDArray[np.int_], image: NDArray[np.float64], siblings: list[list[int]],
+                      min_area: float) -> NDArray[np.int_]:
+    """Hand lobes smaller than ``min_area`` pixels to a touching lobe of the same outline.
+
+    Lobes are cut apart by the shape of their outline, not by a valley, so a
+    lobe too small to be a droplet is part of its neighbor rather than
+    background. ``siblings`` lists the labels of the lobes of each split
+    outline. A small lobe joins the sibling with the brightest shared
+    boundary (the highest pass between them), smallest lobes first; a small
+    lobe touching no sibling is left to the final filter.
+    """
+    labels = labels.copy()
+    for group in siblings:
+        while True:
+            areas = {label: int((labels == label).sum()) for label in group}
+            small = sorted((area, label) for label, area in areas.items() if 0 < area < min_area)
+            merged = False
+            for _, label in small:
+                target = _brightest_neighbor(labels, image, label, [other for other in group if areas[other]])
+                if target is not None:
+                    labels[labels == label] = target
+                    merged = True
+                    break
+            if not merged:
+                break
+    return labels
+
+
+def _brightest_neighbor(labels: NDArray[np.int_], image: NDArray[np.float64], label: int,
+                        candidates: list[int]) -> int | None:
+    """The candidate segment sharing the brightest edge with segment ``label``, or None if none touches it."""
+    best, best_value = None, -np.inf
+    for axis in (0, 1):
+        first = labels[:-1, :] if axis == 0 else labels[:, :-1]
+        second = labels[1:, :] if axis == 0 else labels[:, 1:]
+        # An edge is as bright as its darker pixel.
+        value = np.minimum(image[:-1, :], image[1:, :]) if axis == 0 else np.minimum(image[:, :-1], image[:, 1:])
+        for own, other in ((first, second), (second, first)):
+            for candidate in candidates:
+                if candidate == label:
+                    continue
+                shared = (own == label) & (other == candidate)
+                if shared.any() and value[shared].max() > best_value:
+                    best, best_value = candidate, value[shared].max()
+    return best
 
 
 def boundary_vertices(mask: NDArray[np.bool_]) -> NDArray[np.float64]:

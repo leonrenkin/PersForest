@@ -118,7 +118,7 @@ when `workers > 1` (parallel processes re-import the script).
 | 2. branches | Two peaks separating below `split_level` are two droplets; above it, the dimmer one is merged into the brighter. | `split_level` (0.3) |
 | 3. outlines | Takes each droplet's outline at `min_level`, or after its split from a neighbor if that is higher. | `min_level` (0.1); `convexity_tol` (off) |
 | 4. lobes | Splits 8-shaped outlines at their waist. A lobe whose brightest pixel does not rise `min_bar_length` above the outline's birth is removed. | `split_lobes` (on), `lobe_waist` (0.75) |
-| 5. flooding | Grows each segment from bright to dark down to `min_level`. Touching segments meet in the valley between them. | none (uses `min_level`) |
+| 5. flooding | Grows each segment from bright to dark down to `min_level`. Touching segments meet in the valley between them. A lobe still smaller than `min_area` joins the neighboring lobe of its outline with the brightest shared boundary. | none (uses `min_level`, `min_area`) |
 | 6. smoothing | Alpha opening of each segment: removes protrusions narrower than about 2 × `smooth_radius`. | `smooth_radius` (off) |
 | 7. filter | Drops pieces smaller than `min_area` pixels. | `min_area` (2 px) |
 

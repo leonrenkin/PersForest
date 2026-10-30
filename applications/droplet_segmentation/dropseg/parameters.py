@@ -62,7 +62,8 @@ class Parameters:
         Step 6 (smoothing): alpha opening radius, original pixels; None to
         skip. Useful when upsampled, about 0.3 to 0.5.
     min_area : float
-        Step 7 (filter): smallest segment kept, original pixels.
+        Step 7 (filter): smallest segment kept, original pixels. Lobes
+        smaller than this are merged into a neighboring lobe in step 5.
     birth_offset : float
         Step 3: outlines lie at least this fraction of ``min_bar_length``
         above the bar's birth, past the wiggly outlines just after it.

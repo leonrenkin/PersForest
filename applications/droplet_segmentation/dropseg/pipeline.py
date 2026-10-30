@@ -29,6 +29,7 @@ from .peaks import long_bars
 from .segments import drop_segments
 from .segments import fill_in
 from .segments import grow
+from .segments import merge_small_lobes
 from .segments import open_labels
 from .segments import outline_groups
 from .segments import outline_mask
@@ -112,7 +113,8 @@ class Result:
     labels : ndarray of int
         The final segments; 0 is background.
     grown_labels : ndarray of int
-        After the flooding of step 5 (dim lobes removed).
+        After the flooding of step 5 (dim lobes removed, lobes smaller than
+        ``min_area`` merged into a neighboring lobe).
     smoothed_labels : ndarray of int
         After the smoothing of step 6, before the filter.
     groups : ndarray of int
@@ -266,13 +268,15 @@ def relabel(result: Result, image: NDArray[np.float64], settings: Settings) -> R
     clock = time.perf_counter()
     shape = image.shape
     forest = result.forest
-    regions, split_outlines, dim_regions = [], [], []
+    regions, split_outlines, dim_regions, siblings = [], [], [], []
     for bar, selection in result.selections.items():
         outline = outline_mask(selection.cycle, forest.geometry, shape)
         split = result.splits.get(bar)
         if split is not None and split.lobes:
+            siblings.append([])
             for lobe in split.lobes:
                 regions.append(outline_mask(lobe.cycle, split.points, shape))
+                siblings[-1].append(len(regions))  # the label ``paint`` gives the region
                 if any(lobe is dim for dim in split.dim_lobes):
                     dim_regions.append(regions[-1])
             split_outlines.append(outline)
@@ -289,6 +293,8 @@ def relabel(result: Result, image: NDArray[np.float64], settings: Settings) -> R
                for region in dim_regions if (region & (region_labels > 0)).any()}
     dimmed = np.isin(labels, list(dim_ids)) if dim_ids else np.zeros(shape, dtype=bool)
     labels = np.where(dimmed, 0, labels)
+    # Bright lobes too small to be droplets belong to a neighboring lobe; they are not background.
+    labels = merge_small_lobes(labels, image, siblings, settings.min_area)
     grown_labels = labels
     # Step 6: smoothing the boundaries.
     if settings.smooth_radius:
