@@ -207,7 +207,6 @@ def benchmark_single_run(
     t_pf_start = time.perf_counter()
     forest = PersistenceForest(
         point_cloud,
-        compute=True,
         reduce=reduce,
         compute_barcode=compute_barcode,
         print_info=False,
