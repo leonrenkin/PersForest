@@ -167,6 +167,102 @@ def cycle_for_bar_at(self, bar: PFBar, filt_val: float) -> SignedChain:
             )
     raise ValueError(f"Filtration value is in lifespan but no cycle representative was found; this should not happen")
 
+def _support_cells(self, support: str) -> list:
+    """Return all cells an additive measurement with ``support`` can weigh.
+
+    These are the codimension-one cells (``"boundary"``) or the top cells
+    (``"interior"``) of the filtration, in event order.
+    """
+    cells = self._cells
+    dimension = cells.top_dimension - (1 if support == "boundary" else 0)
+    return [cell for cell, _ in cells.events if cells.dimension(cell) == dimension]
+
+# Contribution, in multiples of the cell weight, of a boundary cell whose
+# present orientations are encoded as a mask (bit 1: +1, bit 2: -1).
+# Signed chains count each stored orientation. Unsigned chains keep a cell iff
+# its net coefficient is nonzero, i.e. exactly one orientation is present,
+# which is what SignedChain.unsigned() keeps.
+_SIGNED_MULTIPLICITY = (0, 1, 1, 2)
+_UNSIGNED_MULTIPLICITY = (0, 1, 1, 0)
+
+def _iter_bar_additive_values(self, bar: PFBar, weights: dict, support: str, signed: bool) -> Iterator[tuple[float, float, float]]:
+    """Yield ``(active_start, active_end, value)`` of an additive measurement.
+
+    Evaluates the sum of ``weights`` over the support of each representative
+    of ``bar``, in the order of ``iter_bar_cycle_reps``, by replaying the
+    simplex diffs once. ``weights`` maps every cell that can occur to its
+    weight. The cost is proportional to the size of the diffs, not of the
+    representatives.
+
+    The value is a Neumaier-compensated running sum. It is exactly zero when
+    no cell contributes, so empty representatives never give rounding residue.
+    """
+    cells = self._cells
+    total = 0.0
+    compensation = 0.0
+    count = 0
+
+    if support == "interior":
+        # Interiors only grow along the replay; entries are (cell, orientation).
+        present = set()
+        for _node, active_start, active_end, diffs in _iter_bar_diff_steps(self, bar):
+            for interior_diff, _codim1_simplex_diff in diffs:
+                if interior_diff is None:
+                    continue
+                for entry in interior_diff:
+                    if entry in present:
+                        continue
+                    present.add(entry)
+                    count += 1
+                    weight = weights[entry[0]]
+                    updated = total + weight
+                    if abs(total) >= abs(weight):
+                        compensation += (total - updated) + weight
+                    else:
+                        compensation += (weight - updated) + total
+                    total = updated
+            yield active_start, active_end, (total + compensation) if count else 0.0
+        return
+
+    multiplicity = _SIGNED_MULTIPLICITY if signed else _UNSIGNED_MULTIPLICITY
+    masks: dict = {}
+    for _node, active_start, active_end, diffs in _iter_bar_diff_steps(self, bar):
+        for interior_diff, codim1_simplex_diff in diffs:
+            changes = []
+            if interior_diff is not None:
+                # Adding the boundary of an interior cell; adding a present
+                # oriented cell is a no-op, as for the reconstructed sets.
+                for interior_cell, orientation in interior_diff:
+                    for facet, facet_orientation in oriented_boundary(cells, interior_cell, orientation):
+                        bit = 1 if facet_orientation > 0 else 2
+                        old = masks.get(facet, 0)
+                        if old & bit:
+                            continue
+                        masks[facet] = old | bit
+                        changes.append((facet, old, old | bit))
+            if codim1_simplex_diff is not None:
+                # Removing oriented cells that must be present.
+                for facet, facet_orientation in codim1_simplex_diff:
+                    bit = 1 if facet_orientation > 0 else 2
+                    old = masks.get(facet, 0)
+                    if not old & bit:
+                        raise KeyError((facet, facet_orientation))
+                    masks[facet] = old & ~bit
+                    changes.append((facet, old, old & ~bit))
+            for facet, old, new in changes:
+                delta_units = multiplicity[new] - multiplicity[old]
+                if delta_units == 0:
+                    continue
+                count += delta_units
+                value = delta_units * weights[facet]
+                updated = total + value
+                if abs(total) >= abs(value):
+                    compensation += (total - updated) + value
+                else:
+                    compensation += (value - updated) + total
+                total = updated
+        yield active_start, active_end, (total + compensation) if count else 0.0
+
 def _add_interior_to_bar(self, bar: PFBar):
     """
         Adds an ``interior`` set containing accumulated full-dimensional simplices to each SignedChain in bar, 

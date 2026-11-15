@@ -4,8 +4,11 @@ from numpy.typing import NDArray
 from persforest.chains import SignedChain
 from persforest.geometry.cubical import CubicalGeometry
 from persforest.geometry.loops import _polygon_loops
+from persforest.measurements.additive import AdditiveMeasurement
+from persforest.measurements.additive import _require_chain_interior
 from persforest.measurements.loops import loops_area
 from typing import Dict
+from typing import Sequence
 from typing import Set
 import math
 import numpy as np
@@ -202,58 +205,92 @@ def signed_chain_area(signed_chain: SignedChain, point_cloud:  NDArray[np.float6
         raise ValueError("Function only defined for 1-dimensional chains")
     return loops_area(_polygon_loops(signed_chain, point_cloud))
 
-def _require_chain_interior(signed_chain: SignedChain) -> None:
-    """Raise an actionable error when a chain has no interior data.
+def _check_point_cloud(point_cloud) -> None:
+    """Reject cubical geometry in the simplicial volume measurements."""
+    _reject_cubical_geometry(point_cloud, "cubical_chain_volume")
+
+
+def simplex_volumes(simplices: Sequence[tuple[int, ...]], point_cloud: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Return the intrinsic volume of each simplex.
 
     Parameters
     ----------
-    signed_chain : SignedChain
-        Chain whose interior availability is checked.
+    simplices : sequence of tuple of int
+        Simplices of a common dimension ``k >= 1``, as vertex ids.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the vertex ids.
+
+    Returns
+    -------
+    ndarray, shape (len(simplices),)
+        Nonnegative volumes. Edge vectors relative to the first vertex form the
+        rows of E, and the volume is sqrt(det(E @ E.T)) / k!, also when the
+        simplex is embedded in a higher-dimensional space.
+    """
+    simplices = np.asarray(simplices, dtype=int)
+    if simplices.size == 0:
+        return np.zeros(len(simplices), dtype=float)
+    vertices = np.asarray(point_cloud, dtype=float)[simplices]
+    edges = vertices[:, 1:, :] - vertices[:, :1, :]
+    simplex_dim = edges.shape[1]
+    gram = edges @ edges.swapaxes(-1, -2)
+    # Roundoff can make the determinant of a singular Gram matrix negative.
+    return np.sqrt(np.maximum(np.linalg.det(gram), 0.0)) / math.factorial(simplex_dim)
+
+
+def top_simplex_volumes(simplices: Sequence[tuple[int, ...]], point_cloud: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Return the absolute volume of each full-dimensional simplex.
 
     Raises
     ------
     ValueError
-        If the interior was not stored or reconstructed.
+        If ``point_cloud`` is not a 2D coordinate array or a simplex does not
+        have ``dim + 1`` vertices.
     """
-    if not signed_chain.interior_available or signed_chain.interior is None:
-        raise ValueError(
-            "Interior is unavailable. Obtain the chain through "
-            "forest.iter_bar_cycle_reps(bar) or forest.cycle_for_bar_at(bar, value)."
-        )
+    points = np.asarray(point_cloud, dtype=float)
+    if points.ndim != 2 or points.shape[1] < 1:
+        raise ValueError("point_cloud must have shape (n_points, dim) with dim >= 1")
+    dim = points.shape[1]
+    if any(len(simplex) != dim + 1 for simplex in simplices):
+        raise ValueError("Interior simplices must be full-dimensional (dim + 1 vertices)")
+    vertices = points[np.asarray(simplices, dtype=int)]
+    edges = vertices[:, 1:, :] - vertices[:, :1, :]
+    return np.abs(np.linalg.det(edges)) / math.factorial(dim)
 
-def signed_chain_interior_volume(
-    signed_chain: SignedChain, point_cloud: NDArray[np.float64]
-) -> float:
-    """Return enclosed volume by summing absolute interior simplex volumes.
+
+signed_chain_interior_volume = AdditiveMeasurement(
+    top_simplex_volumes, "interior", name="signed_chain_interior_volume",
+    geometry_check=_check_point_cloud,
+    doc="""Return enclosed volume by summing absolute interior simplex volumes.
 
     Computes area in 2D and volume in 3D (or d-volume in dimension d).
     Orientation is ignored; an available but empty interior has volume zero.
+    This is an :class:`~persforest.measurements.additive.AdditiveMeasurement`
+    with interior support; profiles and landscapes evaluate it incrementally.
+
+    Parameters
+    ----------
+    signed_chain : SignedChain
+        Representative with interior data.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the simplex vertices.
 
     Raises
     ------
     ValueError
         If the interior is unavailable or simplices are not full-dimensional.
-    """
-    _require_chain_interior(signed_chain)
-    if not signed_chain.interior:
-        return 0.0
+    TypeError
+        If called with the geometry of a cubical forest.
+    """)
 
-    points = np.asarray(point_cloud, dtype=float)
-    if points.ndim != 2 or points.shape[1] < 1:
-        raise ValueError("point_cloud must have shape (n_points, dim) with dim >= 1")
-    dim = points.shape[1]
-    simplices = [simplex for simplex, _ in signed_chain.interior]
-    if any(len(simplex) != dim + 1 for simplex in simplices):
-        raise ValueError("Interior simplices must be full-dimensional (dim + 1 vertices)")
 
-    vertices = points[np.asarray(simplices, dtype=int)]
-    edges = vertices[:, 1:, :] - vertices[:, :1, :]
-    volumes = np.abs(np.linalg.det(edges)) / math.factorial(dim)
-    return float(math.fsum(volumes))
+signed_chain_volume = AdditiveMeasurement(
+    simplex_volumes, "boundary", name="signed_chain_volume",
+    geometry_check=_check_point_cloud,
+    doc="""Return the summed simplex volume of a signed chain.
 
-def signed_chain_volume(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
-    """
-    Return the summed simplex volume of a signed chain.
+    This is an :class:`~persforest.measurements.additive.AdditiveMeasurement`
+    with boundary support; profiles and landscapes evaluate it incrementally.
 
     Parameters
     ----------
@@ -268,26 +305,15 @@ def signed_chain_volume(signed_chain: SignedChain, point_cloud: NDArray[np.float
         Sum of nonnegative intrinsic simplex volumes. Opposite orientations
         contribute separately. An empty chain has volume zero.
 
+    Raises
+    ------
+    TypeError
+        If called with the geometry of a cubical forest.
+
     Notes
     -----
     For a k-simplex, edge vectors relative to its first vertex form the
     rows of E. Its volume is sqrt(det(E @ E.T)) / k!, including when the
     simplex is embedded in a higher-dimensional space. This measures the
     chain itself, not its enclosed volume.
-    """
-
-    if not signed_chain.signed_simplices:
-        return 0.0
-
-    simplices = np.asarray(
-        [simplex for simplex, _ in signed_chain.signed_simplices], dtype=int
-    )
-    vertices = np.asarray(point_cloud, dtype=float)[simplices]
-    edges = vertices[:, 1:, :] - vertices[:, :1, :]
-    simplex_dim = edges.shape[1]
-
-    gram = edges @ edges.swapaxes(-1, -2)
-    # Roundoff can make the determinant of a singular Gram matrix negative.
-    volumes = np.sqrt(np.maximum(np.linalg.det(gram), 0.0)) / math.factorial(simplex_dim)
-
-    return float(math.fsum(volumes))
+    """)

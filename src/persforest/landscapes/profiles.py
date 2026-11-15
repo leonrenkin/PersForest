@@ -166,13 +166,35 @@ def _measurement_geometry(forest):
     return forest.point_cloud if geometry is None else geometry
 
 
+def _additive_weights(forest: object, cycle_func: CycleValueFunc) -> dict | None:
+    """Return ``{cell: weight}`` if ``cycle_func`` can be evaluated incrementally.
+
+    That requires an :class:`AdditiveMeasurement` and a forest with completed
+    barcode diffs and a cell filtration. Otherwise return None, and profiles
+    measure reconstructed representatives as for any other callable.
+    """
+    from persforest.measurements.additive import AdditiveMeasurement
+    if not isinstance(cycle_func, AdditiveMeasurement):
+        return None
+    if getattr(forest, "_barcode_diffs_ready", False) is not True or getattr(forest, "_cells", None) is None:
+        return None
+    from persforest._forest.representatives import _support_cells
+    geometry = _measurement_geometry(forest)
+    cycle_func.check_geometry(geometry)
+    cells = _support_cells(forest, cycle_func.support)
+    return dict(zip(cells, cycle_func.weights(cells, geometry).tolist()))
+
+
 def _build_step_function_data(
     forest: object, bar: Any, cycle_func: CycleValueFunc, baseline: float = 0.0,
-    *, signed: bool,
+    *, signed: bool, additive_weights: dict | None = None,
 ) -> StepFunctionData:
     """Measure descending representatives once and store ascending [start,end) data.
 
-    ``signed`` is required and follows :func:`_signed_measurement`.
+    ``signed`` is required and follows :func:`_signed_measurement`. An :class:`AdditiveMeasurement`
+    on a forest with barcode diffs is evaluated incrementally from the diffs
+    (``additive_weights`` may pass precomputed weights); every other measurement
+    is called on each reconstructed representative.
 
     Callbacks borrow representatives and coordinates and must not mutate them.
     Only scalar records are retained, including when representatives are reconstructed from diffs.
@@ -181,12 +203,19 @@ def _build_step_function_data(
     measurement = _signed_measurement(cycle_func, signed)
     if bar not in forest.barcode:
         raise ValueError("Bar is not in barcode of forest")
-    records = []
-    for cycle in forest.iter_bar_cycle_reps(bar):
-        value = measurement(cycle, _measurement_geometry(forest))
-        if not np.isscalar(value) or np.iscomplexobj(value):
-            raise ValueError("Measurements must return a real scalar")
-        records.append((cycle.active_start, cycle.active_end, float(value)))
+    if additive_weights is None:
+        additive_weights = _additive_weights(forest, cycle_func)
+    if additive_weights is not None:
+        from persforest._forest.representatives import _iter_bar_additive_values
+        records = list(_iter_bar_additive_values(
+            forest, bar, additive_weights, cycle_func.support, bool(signed)))
+    else:
+        records = []
+        for cycle in forest.iter_bar_cycle_reps(bar):
+            value = measurement(cycle, _measurement_geometry(forest))
+            if not np.isscalar(value) or np.iscomplexobj(value):
+                raise ValueError("Measurements must return a real scalar")
+            records.append((cycle.active_start, cycle.active_end, float(value)))
     records.reverse()
     starts, ends, vals = np.asarray(records, dtype=float).reshape(-1, 3).T
     return StepFunctionData(
@@ -288,7 +317,9 @@ def compute_measurement_profiles(
     source_manifest = tuple((float(bar.birth), float(bar.death), tuple(getattr(bar, "_node_progression", ()))) for bar in source_bars)
     selected = [bar for bar in source_bars if bar.death - bar.birth >= min_bar_length]
     bars = tuple(ProfileBar(i, float(bar.birth), float(bar.death), getattr(bar, "root_id", None)) for i, bar in enumerate(selected))
-    steps = {i: _build_step_function_data(forest, bar, cycle_func, baseline, signed=signed)
+    additive_weights = _additive_weights(forest, cycle_func) if selected else None
+    steps = {i: _build_step_function_data(forest, bar, cycle_func, baseline, signed=signed,
+                                          additive_weights=additive_weights)
              for i, bar in enumerate(selected)}
     return MeasurementProfiles(
         forest_id=str(getattr(forest, "id", id(forest))), label=label, baseline=baseline,

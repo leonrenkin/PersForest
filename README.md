@@ -152,6 +152,33 @@ level. Landscapes require nonnegative measurements. Measurements default to
 `signed=False` (opposite simplices cancel before measuring) in every entry
 point, including `animate_barcode_measurement`.
 
+### Additive measurements
+
+Lengths, areas, volumes and cell counts are sums of fixed per-cell weights.
+Such measurements are `AdditiveMeasurement` objects, and profiles and landscapes
+evaluate them incrementally from the forest's stored diffs instead of
+re-measuring every representative, which is much faster for long-lived cycles
+with large boundaries. The built-ins `signed_chain_volume` (boundary length in 2D,
+area in 3D), `signed_chain_interior_volume`, `cubical_chain_volume` and
+`cubical_chain_interior_volume` are additive. All other measurements, such as
+shape and loop functionals, are evaluated on each representative as before.
+
+An `AdditiveMeasurement` is still an ordinary `(chain, geometry) -> float`
+callable. To define one, give a vectorized weight function returning one weight
+per cell and the support it sums over (`"boundary"` or `"interior"`):
+
+```python
+import numpy as np
+from persforest.measurements.additive import AdditiveMeasurement
+
+edge_count = AdditiveMeasurement(lambda cells, geometry: np.ones(len(cells)), "boundary")
+profiles = forest.compute_measurement_profiles(edge_count, "edge count")
+```
+
+Weights must not depend on orientation. Boundary cells are counted once per
+stored orientation, so with the default `signed=False` cells present in both
+orientations cancel.
+
 ## Tutorials
 
 Start with [`examples/tutorials/README.md`](examples/tutorials/README.md):

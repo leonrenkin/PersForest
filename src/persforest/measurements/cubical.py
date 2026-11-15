@@ -6,12 +6,15 @@ are loop functionals: build loops with ``persforest.geometry.loops`` (e.g.
 (e.g. ``on_taut_loops``).
 """
 
-import math
+from collections.abc import Sequence
+
+import numpy as np
+from numpy.typing import NDArray
 
 from persforest.chains import SignedChain
 from persforest.geometry.cubical import CubicalGeometry
 from persforest.geometry.cubical import cubical_chain_to_vertex_chain
-from persforest.measurements.basic import _require_chain_interior
+from persforest.measurements.additive import AdditiveMeasurement
 from persforest.measurements.basic import signed_chain_connected_components
 from persforest.measurements.basic import signed_chain_connected_components_only_signed_simplices
 from persforest.measurements.basic import signed_chain_excess_connected_components
@@ -29,14 +32,34 @@ def _require_cubical_geometry(geometry) -> None:
             "in persforest.measurements.basic for point clouds.")
 
 
-def cubical_chain_volume(signed_chain: SignedChain, geometry: CubicalGeometry) -> float:
-    """Return the summed measure of the chain's cells.
+def cubical_cell_measures(cells: Sequence[tuple[int, ...]], geometry: CubicalGeometry) -> NDArray[np.float64]:
+    """Return the measure of each grid cell (product of spacings along its odd axes).
+
+    Vectorized form of ``CubicalGeometry.cell_measure``, multiplying the
+    spacings in axis order.
+    """
+    _require_cubical_geometry(geometry)
+    coordinates = np.asarray(cells, dtype=np.int64)
+    measures = np.ones(len(coordinates), dtype=float)
+    if coordinates.size == 0:
+        return measures
+    for axis, spacing in enumerate(geometry.spacing):
+        measures = measures * np.where(coordinates[:, axis] & 1, spacing, 1.0)
+    return measures
+
+
+cubical_chain_volume = AdditiveMeasurement(
+    cubical_cell_measures, "boundary", name="cubical_chain_volume",
+    geometry_check=_require_cubical_geometry,
+    doc="""Return the summed measure of the chain's cells.
 
     This is the boundary length of a 2D representative and its boundary area in
     3D, measured along grid cells: a pixel loop has its staircase (L1) length,
     not the Euclidean length of a smooth curve it approximates. Opposite
     orientations contribute separately, as in ``signed_chain_volume``; pass
-    ``chain.unsigned()`` to cancel them.
+    ``chain.unsigned()`` to cancel them. This is an
+    :class:`~persforest.measurements.additive.AdditiveMeasurement` with
+    boundary support; profiles and landscapes evaluate it incrementally.
 
     Parameters
     ----------
@@ -49,16 +72,18 @@ def cubical_chain_volume(signed_chain: SignedChain, geometry: CubicalGeometry) -
     -------
     float
         Sum of cell measures; zero for the empty chain.
-    """
-    _require_cubical_geometry(geometry)
-    return math.fsum(geometry.cell_measure(cell) for cell, _ in signed_chain.signed_simplices)
+    """)
 
 
-def cubical_chain_interior_volume(signed_chain: SignedChain, geometry: CubicalGeometry) -> float:
-    """Return the enclosed area (2D) or volume (3D) of a representative.
+cubical_chain_interior_volume = AdditiveMeasurement(
+    cubical_cell_measures, "interior", name="cubical_chain_interior_volume",
+    geometry_check=_require_cubical_geometry,
+    doc="""Return the enclosed area (2D) or volume (3D) of a representative.
 
     Orientation is ignored, as in ``signed_chain_interior_volume``; an available
-    but empty interior has volume zero.
+    but empty interior has volume zero. This is an
+    :class:`~persforest.measurements.additive.AdditiveMeasurement` with
+    interior support; profiles and landscapes evaluate it incrementally.
 
     Parameters
     ----------
@@ -71,10 +96,7 @@ def cubical_chain_interior_volume(signed_chain: SignedChain, geometry: CubicalGe
     ------
     ValueError
         If the interior is unavailable.
-    """
-    _require_cubical_geometry(geometry)
-    _require_chain_interior(signed_chain)
-    return math.fsum(geometry.cell_measure(cell) for cell, _ in signed_chain.interior)
+    """)
 
 
 # The functionals below rewrite a 2D grid chain as a chain on grid vertices
