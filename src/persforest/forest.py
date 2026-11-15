@@ -1830,10 +1830,11 @@ class PersistenceForest:
 
     def animate_barcode_measurement(
                 self,
-                cycle_func,
-                signed: bool = True,
+                cycle_func = None,
+                signed: bool = False,
                 bar = None,
                 *args,
+                profiles = None,
                 **kwargs,
         ):
         """
@@ -1850,15 +1851,19 @@ class PersistenceForest:
         cycle_func :
             Callable ``(chain, point_cloud) -> float`` that assigns a scalar
             to each cycle representative of the shown bars.
-            See :meth:`compute_measurement_profiles` for details.
-        signed : bool, optional
-            If ``True`` (default), ``cycle_func`` is called on the signed
-            cycle representatives. If ``False``, the chains are first
-            passed through ``chain.unsigned()``.
+            See :meth:`compute_measurement_profiles` for details. Supply
+            exactly one of ``cycle_func`` and ``profiles``.
+        signed : bool, default False
+            As in :meth:`compute_measurement_profiles`: if ``False``, the
+            chains are passed through ``chain.unsigned()`` before
+            measurement; if ``True``, the stored signed chains are measured.
+            Ignored with ``profiles``, which record their own convention.
         bar :
             If given, show only this bar's profile. If ``None``, show every
             bar selected by ``measurement_kwargs`` (by default the bars and
             colors of the filtration panel).
+        profiles : MeasurementProfiles, optional
+            Reuse profiles computed on this forest instead of measuring again.
         *args, **kwargs :
             Forwarded to
             :func:`persforest.plotting.animation.measurements.animate_barcode_measurement_generic`.
@@ -1880,7 +1885,7 @@ class PersistenceForest:
             underlying figure.
         """
         from persforest.plotting.animation.api import animate_barcode_measurement
-        return animate_barcode_measurement(self, cycle_func, signed, bar, *args, **kwargs)
+        return animate_barcode_measurement(self, cycle_func, signed, bar, *args, profiles=profiles, **kwargs)
 
     #------- measurement landscape ----------------
 
@@ -1934,20 +1939,12 @@ class PersistenceForest:
         tuple[matplotlib.axes.Axes, StepFunctionData]
             The axes and the piecewise-constant measurement data.
         """
+        from persforest.landscapes.profiles import _signed_measurement
         from persforest.plotting.landscapes import plot_barcode_measurement_generic
-
-        if not isinstance(signed, (bool, np.bool_)):
-            raise TypeError("signed must be a boolean")
-        if signed:
-            def _cycle_func(chain, point_cloud):
-                return cycle_func(chain, point_cloud)
-        else:
-            def _cycle_func(chain, point_cloud):
-                return cycle_func(chain.unsigned(), point_cloud)
 
         return plot_barcode_measurement_generic(
             forest=self,
-            cycle_func=_cycle_func,
+            cycle_func=_signed_measurement(cycle_func, signed),
             bar=bar,
             ax=ax,
             x_range=x_range,
@@ -2041,11 +2038,17 @@ class PersistenceForest:
             not subsequent arbitrary edits to the source forest.
         """
         from persforest.landscapes.profiles import compute_measurement_profiles
-        return compute_measurement_profiles(
+        if not isinstance(cache, (bool, np.bool_)):
+            raise TypeError("cache must be a boolean")
+        profiles = compute_measurement_profiles(
             self, cycle_func, label, signed=signed, min_bar_length=min_bar_length,
-            baseline=baseline, cache=cache, measurement_name=measurement_name,
+            baseline=baseline, measurement_name=measurement_name,
             measurement_params=measurement_params,
         )
+        # The registry is a forest convenience; publish only complete results.
+        if cache:
+            self.measurement_profiles[label] = profiles
+        return profiles
 
     def compute_barcode_functionals(self, cycle_func: CycleValueFunc, label: str, **kwargs) -> MeasurementProfiles:
         """Compatibility entry point for :meth:`compute_measurement_profiles`."""
@@ -2130,7 +2133,7 @@ class PersistenceForest:
 
     def plot_measurement_landscapes(
         self,
-        label: str,
+        label: Union[str, MeasurementLandscapeFamily],
         ks: Optional[list[int]] = None,
         ax=None,
         title: Optional[str] = None,
@@ -2146,8 +2149,10 @@ class PersistenceForest:
 
         Parameters
         ----------
-        label : str
-            Identifier used when the family was computed.
+        label : str or MeasurementLandscapeFamily
+            Key in ``self.landscape_families``, or a family result such as one
+            returned by ``compute_measurement_landscapes(..., cache=False)``
+            or ``landscapes_from_profiles``.
         ks : list[int] | None
             Which landscape levels to plot. Defaults to all available.
         ax : matplotlib.axes.Axes | None
@@ -2180,7 +2185,7 @@ class PersistenceForest:
         """
         from persforest.plotting.landscapes import plot_landscape_family
         return plot_landscape_family(
-            self.landscape_families[label],
+            self._landscape_family(label),
             ks,
             ax,
             title,
@@ -2192,9 +2197,19 @@ class PersistenceForest:
             **kwargs,
         )
 
+    def _landscape_family(self, label):
+        """Return ``label`` if it is a family, else the cached family stored under it."""
+        from persforest.landscapes.family import MeasurementLandscapeFamily
+        if isinstance(label, MeasurementLandscapeFamily):
+            return label
+        if label not in self.landscape_families:
+            raise KeyError(f"No landscape family stored under {label!r}; "
+                           f"available labels: {sorted(self.landscape_families)}")
+        return self.landscape_families[label]
+
     def plot_landscape_comparison_between_measurements(
         self,
-        labels: list[str],
+        labels: list[Union[str, MeasurementLandscapeFamily]],
         k: int = 1,
         ax=None,
         title: Optional[str] = None,
@@ -2206,8 +2221,9 @@ class PersistenceForest:
 
         Parameters
         ----------
-        labels : list[str]
-            Labels of the landscape families to compare.
+        labels : list of str or MeasurementLandscapeFamily
+            Cached family labels or family results to compare. Families are
+            named by their ``label`` attribute in the legend.
         k : int
             Which landscape level to compare.
         ax : matplotlib.axes.Axes | None
@@ -2221,4 +2237,5 @@ class PersistenceForest:
             Axes containing the comparison plot.
         """
         from persforest.plotting.landscapes import plot_landscape_comparison
-        return plot_landscape_comparison([self.landscape_families[label] for label in labels], labels=labels, k=k, ax=ax, title=title, *args, **kwargs)
+        families = [self._landscape_family(label) for label in labels]
+        return plot_landscape_comparison(families, labels=[family.label for family in families], k=k, ax=ax, title=title, *args, **kwargs)

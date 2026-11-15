@@ -333,10 +333,11 @@ def animate_filtration(
 
 def animate_barcode_measurement(
             self,
-            cycle_func,
-            signed: bool = True,
+            cycle_func = None,
+            signed: bool = False,
             bar = None,
             *args,
+            profiles = None,
             **kwargs,
     ):
     """
@@ -353,15 +354,16 @@ def animate_barcode_measurement(
         cycle_func :
             Callable ``(chain, point_cloud) -> float`` that assigns a scalar
             to each cycle representative of the shown bars.
-            See :meth:`compute_measurement_profiles` for details.
-        signed : bool, optional
-            If ``True`` (default), ``cycle_func`` is called on the signed
-            cycle representatives. If ``False``, the chains are first
-            passed through ``chain.unsigned()``.
+            See :meth:`compute_measurement_profiles` for details. Supply
+            exactly one of ``cycle_func`` and ``profiles``.
+        signed : bool, default False
+            As in :meth:`compute_measurement_profiles`; ignored with ``profiles``.
         bar :
             If given, show only this bar's profile. If ``None``, show every
             bar selected by ``measurement_kwargs`` (by default the bars and
             colors of the filtration panel).
+        profiles : MeasurementProfiles, optional
+            Reuse profiles computed on this forest instead of measuring again.
         *args, **kwargs :
             Forwarded to
             :func:`persforest.plotting.animation.measurements.animate_barcode_measurement_generic`.
@@ -432,24 +434,12 @@ def animate_barcode_measurement(
 
     kwargs["filtration_kwargs"] = filtration_kwargs
 
-    from functools import wraps
-
-    # `wraps` keeps the measurement's name, which labels the profile axis.
-    if signed:
-        @wraps(cycle_func)
-        def _cycle_value(chain, point_cloud):
-            # `chain` is a SignedChain
-            return float(cycle_func(chain, point_cloud))
-    else:
-        @wraps(cycle_func)
-        def _cycle_value(chain, point_cloud):
-            # `chain` is a SignedChain
-            return float(cycle_func(chain.unsigned(), point_cloud))
-
     return animate_barcode_measurement_generic(
-        forest=self,
-        cycle_func=_cycle_value,
-        bar=bar,
+        self,
+        cycle_func,
+        bar,
         *args,
+        signed=signed,
+        profiles=profiles,
         **kwargs,
     )

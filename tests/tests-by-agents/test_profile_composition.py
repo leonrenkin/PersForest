@@ -50,11 +50,11 @@ class ProfileCompositionTests(unittest.TestCase):
 
     def test_signed_false_defaults_match_across_measurement_entry_points(self):
         forest = build(fan())
-        standalone = compute_measurement_profiles(forest, signed_chain_edge_length, 'standalone', cache=False)
+        standalone = compute_measurement_profiles(forest, signed_chain_edge_length, 'standalone')
         unsigned = forest.compute_measurement_profiles(signed_chain_edge_length, 'unsigned', signed=False, cache=False)
         default = forest.compute_measurement_profiles(signed_chain_edge_length, 'default', cache=False)
         legacy = forest.compute_barcode_functionals(signed_chain_edge_length, 'legacy', cache=False)
-        signed = compute_measurement_profiles(forest, signed_chain_edge_length, 'signed', signed=True, cache=False)
+        signed = compute_measurement_profiles(forest, signed_chain_edge_length, 'signed', signed=True)
         for result in (standalone, unsigned, default, legacy):
             self.assertFalse(result.signed)
             for bar in forest.barcode:
@@ -114,12 +114,12 @@ class ProfileCompositionTests(unittest.TestCase):
 
     def test_selection_order_identity_missing_and_duplicate_ids(self):
         forest = profile_forest([(0, 4, [(0, 4, 1)]), (0, 4, [(0, 4, 3)])])
-        profiles = compute_measurement_profiles(forest, measured, 'values', signed=True, cache=False)
+        profiles = compute_measurement_profiles(forest, measured, 'values', signed=True)
         selected = landscapes_from_profiles(profiles, bar_ids=[1, 0], x_grid=[0, 2, 4], max_k=3)
         self.assertEqual(selected.bar_ids, (1, 0))
         self.assertEqual(tuple(selected.bar_kernels), (1, 0))
         np.testing.assert_array_equal(selected.evaluate_on_grid(), [[0, 6, 0], [0, 2, 0], [0, 0, 0]])
-        foreign = compute_measurement_profiles(forest, measured, 'other', signed=True, cache=False).bars[0]
+        foreign = compute_measurement_profiles(forest, measured, 'other', signed=True).bars[0]
         for selection in ([2], [-1], [True], [0.5], [foreign], [object()]):
             with self.subTest(selection=selection), self.assertRaises(ValueError):
                 landscapes_from_profiles(profiles, bar_ids=selection)

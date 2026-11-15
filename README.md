@@ -139,15 +139,18 @@ measurements of 2D cycles can be computed on smoothed or taut loops via
 measurements, compute the profiles once and build landscapes from them:
 
 ```python
-from persforest.landscapes.family import landscapes_from_profiles
+from persforest.landscapes import landscapes_from_profiles
 
 profiles = forest.compute_measurement_profiles(signed_chain_edge_length, "edge length")
 forest.plot_measurement_profiles(profiles)
 family = landscapes_from_profiles(profiles, x_grid=grid, max_k=5)
+forest.plot_measurement_landscapes(family)
 ```
 
 Landscapes are sampled on `family.x_grid`; `family.landscapes[k]` is the k-th
-level. Landscapes require nonnegative measurements.
+level. Landscapes require nonnegative measurements. Measurements default to
+`signed=False` (opposite simplices cancel before measuring) in every entry
+point, including `animate_barcode_measurement`.
 
 ## Tutorials
 

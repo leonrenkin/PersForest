@@ -1,4 +1,4 @@
-"""plotting.landscapes: mechanically extracted reference implementation."""
+"""Matplotlib rendering of measurement profiles and landscape families."""
 
 from ._dependencies import require_plotting
 
@@ -113,7 +113,7 @@ def plot_measurement_profiles_generic(
     Bars are selected from ``forest.barcode`` exactly as in ``plot_barcode``
     (``min_bar_length``, then ``max_bars`` longest) and restricted to bars that
     have a profile. The filtration axis uses the barcode's limits, so both plots
-    align; profiles of infinite bars are drawn up to the barcode's arrow tip.
+    align.
     The measurement axis starts at 0, or lower if a profile is negative.
 
     Parameters
@@ -187,7 +187,7 @@ def _draw_measurement_profiles(
                             bars=[bar for bar in forest.barcode if id(bar) in allowed])
     selected.sort(key=lambda b: (b.birth, b.death))
     color_map = _bar_color_map(forest, coloring)
-    lower, limit, pad = _filtration_limits(selected)
+    lower, limit, _ = _filtration_limits(selected)
     lower, limit = min((lower, *x_include)), max((limit, *x_include))
 
     if ax is None:
@@ -203,12 +203,11 @@ def _draw_measurement_profiles(
         if legend:
             kwargs["label"] = f"[{bar.birth:.3g}, {bar.death:.3g})"
         kwargs.update(line_kwargs)
-        stop = bar.death if np.isfinite(bar.death) else limit - 0.25*pad
-        if stop <= bar.birth:  # zero-length bar: nothing to draw
+        if bar.death <= bar.birth:  # zero-length bar: nothing to draw
             continue
         step = profiles[bar]
         # Outside [birth, death) a profile equals its baseline, so extending is exact.
-        step.plot(ax=ax, x_range=(lower, limit) if extend_baseline else (bar.birth, stop), **kwargs)
+        step.plot(ax=ax, x_range=(lower, limit) if extend_baseline else (bar.birth, bar.death), **kwargs)
         drawn.append((bar, step, ax.lines[-1]))
 
     ax.set_xlim(lower, limit)

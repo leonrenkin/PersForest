@@ -35,8 +35,9 @@ class ProfileBar:
         if (isinstance(self.bar_id, (bool, np.bool_))
                 or not isinstance(self.bar_id, (int, np.integer)) or self.bar_id < 0):
             raise ValueError("bar_id must be a nonnegative integer")
-        if np.isnan((self.birth, self.death)).any() or self.death < self.birth:
-            raise ValueError("Bar endpoints must be ordered and not NaN")
+        # Forest filtration values are finite, so infinite bars are not supported.
+        if not np.isfinite((self.birth, self.death)).all() or self.death < self.birth:
+            raise ValueError("Bar endpoints must be finite and ordered")
 
     def lifespan(self) -> float:
         """Return the captured bar length."""
@@ -190,10 +191,25 @@ def _build_step_function_data(
     )
 
 
+def _signed_measurement(cycle_func: CycleValueFunc, signed: bool) -> CycleValueFunc:
+    """Return ``cycle_func`` for signed chains, else a wrapper measuring ``chain.unsigned()``.
+
+    This is the single place where the signed/unsigned convention is applied.
+    """
+    if not isinstance(signed, (bool, np.bool_)):
+        raise TypeError("signed must be a boolean")
+    if signed:
+        return cycle_func
+
+    def measurement(chain, geometry):
+        return cycle_func(chain.unsigned(), geometry)
+    return measurement
+
+
 def compute_measurement_profiles(
     forest: object, cycle_func: CycleValueFunc, label: str, *,
     signed: bool = False, min_bar_length: float = 0.0, baseline: float = 0.0,
-    cache: bool = True, measurement_name: str | None = None,
+    measurement_name: str | None = None,
     measurement_params: Mapping[str, Any] | None = None,
 ) -> MeasurementProfiles:
     """Capture per-bar measurement profiles from a computed forest.
@@ -206,7 +222,8 @@ def compute_measurement_profiles(
     cycle_func : callable
         Read-only ``(chain, point_cloud) -> real scalar`` measurement.
     label : str
-        Result label and optional forest registry key; overwrites on success.
+        Result label. This function never reads or writes a forest cache;
+        ``PersistenceForest.compute_measurement_profiles`` publishes results.
     signed : bool, default False
         Cancel opposing simplices before measurement, matching the public
         forest method. True measures representatives as stored.
@@ -214,8 +231,6 @@ def compute_measurement_profiles(
         Inclusive finite, nonnegative length threshold.
     baseline : float, default 0
         Value outside recorded half-open intervals. Landscapes require zero.
-    cache : bool, default True
-        Publish the result to ``forest.measurement_profiles`` only on success.
     measurement_name : str, optional
         Descriptive name, never used as a callable identity. Defaults to the
         ``measurement_name`` attribute of ``cycle_func`` if it has one (as
@@ -229,16 +244,14 @@ def compute_measurement_profiles(
     -------
     MeasurementProfiles
         Endpoint snapshots, scalar data, preprocessing and source metadata.
-        Negative/nonfinite scalar values and infinite bar deaths remain usable
-        for standalone profiles; landscape construction validates its domain.
+        Bar endpoints must be finite; every bar is checked before measuring.
+        Negative/nonfinite measurement values remain usable for standalone
+        profiles; landscape construction rejects them.
     """
     require_computed_barcode(forest)
     if not callable(cycle_func):
         raise TypeError("cycle_func must be callable")
-    if not isinstance(signed, (bool, np.bool_)):
-        raise TypeError("signed must be a boolean")
-    if not isinstance(cache, (bool, np.bool_)):
-        raise TypeError("cache must be a boolean")
+    measurement = _signed_measurement(cycle_func, signed)
     if not isinstance(label, str):
         raise TypeError("label must be a string")
     # Measurements may describe themselves through these two attributes;
@@ -271,13 +284,8 @@ def compute_measurement_profiles(
     source_manifest = tuple((float(bar.birth), float(bar.death), tuple(getattr(bar, "_node_progression", ()))) for bar in source_bars)
     selected = [bar for bar in source_bars if bar.death - bar.birth >= min_bar_length]
     bars = tuple(ProfileBar(i, float(bar.birth), float(bar.death), getattr(bar, "root_id", None)) for i, bar in enumerate(selected))
-    if signed:
-        measurement = cycle_func
-    else:
-        def measurement(chain, points):
-            return cycle_func(chain.unsigned(), points)
     steps = {i: _build_step_function_data(forest, bar, measurement, baseline) for i, bar in enumerate(selected)}
-    result = MeasurementProfiles(
+    return MeasurementProfiles(
         forest_id=str(getattr(forest, "id", id(forest))), label=label, baseline=baseline,
         bars=bars, step_functions=steps, signed=bool(signed),
         measurement_name=label if measurement_name is None else measurement_name,
@@ -287,8 +295,3 @@ def compute_measurement_profiles(
                     "reduced": getattr(forest, "reduced", None)},
         _source_bars=tuple(selected), _source_identity=id(forest),
     )
-    if cache:
-        if not hasattr(forest, "measurement_profiles"):
-            forest.measurement_profiles = {}
-        forest.measurement_profiles[label] = result
-    return result

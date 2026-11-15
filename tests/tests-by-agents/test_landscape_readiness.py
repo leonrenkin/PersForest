@@ -34,7 +34,7 @@ class LandscapeReadinessTests(unittest.TestCase):
 
     def test_numerical_result_is_independent_of_subsequent_source_state(self):
         forest = profile_forest([(0, 4, [(0, 4, 1)])])
-        profiles = compute_measurement_profiles(forest, measured, 'one', signed=True, cache=False)
+        profiles = compute_measurement_profiles(forest, measured, 'one', signed=True)
         forest._barcode_computed = False
         forest.barcode[0].death = 100
         with patch.object(forest, 'iter_bar_cycle_reps', side_effect=AssertionError('Must not reconstruct')):

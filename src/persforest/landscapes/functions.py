@@ -1,4 +1,4 @@
-"""landscapes.functions: mechanically extracted reference implementation."""
+"""Read-only step and piecewise-linear function containers for profiles and kernels."""
 
 from __future__ import annotations
 
@@ -42,8 +42,8 @@ def _domain(domain: Sequence[float]) -> tuple[float, float]:
     if len(domain) != 2:
         raise ValueError("domain must contain two endpoints")
     start, end = map(float, domain)
-    if np.isnan((start, end)).any() or end < start:
-        raise ValueError("domain endpoints must be ordered and not NaN")
+    if not np.isfinite((start, end)).all() or end < start:
+        raise ValueError("domain endpoints must be finite and ordered")
     return start, end
 
 
@@ -59,8 +59,8 @@ class StepFunctionData:
     where the function is potentially non-zero (for convenience).
 
     Intervals must be ordered and nonoverlapping. Gaps use the baseline;
-    zero-width records are allowed. Negative/nonfinite values and infinite
-    endpoints can be stored here; landscapes impose stricter requirements.
+    zero-width records are allowed. Interval endpoints lie in the finite
+    domain; negative/nonfinite values can be stored here, landscapes reject them.
     """
     starts: NDArray[np.float64]
     ends: NDArray[np.float64]
@@ -75,10 +75,10 @@ class StepFunctionData:
             object.__setattr__(self, name, _readonly_vector(getattr(self, name), name))
         if not (self.starts.size == self.ends.size == self.vals.size):
             raise ValueError("starts, ends, vals must have the same length")
-        if (np.isnan(self.starts).any() or np.isnan(self.ends).any()
+        if (not np.isfinite(self.starts).all() or not np.isfinite(self.ends).all()
                 or np.any(self.ends < self.starts)
                 or np.any(self.starts[1:] < self.ends[:-1])):
-            raise ValueError("Profile intervals must be ordered, nonoverlapping, and have end >= start")
+            raise ValueError("Profile intervals must be finite, ordered, nonoverlapping, and have end >= start")
         domain = _domain(self.domain)
         if np.any(self.starts < domain[0]) or np.any(self.ends > domain[1]):
             raise ValueError("Profile intervals must lie inside the domain")
@@ -183,8 +183,6 @@ class PiecewiseLinearFunction:
         if np.any(np.diff(xs) <= 0):
             raise ValueError("xs must be strictly increasing")
         domain = _domain(self.domain)
-        if not np.isfinite(domain).all():
-            raise ValueError("Piecewise-linear domain endpoints must be finite")
         object.__setattr__(self, "xs", xs)
         object.__setattr__(self, "ys", ys)
         object.__setattr__(self, "domain", domain)

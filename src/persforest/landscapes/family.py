@@ -174,7 +174,10 @@ def landscapes_from_profiles(
         forest_id=profiles.forest_id, label=profiles.label if label is None else label,
         rescaling=mode, x_grid=grid, bar_kernels=kernels, landscapes=levels,
         bars=tuple(profiles.bars[i] for i in indices),
-        extra_meta={**profiles.extra_meta, "profile_label": profiles.label,
+        # The source-barcode list stays on the profiles; families do not copy it.
+        extra_meta={**{key: value for key, value in profiles.extra_meta.items()
+                       if key != "source_barcode"},
+                    "profile_label": profiles.label,
                     "measurement_name": profiles.measurement_name,
                     "measurement_params": profiles.measurement_params,
                     "signed": profiles.signed, "baseline": profiles.baseline,

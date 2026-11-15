@@ -18,6 +18,7 @@ def animate_barcode_measurement_generic(
         cycle_func: CycleValueFunc | None = None,
         bar=None,
         *,
+        signed: bool = False,
         profiles: MeasurementProfiles | None = None,
         filename: Optional[str] = None,
         fps: int = 20,
@@ -48,12 +49,15 @@ def animate_barcode_measurement_generic(
         - a method ``plot_at_filtration(filt_val, ax=None, **kwargs)``.
 
     cycle_func : CycleValueFunc
-        Callable ``(cycle_rep, point_cloud) -> float`` evaluated on the
-        stored (signed) cycle representatives. Its ``__name__`` labels the
-        measurement axis unless it is a lambda.
+        Callable ``(cycle_rep, point_cloud) -> float`` evaluated on the cycle
+        representatives. Its ``__name__`` labels the measurement axis unless
+        it is a lambda.
     bar :
         Bar object in ``forest.barcode``. If given, only its profile is shown;
         otherwise all bars selected by ``measurement_kwargs`` are shown.
+    signed : bool, default False
+        Signed/unsigned convention of ``compute_measurement_profiles`` for
+        ``cycle_func``; recorded in the profiles. Ignored with ``profiles``.
     profiles : MeasurementProfiles, optional
         Reuse this explicit result for the measurement panel. Supply either
         profiles or cycle_func, never both. Source/bar association is checked.
@@ -143,12 +147,12 @@ def animate_barcode_measurement_generic(
     if profiles is None:
         # Measure only bars that can be shown; a single bar needs no shorter bars.
         min_length = measurement_kwargs["min_bar_length"]
-        if bar is not None and np.isfinite(bar.lifespan()):
+        if bar is not None:
             min_length = max(min_length, bar.lifespan())
         name = getattr(cycle_func, "__name__", "<lambda>")
         profiles = compute_measurement_profiles(
             forest, cycle_func, "measurement" if name == "<lambda>" else name,
-            signed=True, min_bar_length=min_length, cache=False)
+            signed=signed, min_bar_length=min_length)
     elif bar is not None:
         profiles.require_source(forest, bar)
     measurement_kwargs.setdefault("title", f"{profiles.label} profiles")

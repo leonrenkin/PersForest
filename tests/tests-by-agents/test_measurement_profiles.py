@@ -69,12 +69,15 @@ class MeasurementProfileTests(unittest.TestCase):
 
     def test_filters_are_inclusive_cache_is_explicit_and_label_overwrites(self):
         forest = build(split())
-        uncached = compute_measurement_profiles(forest, signed_chain_area, 'area', signed=True, cache=False)
+        # The numerical function never touches the forest registry.
+        uncached = compute_measurement_profiles(forest, signed_chain_area, 'area', signed=True)
         self.assertEqual(forest.measurement_profiles, {})
-        saved = compute_measurement_profiles(forest, signed_chain_area, 'area', signed=True, min_bar_length=2)
+        self.assertEqual(len(forest.compute_measurement_profiles(signed_chain_area, 'area', cache=False).bars), 2)
+        self.assertEqual(forest.measurement_profiles, {})
+        saved = forest.compute_measurement_profiles(signed_chain_area, 'area', signed=True, min_bar_length=2)
         self.assertIs(forest.measurement_profiles['area'], saved)
         self.assertEqual(len(saved.bars), 2)
-        only_long = compute_measurement_profiles(forest, signed_chain_area, 'area', signed=True, min_bar_length=np.nextafter(2, np.inf))
+        only_long = forest.compute_measurement_profiles(signed_chain_area, 'area', signed=True, min_bar_length=np.nextafter(2, np.inf))
         self.assertIs(forest.measurement_profiles['area'], only_long)
         self.assertEqual([(b.birth, b.death) for b in only_long.bars], [(1, 7)])
         self.assertEqual(len(uncached.bars), 2)
@@ -104,7 +107,14 @@ class MeasurementProfileTests(unittest.TestCase):
         np.testing.assert_array_equal(profiles[bar].vals, [8, 8, 6, 2])
         self.assertEqual([r.active_start for r in forest.iter_bar_cycle_reps(bar)], [4, 3, 2, 1])
 
-    def test_infinite_bar_profile_at_finite_times(self):
-        forest = profile_forest([(1, np.inf, [(1, np.inf, 2)])])
-        profiles = compute_measurement_profiles(forest, measured, 'infinite', signed=True)
-        np.testing.assert_array_equal(profiles.evaluate_on_grid([0, 1, 100]), [[0, 2, 2]])
+    def test_infinite_bars_and_profile_endpoints_are_rejected_before_measuring(self):
+        forbidden = Mock(side_effect=AssertionError('Infinite bars must not be measured'))
+        for death in (np.inf, np.nan):
+            forest = profile_forest([(0, 2, [(0, 2, 1)]), (1, death, [(1, 3, 2)])])
+            with self.subTest(death=death), self.assertRaisesRegex(ValueError, 'finite'):
+                compute_measurement_profiles(forest, forbidden, 'infinite', signed=True)
+        forbidden.assert_not_called()
+        for starts, ends, domain in (([0], [np.inf], (0, np.inf)), ([-np.inf], [1], (-np.inf, 1)),
+                                     ([0], [1], (0, np.inf))):
+            with self.subTest(domain=domain), self.assertRaisesRegex(ValueError, 'finite'):
+                StepFunctionData(starts, ends, [1], 0, domain)

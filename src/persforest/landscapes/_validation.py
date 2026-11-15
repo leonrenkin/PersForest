@@ -1,4 +1,4 @@
-"""landscapes. validation: mechanically extracted reference implementation."""
+"""Input validation shared by measurement profiles, kernels and landscape families."""
 
 import numpy as np
 
@@ -39,12 +39,10 @@ def validate_landscape_request(max_k, num_grid_points, mode, x_grid):
     return grid
 
 def validate_landscape_kernel_input(bar, step_function):
-    """Require finite bar and profile endpoints and nonnegative values."""
-    if not np.isfinite((bar.birth, bar.death)).all():
-        raise ValueError("Landscape bar endpoints must be finite")
-    if (not np.isfinite(step_function.starts).all()
-            or not np.isfinite(step_function.ends).all()):
-        raise ValueError("Landscape profile endpoints must be finite")
+    """Require finite nonnegative values and a zero baseline.
+
+    Bar and profile endpoints are already finite by construction.
+    """
     if not np.isfinite(step_function.vals).all() or np.any(step_function.vals < 0):
         raise ValueError("Landscape measurements must be finite and nonnegative")
     if step_function.baseline != 0.0:

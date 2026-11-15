@@ -3,7 +3,7 @@ from unittest.mock import Mock
 import unittest
 import numpy as np
 from persforest.landscapes.family import landscapes_from_profiles
-from persforest.landscapes.profiles import compute_measurement_profiles
+from persforest.landscapes.profiles import compute_measurement_profiles, ProfileBar
 from persforest.landscapes.kernels import landscape_kernel, convolve_profile
 from persforest.landscapes.functions import PiecewiseLinearFunction
 from persforest.measurements.basic import signed_chain_area, signed_chain_edge_length, constant_one_functional
@@ -14,7 +14,7 @@ from oracle_landscapes import landscape
 def family(forest, cycle_func, label, *, min_bar_length=0.0, **kwargs):
     """Feed independent synthetic profiles through the numerical public API."""
     profiles = compute_measurement_profiles(
-        forest, cycle_func, label, signed=True, min_bar_length=min_bar_length, cache=False)
+        forest, cycle_func, label, signed=True, min_bar_length=min_bar_length)
     return landscapes_from_profiles(profiles, **kwargs)
 
 
@@ -227,16 +227,12 @@ class CacheAndWrapperTests(unittest.TestCase):
 class InvalidLandscapeContractTests(unittest.TestCase):
     """D8: landscape validation and remaining expected-failure targets."""
 
-    def test_d8_infinite_kernel_has_actionable_error(self):
-        forest = profile_forest([(1, np.inf, [(1, np.inf, 1)])])
-        with self.assertRaisesRegex(ValueError, 'finite'):
-            landscape_kernel(compute_measurement_profiles(forest, measured, "test", signed=True, cache=False), 0)
-
-
-    def test_d8_infinite_family_has_actionable_error(self):
+    def test_d8_infinite_bar_is_rejected_before_any_landscape_work(self):
         forest = profile_forest([(1, np.inf, [(1, np.inf, 1)])])
         with self.assertRaisesRegex(ValueError, 'finite'):
             family(forest, measured, 'infinite', x_grid=[0, 1, 2])
+        with self.assertRaisesRegex(ValueError, 'finite'):
+            ProfileBar(0, 1.0, np.inf)
 
     def test_d8_negative_scientific_measurement_rejects(self):
         forest = profile_forest([(0, 2, [(0, 2, -1)])])
@@ -259,7 +255,7 @@ class InvalidLandscapeContractTests(unittest.TestCase):
         forest = profile_forest([(0, 2, [(0, 2, -1)])])
         bar = forest.barcode[0]
         with self.assertRaisesRegex(ValueError, 'finite and nonnegative'):
-            landscape_kernel(compute_measurement_profiles(forest, measured, "test", signed=True, cache=False), bar)
+            landscape_kernel(compute_measurement_profiles(forest, measured, "test", signed=True), bar)
 
         profiles = compute_measurement_profiles(forest, measured, 'signed', signed=True)
         self.assertEqual(profiles[bar].vals.tolist(), [-1])

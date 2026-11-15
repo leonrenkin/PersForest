@@ -1,4 +1,4 @@
-"""landscapes.kernels: mechanically extracted reference implementation."""
+"""Per-bar landscape kernels: convolution of measurement profiles with bar indicators."""
 
 from bisect import bisect_right
 from persforest.landscapes._validation import validate_landscape_kernel_input
@@ -10,7 +10,6 @@ from typing import Callable
 from typing import List
 from typing import Literal
 from typing import Tuple
-import math
 import numpy as np
 
 def _build_convolution_with_indicator(
@@ -50,8 +49,8 @@ def _build_convolution_with_indicator(
         tol = validate_tolerance(tol)
         if not np.isfinite((a, b)).all():
             raise ValueError("Convolution interval endpoints must be finite")
-        if not all(np.isfinite(values).all() for values in (starts, ends, vals)):
-            raise ValueError("Convolution profile endpoints and values must be finite")
+        if not np.isfinite(vals).all():
+            raise ValueError("Convolution profile values must be finite")
         if b < a:
             raise ValueError("Require a <= b for the indicator [a,b].")
         if not (len(starts) == len(ends) == len(vals)):
@@ -104,13 +103,6 @@ def _build_convolution_with_indicator(
             y_next = ys[-1] + slope * (x_next - x_i)
             ys.append(y_next)
 
-        # Consume the last event to bring slope back (should return to ~0)
-        slope += events[xs[-1]]
-        # Optional check (tolerant to rounding)
-        if not math.isclose(slope, 0.0, rel_tol=1e-9, abs_tol=1e-9):
-            # Not fatal; tiny residue can appear from floating noise
-            pass
-
         # Build a fast evaluator by linear interpolation on the piecewise-linear segments
         def h(x: float) -> float:
             if not xs:
@@ -145,8 +137,7 @@ def convolve_profile(
 
     Notes
     -----
-    Nonzero baselines are rejected rather than silently discarded. Infinite
-    endpoints remain supported by standalone profiles, not finite convolution.
+    Nonzero baselines are rejected rather than silently discarded.
     """
     if not isinstance(profile, StepFunctionData):
         raise TypeError("profile must be StepFunctionData")
@@ -156,7 +147,10 @@ def convolve_profile(
         profile.starts.tolist(), profile.ends.tolist(), profile.vals.tolist(),
         birth, death, tol=tol,
     )
-    domain = (float(xs[0]), float(xs[-1])) if len(xs) > 1 else (float(birth), float(death))
+    # Without events g vanishes; its domain is still the support bound of
+    # f * 1_[birth, death], consistent with the knot range of nonzero kernels.
+    domain = ((float(xs[0]), float(xs[-1])) if len(xs) > 1
+              else (birth + profile.domain[0], death + profile.domain[1]))
     return PiecewiseLinearFunction(
         np.asarray(xs, dtype=float), np.asarray(ys, dtype=float), domain,
         metadata={**profile.metadata, "kernel_type": "raw_convolution", "tol": float(tol)},
@@ -186,8 +180,7 @@ def landscape_kernel(
     -------
     PiecewiseLinearFunction
         Exact kernel between its numerically constructed knots. Landscape
-        inputs must have finite endpoints, nonnegative finite measurements,
-        and zero baseline. Invalid modes and missing profiles raise errors.
+        inputs must have nonnegative finite measurements and zero baseline. Invalid modes and missing profiles raise errors.
     """
     if mode not in ("raw", "pyramid"):
         raise ValueError("mode must be 'raw' or 'pyramid'")
@@ -201,10 +194,8 @@ def landscape_kernel(
     raw = convolve_profile(profile, bar.birth, bar.death, tol=tol)
     if mode == "raw":
         return raw
-    xs, ys = raw.xs / 2.0, raw.ys / 2.0
-    domain = (float(xs[0]), float(xs[-1])) if xs.size > 1 else raw.domain
     return PiecewiseLinearFunction(
-        xs, ys, domain,
+        raw.xs / 2.0, raw.ys / 2.0, (raw.domain[0] / 2.0, raw.domain[1] / 2.0),
         metadata={**raw.metadata, "kernel_type": "pyramid_rescaled",
                   "rescaling_formula": "lambda(x) = 0.5 * g(2x)"},
     )
