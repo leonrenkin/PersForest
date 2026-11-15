@@ -1,31 +1,51 @@
-"""Plot completed benchmark records without running scientific computations."""
+"""Summarize and plot completed benchmark records without running computations.
+
+Usage from the repository root::
+
+    .venv/bin/python benchmarks/performance/plot.py RESULTS_DIR [--output DIR]
+
+Writes ``summary.csv`` (medians with min/max over repeats), prints a compact
+runtime table, and saves three figures (PNG and PDF):
+
+``runtime``     diff-mode persistence forest + barcode (solid) and boundary
+                landscape (dashed) time against input size, log-log.
+``breakdown``   diff-mode stage times at the largest size with landscapes.
+``modes``       diffs vs cycles: time to barcode + landscape and peak memory.
+"""
 
 from __future__ import annotations
 
 import argparse
 import csv
-import json
 from pathlib import Path
 import statistics
 
-from run import MODES, load_results
+from run import load_results
 
-COLORS = dict(zip(MODES, ["#4477AA", "#EE6677", "#228833", "#AA3377"]))
+PANELS = [("points", 2), ("points", 3), ("cubical", 2), ("cubical", 3)]
+SAMPLER_COLORS = {"uniform": "#4477AA", "noisy_sphere": "#EE6677", "single_hole": "#EE6677",
+                  "holes": "#228833"}
+SIZE_LABEL = {"points": "number of points", "cubical": "number of top cells"}
+STAGES = [("time_filtration_s", "filtration preparation"),
+          ("time_forest_s", "forest sweep + reduction"),
+          ("time_barcode_with_interior_s", "barcode"),
+          ("time_landscape_s", "landscape")]
+METRICS = ("time_filtration_s", "time_forest_s", "time_barcode_with_interior_s",
+           "time_persforest_s", "time_landscape_s", "time_persforest_and_landscape_s",
+           "peak_rss_to_barcode_bytes", "peak_rss_bytes", "n_bars", "n_events")
 
 
-def _write_csv(path: Path, rows: list[dict]) -> None:
-    if not rows:
-        # A resumed run may resolve every failure; do not leave a stale table.
-        path.write_text("")
-        return
-    with path.open("w", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=sorted(set().union(*(row.keys() for row in rows))))
-        writer.writeheader()
-        writer.writerows(rows)
+def _has(row: dict, metric: str) -> bool:
+    """Barcode metrics survive a later landscape limit; others need success."""
+    if metric not in row:
+        return False
+    return row["status"] == "ok" or metric in ("time_persforest_s", "time_filtration_s",
+                                               "time_forest_s", "time_barcode_with_interior_s",
+                                               "n_bars", "n_events")
 
 
 def summarize(rows: list[dict]) -> list[dict]:
-    """Aggregate successful repeats while preserving attempted/failed counts.
+    """Aggregate repeats by input, mode and landscape setting.
 
     Parameters
     ----------
@@ -35,23 +55,21 @@ def summarize(rows: list[dict]) -> list[dict]:
     Returns
     -------
     list of dict
-        Median, minimum and maximum of each metric, and completion counts.
+        Median, minimum and maximum of each metric over repeats, plus counts
+        and the statuses of incomplete attempts.
     """
     groups = {}
-    fields = ("suite", "dim", "sampler", "n_points", "mode", "functional")
+    fields = ("kind", "dim", "sampler", "size", "n_input", "mode", "landscape")
     for row in rows:
         groups.setdefault(tuple(row[field] for field in fields), []).append(row)
     output = []
-    for key, group in groups.items():
-        successful = [row for row in group if row["status"] == "ok"]
+    for key in sorted(groups, key=lambda key: tuple(map(str, key[:3])) + key[3:5] + (key[5],)):
+        group = groups[key]
         result = dict(zip(fields, key))
-        result.update(n_attempts=len(group), n_ok=len(successful),
-                      n_incomplete=len(group) - len(successful))
-        metrics = set().union(*(row.keys() for row in successful))
-        for metric in metrics:
-            if not (metric.startswith(("time_", "peak_rss_")) or "_pct_" in metric):
-                continue
-            values = [row[metric] for row in successful if metric in row]
+        result.update(n_attempts=len(group), n_ok=sum(row["status"] == "ok" for row in group),
+                      statuses=";".join(sorted({row["status"] for row in group})))
+        for metric in METRICS:
+            values = [row[metric] for row in group if _has(row, metric)]
             if values:
                 result[metric + "_median"] = statistics.median(values)
                 result[metric + "_min"] = min(values)
@@ -60,71 +78,68 @@ def summarize(rows: list[dict]) -> list[dict]:
     return output
 
 
-def paired_ratios(rows: list[dict]) -> list[dict]:
-    """Compare storage="cycles" with storage="diffs" on the same cloud and functional.
+def _write_csv(path: Path, rows: list[dict]) -> None:
+    keys = sorted(set().union(*(row.keys() for row in rows))) if rows else []
+    with path.open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=keys)
+        writer.writeheader()
+        writer.writerows(rows)
 
-    Parameters
-    ----------
-    rows : list of dict
-        Results from a single manifest; failed pairs are omitted.
 
-    Returns
-    -------
-    list of dict
-        Per-repeat speedup and memory ratios; values above one favor diff-only.
-    """
-    groups = {}
-    for row in rows:
-        if row["status"] == "ok":
-            key = tuple(row[field] for field in
-                        ("dim", "sampler", "n_points", "repeat", "seed", "functional"))
-            groups.setdefault(key, {})[row["mode"]] = row
-    output = []
-    for group in groups.values():
-        if "cycles" not in group or "diffs" not in group:
+def _series(summary, kind, dim, sampler, mode, metric):
+    points = sorted((row["n_input"], row[metric + "_median"], row[metric + "_min"], row[metric + "_max"])
+                    for row in summary
+                    if (row["kind"], row["dim"], row["sampler"], row["mode"]) == (kind, dim, sampler, mode)
+                    and metric + "_median" in row)
+    return [list(column) for column in zip(*points)] if points else None
+
+
+def _samplers(summary, kind):
+    order = ["uniform", "noisy_sphere", "single_hole", "holes"]
+    present = {row["sampler"] for row in summary if row["kind"] == kind}
+    return [sampler for sampler in order if sampler in present]
+
+
+def print_table(summary: list[dict]) -> None:
+    """Print diff-mode medians: persforest, landscape, peak memory."""
+    print(f"{'input':<26}{'size':>10}{'persforest s':>14}{'landscape s':>13}{'peak GiB':>10}{'bars':>10}  status")
+    for row in summary:
+        if row["mode"] != "diffs":
             continue
-        cycles, diff = group["cycles"], group["diffs"]
-        row = {field: diff[field] for field in
-               ("dim", "sampler", "n_points", "repeat", "seed", "functional")}
-        for metric in ("time_to_barcode_excluding_alpha_s", "time_forest_s",
-                       "time_barcode_with_interior_s", "time_landscape_s",
-                       "time_pipeline_s", "peak_rss_to_barcode_bytes", "peak_rss_bytes"):
-            if cycles.get(metric, 0) > 0 and diff.get(metric, 0) > 0:
-                row[metric + "_cycles_over_diffs"] = cycles[metric] / diff[metric]
-        row["same_point_cloud"] = cycles.get("point_cloud_sha256") == diff.get("point_cloud_sha256")
-        row["same_barcode_endpoints"] = cycles.get("barcode_endpoints_sha256") == diff.get("barcode_endpoints_sha256")
-        output.append(row)
-    return output
+        label = f"{row['kind']} {row['dim']}D {row['sampler']}"
+        def cell(metric, scale=1.0, width=13):
+            value = row.get(metric + "_median")
+            return f"{value / scale:>{width}.2f}" if value is not None else f"{'-':>{width}}"
+        print(f"{label:<26}{row['n_input']:>10}{cell('time_persforest_s', width=14)}"
+              f"{cell('time_landscape_s')}{cell('peak_rss_bytes', 1024 ** 3, 10)}"
+              f"{int(row.get('n_bars_median', 0)):>10}  {row['statuses']}")
 
 
-def make_plots(rows: list[dict], output: Path, memory_limit_gib: float) -> list[Path]:
-    """Write summary tables and plots, including incomplete configurations.
+def make_plots(summary: list[dict], output: Path, title: str) -> list[Path]:
+    """Write the three summary figures; no benchmark is launched.
 
     Parameters
     ----------
-    rows : list of dict
-        Latest records from one benchmark manifest.
+    summary : list of dict
+        Output of ``summarize``.
     output : Path
-        Destination for CSV, PDF and PNG files.
-    memory_limit_gib : float
-        Configured watchdog threshold, shown on memory panels.
+        Destination directory for PNG and PDF files.
+    title : str
+        Figure title prefix, e.g. the results directory name.
 
     Returns
     -------
     list of Path
-        Generated figure paths. No benchmark is launched.
+        Generated figure paths.
     """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
 
     output.mkdir(parents=True, exist_ok=True)
-    summary = summarize(rows)
-    paired = paired_ratios(rows)
-    _write_csv(output / "summary.csv", summary)
-    _write_csv(output / "paired_ratios.csv", paired)
-    _write_csv(output / "failures.csv", [row for row in rows if row["status"] != "ok"])
     artifacts = []
+    panels = [panel for panel in PANELS if any((row["kind"], row["dim"]) == panel for row in summary)]
 
     def save(fig, name):
         for extension in ("png", "pdf"):
@@ -133,143 +148,113 @@ def make_plots(rows: list[dict], output: Path, memory_limit_gib: float) -> list[
             artifacts.append(path)
         plt.close(fig)
 
-    for dim, sampler in sorted({(row["dim"], row["sampler"]) for row in rows}):
-        subset = [row for row in summary if (row["dim"], row["sampler"]) == (dim, sampler)]
-        functionals = sorted({row["functional"] for row in subset})
-        for functional in functionals:
-            selected = [row for row in subset if row["functional"] == functional]
-            landscapes = functional != "none"
-            panels = [
-                ("time_to_barcode_excluding_alpha_s", "Time to barcode excluding alpha", "seconds", 1, True),
-                ("time_to_barcode_s", "Point cloud → barcode (including alpha)", "seconds", 1, True),
-                ("peak_rss_to_barcode_bytes", "Peak RSS through barcode", "GiB", 1 / 1024**3, True),
-                ("time_forest_s", "Forest including setup, reduction, activity", "seconds", 1, True),
-                ("time_barcode_with_interior_s", "Barcode including requested interiors", "seconds", 1, True),
-                ("alpha_pct_to_barcode", "Alpha share of time to barcode", "percent", 1, False),
-            ]
-            if landscapes:
-                panels += [
-                    ("time_landscape_s", "Landscape construction", "seconds", 1, True),
-                    ("landscape_pct_pipeline", "Landscape share of full pipeline", "percent", 1, False),
-                    ("peak_rss_bytes", "Peak RSS of full pipeline", "GiB", 1 / 1024**3, True),
-                    ("time_pipeline_s", "Point cloud → landscapes (including alpha)", "seconds", 1, True),
-                    ("alpha_pct_pipeline", "Alpha share of full pipeline", "percent", 1, False),
-                    ("landscape_pct_excluding_alpha", "Landscape share excluding alpha", "percent", 1, False),
-                ]
-            fig, axes = plt.subplots(len(panels) // 3, 3, figsize=(15, 4 * (len(panels) // 3)), squeeze=False)
-            for axis, (metric, title, unit, scale, log) in zip(axes.flat, panels):
-                for mode in MODES:
-                    available = sorted([row for row in selected
-                                        if row["mode"] == mode and metric + "_median" in row],
-                                       key=lambda row: row["n_points"])
-                    if not available:
+    def panel_axes(rows=1):
+        fig, axes = plt.subplots(rows, len(panels), figsize=(4.2 * len(panels), 3.6 * rows),
+                                 squeeze=False)
+        return fig, axes
+
+    # 1. Diff-mode runtime against size.
+    fig, axes = panel_axes()
+    for ax, (kind, dim) in zip(axes[0], panels):
+        for sampler in _samplers(summary, kind):
+            color = SAMPLER_COLORS[sampler]
+            for metric, style in (("time_persforest_s", "-"), ("time_landscape_s", "--")):
+                series = _series(summary, kind, dim, sampler, "diffs", metric)
+                if series:
+                    x, median, low, high = series
+                    ax.plot(x, median, style, marker="o", ms=3, color=color)
+                    ax.fill_between(x, low, high, color=color, alpha=0.15, lw=0)
+        _slope_guide(ax)
+        ax.set(xscale="log", yscale="log", xlabel=SIZE_LABEL[kind], ylabel="time [s]",
+               title=f"{kind}, {dim}D")
+        ax.grid(True, which="major", alpha=0.3)
+        ax.legend(handles=[Line2D([], [], color=SAMPLER_COLORS[s], label=s) for s in _samplers(summary, kind)]
+                  + [Line2D([], [], color="k", ls="-", label="forest + barcode"),
+                     Line2D([], [], color="k", ls="--", label="landscape"),
+                     Line2D([], [], color="0.6", ls=":", label="slope 1")], fontsize=7)
+    fig.suptitle(f"{title}: storage='diffs' (median, band = min–max over repeats)")
+    save(fig, "runtime")
+
+    # 2. Diff-mode stage breakdown at the largest size with a landscape.
+    fig, axes = panel_axes()
+    for ax, (kind, dim) in zip(axes[0], panels):
+        rows = [row for row in summary if (row["kind"], row["dim"], row["mode"]) == (kind, dim, "diffs")
+                and row["landscape"] and "time_landscape_s_median" in row]
+        if not rows:
+            ax.set_visible(False)
+            continue
+        size = max(row["n_input"] for row in rows)
+        rows = sorted((row for row in rows if row["n_input"] == size),
+                      key=lambda row: _samplers(summary, kind).index(row["sampler"]))
+        labels = [row["sampler"] for row in rows]
+        left = [0.0] * len(rows)
+        for (metric, label), color in zip(STAGES, ["0.75", "#4477AA", "#66CCEE", "#CCBB44"]):
+            values = [row.get(metric + "_median", 0.0) for row in rows]
+            ax.barh(labels, values, left=left, color=color, label=label)
+            left = [a + b for a, b in zip(left, values)]
+        ax.invert_yaxis()
+        ax.set(xlabel="time [s]", title=f"{kind}, {dim}D, n = {size:,}")
+        ax.legend(fontsize=7)
+    fig.suptitle(f"{title}: where the time goes (storage='diffs', medians)")
+    save(fig, "breakdown")
+
+    # 3. Diffs vs cycles at sizes where both ran.
+    if any(row["mode"] == "cycles" for row in summary):
+        fig, axes = panel_axes(rows=2)
+        for column, (kind, dim) in enumerate(panels):
+            for row_index, (metric, ylabel, scale) in enumerate(
+                    (("time_persforest_and_landscape_s", "forest + barcode + landscape [s]", 1.0),
+                     ("peak_rss_bytes", "peak memory [GiB]", 1024 ** 3))):
+                ax = axes[row_index][column]
+                for sampler in _samplers(summary, kind):
+                    cycles = _series(summary, kind, dim, sampler, "cycles", metric)
+                    if not cycles:
                         continue
-                    xs = [row["n_points"] for row in available]
-                    ys = [scale * row[metric + "_median"] for row in available]
-                    axis.plot(xs, ys, "o-", color=COLORS[mode], label=mode, markersize=4)
-                    axis.fill_between(xs, [scale * row[metric + "_min"] for row in available],
-                                      [scale * row[metric + "_max"] for row in available],
-                                      color=COLORS[mode], alpha=0.12)
-                axis.set(xscale="log", xlabel="number of points", ylabel=unit, title=title)
-                if log and axis.lines:
-                    axis.set_yscale("log")
-                elif not log:
-                    axis.set_ylim(0, 100)
-                if unit == "GiB":
-                    axis.axhline(memory_limit_gib, color="gray", linestyle=":", label="RSS stop threshold")
-                axis.grid(alpha=0.2)
-            handles, labels = axes.flat[0].get_legend_handles_labels()
-            fig.legend(handles, labels, loc="lower center", ncol=4, fontsize=9)
-            fig.suptitle(f"{dim}D · {sampler} · {functional}\nMedian and min–max of successful repeats; see completion plot for censored runs")
-            fig.tight_layout(rect=(0, 0.04, 1, 0.94))
-            save(fig, f"{dim}d_{sampler}_{functional}")
-
-        # All attempted cases appear here, so survival-biased timings cannot
-        # silently look like complete comparisons at large n.
-        fig, axis = plt.subplots(figsize=(10, 4))
-        for mode in MODES:
-            for functional in functionals:
-                selected = sorted([row for row in subset if row["mode"] == mode and
-                                   row["functional"] == functional], key=lambda row: row["n_points"])
-                if selected:
-                    axis.plot([row["n_points"] for row in selected],
-                              [row["n_ok"] / row["n_attempts"] for row in selected],
-                              marker="o", color=COLORS[mode],
-                              linestyle="--" if functional == "constant_one" else "-",
-                              label=f"{mode} / {functional}")
-        axis.set(xscale="log", ylim=(-0.05, 1.05), xlabel="number of points",
-                 ylabel="successful / recorded cases", title=f"Completion: {dim}D · {sampler}")
-        axis.legend(fontsize=7, loc="center left", bbox_to_anchor=(1, 0.5))
-        save(fig, f"{dim}d_{sampler}_completion")
-
-        if any(functional != "none" for functional in functionals):
-            fig, axes = plt.subplots(2, 2, figsize=(11, 8), squeeze=False)
-            for axis, mode in zip(axes.flat, MODES):
-                for functional in functionals:
-                    metric = "time_landscape_s"
-                    selected = sorted([row for row in subset if row["mode"] == mode and
-                                       row["functional"] == functional and metric + "_median" in row],
-                                      key=lambda row: row["n_points"])
-                    if selected:
-                        xs = [row["n_points"] for row in selected]
-                        axis.plot(xs, [row[metric + "_median"] for row in selected], "o-", label=functional)
-                        axis.fill_between(xs, [row[metric + "_min"] for row in selected],
-                                          [row[metric + "_max"] for row in selected], alpha=0.12)
-                axis.set(xscale="log", xlabel="number of points", ylabel="landscape seconds", title=mode)
-                if axis.lines:
-                    axis.set_yscale("log")
-                    axis.legend()
-            fig.suptitle(f"Functional comparison: {dim}D · {sampler} (fresh process per functional)")
-            fig.tight_layout()
-            save(fig, f"{dim}d_{sampler}_functionals")
-
-        ratios = [row for row in paired if (row["dim"], row["sampler"]) == (dim, sampler)]
-        if ratios:
-            metrics = [
-                ("time_to_barcode_excluding_alpha_s", "Time to barcode excluding alpha"),
-                ("time_forest_s", "Forest time"),
-                ("time_barcode_with_interior_s", "Barcode time"),
-                ("peak_rss_to_barcode_bytes", "Peak RSS through barcode"),
-            ]
-            if any("time_landscape_s_cycles_over_diffs" in row for row in ratios):
-                metrics += [("time_landscape_s", "Landscape time"),
-                            ("peak_rss_bytes", "Full pipeline peak RSS")]
-            fig, axes = plt.subplots(1, len(metrics), figsize=(4 * len(metrics), 4), squeeze=False)
-            for axis, (metric, title) in zip(axes.flat, metrics):
-                for functional in functionals:
-                    grouped = {}
-                    field = metric + "_cycles_over_diffs"
-                    for row in ratios:
-                        if row["functional"] == functional and field in row:
-                            grouped.setdefault(row["n_points"], []).append(row[field])
-                    if grouped:
-                        xs = sorted(grouped)
-                        axis.plot(xs, [statistics.median(grouped[x]) for x in xs], "o-", label=functional)
-                        axis.fill_between(xs, [min(grouped[x]) for x in xs],
-                                          [max(grouped[x]) for x in xs], alpha=0.12)
-                axis.axhline(1, color="gray", linestyle=":")
-                axis.set(xscale="log", yscale="log", xlabel="number of points", title=title,
-                         ylabel="cycles / diffs (higher favors diffs)")
-            axes.flat[0].legend(fontsize=8)
-            fig.suptitle(f"Matched repeats: {dim}D · {sampler}")
-            fig.tight_layout()
-            save(fig, f"{dim}d_{sampler}_paired")
+                    diffs = _series(summary, kind, dim, sampler, "diffs", metric)
+                    for series, style in ((diffs, "-"), (cycles, "--")):
+                        x, median = series[0], [value / scale for value in series[1]]
+                        keep = [i for i, value in enumerate(x) if value <= max(cycles[0])]
+                        ax.plot([x[i] for i in keep], [median[i] for i in keep], style, marker="o",
+                                ms=3, color=SAMPLER_COLORS[sampler])
+                ax.set(xscale="log", yscale="log", xlabel=SIZE_LABEL[kind], ylabel=ylabel)
+                ax.grid(True, which="major", alpha=0.3)
+                if row_index == 0:
+                    ax.set_title(f"{kind}, {dim}D")
+                    ax.legend(handles=[Line2D([], [], color=SAMPLER_COLORS[s], label=s)
+                                       for s in _samplers(summary, kind)]
+                              + [Line2D([], [], color="k", ls="-", label="diffs"),
+                                 Line2D([], [], color="k", ls="--", label="cycles")], fontsize=7)
+        fig.suptitle(f"{title}: storage modes (medians; landscapes only up to their size cap)")
+        save(fig, "modes")
     return artifacts
 
 
+def _slope_guide(ax) -> None:
+    """Draw a faint linear-scaling reference through the panel's lowest-left data."""
+    lines = [line for line in ax.get_lines() if len(line.get_xdata())]
+    if not lines:
+        return
+    x0 = min(min(line.get_xdata()) for line in lines)
+    x1 = max(max(line.get_xdata()) for line in lines)
+    y0 = min(line.get_ydata()[0] for line in lines)
+    ax.plot([x0, x1], [y0, y0 * x1 / x0], ":", color="0.6", zorder=0)
+
+
 def main() -> None:
-    """Render each supplied run separately, preserving its configuration."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("runs", nargs="+", type=Path, help="Directories containing manifest.json and results.jsonl")
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("results", type=Path, help="Directory containing results.jsonl")
+    parser.add_argument("--output", type=Path, help="Default: RESULTS/plots")
     args = parser.parse_args()
-    for directory in args.runs:
-        manifest = json.loads((directory / "manifest.json").read_text())
-        rows = load_results(directory / "results.jsonl")
-        if not rows:
-            print(f"No completed attempt records in {directory}")
-            continue
-        figures = make_plots(rows, directory / "plots", manifest["config"]["memory_limit_gib"])
-        print(f"Wrote {len(figures)} figures and summary CSVs to {directory / 'plots'}")
+    rows = load_results(args.results / "results.jsonl")
+    if not rows:
+        parser.error("No results found")
+    output = args.output or args.results / "plots"
+    output.mkdir(parents=True, exist_ok=True)
+    summary = summarize(rows)
+    _write_csv(output / "summary.csv", summary)
+    print_table(summary)
+    for path in make_plots(summary, output, args.results.name):
+        print(path)
 
 
 if __name__ == "__main__":

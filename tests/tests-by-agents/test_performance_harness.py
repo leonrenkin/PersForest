@@ -7,7 +7,6 @@ import contextlib
 import io
 import hashlib
 import json
-import math
 from pathlib import Path
 import sys
 import tempfile
@@ -28,16 +27,20 @@ def _load(name, filename):
 
 
 runner = _load("performance_runner_test", "run.py")
-cubical = _load("performance_cubical_test", "cubical.py")
 sampling = _load("performance_sampling_test", "sampling.py")
 with patch.dict(sys.modules, {"run": runner}):
     plotting = _load("performance_plotting_test", "plot.py")
 
 
-def _config(suite="barcode"):
-    return dict(suite=suite, dimensions=[2, 3], sizes_2d=None, sizes_3d=None,
-                samplers=["uniform", "noisy_sphere", "holes"], modes=list(runner.MODES),
-                repeats=3, base_seed=12345, max_k=5, grid_points=512, signed=False)
+def _config(schedule="pilot", **overrides):
+    config = dict(schedule=schedule, kinds=list(runner.KINDS), dimensions=[2, 3], samplers=None,
+                  modes=list(runner.MODES), repeats=3, base_seed=12345, max_k=5,
+                  grid_points=512, signed=False)
+    for kind in runner.KINDS:
+        for dim in (2, 3):
+            config[f"{kind}_sizes_{dim}d"] = None
+    config.update(overrides)
+    return config
 
 
 class PerformanceHarnessTests(unittest.TestCase):
@@ -54,8 +57,8 @@ class PerformanceHarnessTests(unittest.TestCase):
     def test_preview_and_resume_without_launching_scientific_code(self):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "experiment"
-            arguments = ["run.py", "--dimensions", "2", "--sizes-2d", "3",
-                         "--samplers", "uniform", "--repeats", "1",
+            arguments = ["run.py", "--kinds", "points", "--dimensions", "2",
+                         "--points-sizes-2d", "3", "--samplers", "uniform", "--repeats", "1",
                          "--output", str(output)]
             with patch.object(sys, "argv", arguments), \
                  patch.object(runner, "_supervise") as supervisor, \
@@ -85,58 +88,36 @@ class PerformanceHarnessTests(unittest.TestCase):
                     with self.assertRaises(SystemExit):
                         runner.main()
 
-    def test_schedule_and_pairing(self):
-        cases = runner.build_cases(_config())
-        # Six 2D sizes and seven 3D sizes, each with three samplers,
-        # three repetitions and two storage modes.
-        self.assertEqual(len(cases), (6 + 7) * 3 * 3 * 2)
-        self.assertEqual(len({case["case_id"] for case in cases}), len(cases))
-        self.assertEqual(cases, runner.build_cases(_config()))
-        expected_sizes = {
-            2: {1000, 5000, 10000, 25000, 50000, 100000},
-            3: {500, 1000, 2500, 5000, 10000, 15000, 20000},
-        }
-        for dim, sizes in expected_sizes.items():
-            self.assertEqual({case["n_points"] for case in cases if case["dim"] == dim}, sizes)
-        cloud_seeds = {}
-        for case in cases:
-            key = (case["dim"], case["n_points"], case["sampler"], case["repeat"])
-            cloud_seeds.setdefault(key, set()).add(case["seed"])
-        self.assertTrue(all(len(seeds) == 1 for seeds in cloud_seeds.values()))
-        landscape = runner.build_cases(_config("landscapes"))
-        self.assertTrue(all(case["functional"] != "edge_length" for case in landscape if case["dim"] == 3))
-        extension = runner.build_cases(_config("diff-scaling"))
-        self.assertEqual({case["mode"] for case in extension}, {"diffs"})
-        self.assertGreater(max(case["n_points"] for case in extension if case["dim"] == 3), 25000)
-
-        custom = runner.build_cases(dict(_config(), sizes_2d=[150000], sizes_3d=[25000]))
-        self.assertEqual(len(custom), 2 * 3 * 3 * 2)
-        self.assertEqual({(case["dim"], case["n_points"]) for case in custom},
-                         {(2, 150000), (3, 25000)})
-
-    def test_cubical_benchmark_cases_and_preview(self):
-        cases = cubical.build_cases(cubical.SHAPES, repeats=2, base_seed=12345)
-        self.assertEqual(cases, cubical.build_cases(cubical.SHAPES, repeats=2, base_seed=12345))
-        self.assertTrue(all(math.prod(c["shape"]) <= cubical.CYCLES_MAX_CELLS
-                            for c in cases if c["storage"] == "cycles"))
-        self.assertEqual(len({(tuple(c["shape"]), c["noise"], c["repeat"], c["seed"]) for c in cases}),
-                         len(cubical.SHAPES) * 2 * 2)
-        values = np.random.default_rng(0).random((12, 9))
-        smooth = cubical.smoothed(values)
-        self.assertEqual(smooth.shape, values.shape)
-        self.assertLess(smooth.std(), values.std())
-        with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary) / "out"
-            with patch.object(sys, "argv", ["cubical.py", "--output", str(output)]), \
-                 patch.object(cubical.subprocess, "run") as launched, \
-                 contextlib.redirect_stdout(io.StringIO()):
-                cubical.main()
-            launched.assert_not_called()
-            self.assertFalse(output.exists())
+    def test_schedule_caps_and_pairing(self):
+        for schedule in runner.SCHEDULES:
+            cases = runner.build_cases(_config(schedule))
+            self.assertEqual(len({case["case_id"] for case in cases}), len(cases))
+            self.assertEqual(cases, runner.build_cases(_config(schedule)))
+            for (kind, dim), entry in runner.SCHEDULES[schedule].items():
+                group = [case for case in cases if (case["kind"], case["dim"]) == (kind, dim)]
+                samplers = sampling.POINT_SAMPLERS if kind == "points" else sampling.GRID_SAMPLERS
+                self.assertEqual({case["sampler"] for case in group}, set(samplers))
+                # Diff-mode barcodes run at every size; landscapes and cycles only up to caps.
+                self.assertEqual({case["size"] for case in group if case["mode"] == "diffs"},
+                                 set(entry["sizes"]))
+                for case in group:
+                    self.assertEqual(case["landscape"], case["size"] <= entry["landscape_max"])
+                    self.assertEqual(case["n_input"], case["size"] if kind == "points" else case["size"] ** dim)
+                    if case["mode"] == "cycles":
+                        self.assertLessEqual(case["size"], entry["cycles_max"])
+            # Every mode of one repeat receives the same input.
+            seeds = {}
+            for case in cases:
+                key = (case["kind"], case["dim"], case["size"], case["sampler"], case["repeat"])
+                seeds.setdefault(key, set()).add(case["seed"])
+            self.assertTrue(all(len(value) == 1 for value in seeds.values()))
+        custom = runner.build_cases(_config(kinds=["cubical"], dimensions=[3], modes=["diffs"],
+                                            samplers=["holes"], repeats=1, cubical_sizes_3d=[20, 10]))
+        self.assertEqual([case["size"] for case in custom], [10, 20])
 
     def test_sampler_shape_seed_and_global_rng(self):
         before = np.random.get_state()
-        for sampler in sampling.SAMPLER_PARAMETERS:
+        for sampler in sampling.POINT_SAMPLERS:
             for dim in (2, 3):
                 points = sampling.sample_points(sampler, 23, dim, 91)
                 self.assertEqual(points.shape, (23, dim))
@@ -144,6 +125,19 @@ class PerformanceHarnessTests(unittest.TestCase):
                 np.testing.assert_array_equal(points, sampling.sample_points(sampler, 23, dim, 91))
                 if sampler != "noisy_sphere":
                     self.assertTrue(((points >= 0) & (points <= 1)).all())
+        for sampler in sampling.GRID_SAMPLERS:
+            for dim in (2, 3):
+                values = sampling.sample_grid(sampler, 9, dim, 91)
+                self.assertEqual(values.shape, (9,) * dim)
+                self.assertTrue(np.isfinite(values).all())
+                np.testing.assert_array_equal(values, sampling.sample_grid(sampler, 9, dim, 91))
+        # The point hole family keeps the September 2026 clouds for a given seed.
+        rng = np.random.default_rng(5)
+        radii = rng.uniform(0.0, 0.05, size=30)
+        centers = rng.uniform(radii[:, None], 1.0 - radii[:, None], (30, 2))
+        balls = sampling._hole_balls(np.random.default_rng(5), 2)
+        np.testing.assert_array_equal(balls[0], centers)
+        np.testing.assert_array_equal(balls[1], radii)
         after = np.random.get_state()
         np.testing.assert_array_equal(before[1], after[1])
         self.assertEqual(before[2:], after[2:])
@@ -162,32 +156,35 @@ class PerformanceHarnessTests(unittest.TestCase):
 
     def test_worker_with_fake_scientific_objects(self):
         # Imports are allowed; real scientific constructors are never invoked.
-        import gudhi
         import persforest
+        import persforest.forest as forest_module
 
         calls = []
 
-        class FakeAlpha:
-            def __init__(self, points):
-                calls.append("alpha")
-
-            def create_simplex_tree(self, **kwargs):
-                self.assert_radius = kwargs["output_squared_values"] is False
-                return SimpleNamespace(num_simplices=lambda: 7)
-
         class FakeForest:
-            def __init__(self, points, **kwargs):
-                self.simplex_tree = gudhi.AlphaComplex(points).create_simplex_tree(output_squared_values=False)
-                self._compute_forest()
-                self._reduce_forest()
-                if kwargs["storage"] == "cycles":
-                    self._compute_loop_activity()
-                self._compute_barcode_diff()
-                if kwargs["storage"] == "cycles":
-                    self._add_interior_to_barcode()
-                self.barcode = [SimpleNamespace(birth=0.1, death=0.5)]
-                self.nodes = {1: None}
-                self.filtration = [([0], 0)]
+            @classmethod
+            def _make(cls, data, prepare_name, storage, **kwargs):
+                forest = cls()
+                getattr(forest_module, prepare_name)(data)
+                forest._compute_forest()
+                forest._reduce_forest()
+                if storage == "cycles":
+                    forest._compute_loop_activity()
+                forest._compute_barcode_diff()
+                if storage == "cycles":
+                    forest._add_interior_to_barcode()
+                forest.barcode = [SimpleNamespace(birth=0.1, death=0.5)]
+                forest.nodes = {1: None}
+                forest.filtration = [([0], 0)]
+                return forest
+
+            @classmethod
+            def from_points(cls, points, **kwargs):
+                return cls._make(points, "prepare_point_filtration", **kwargs)
+
+            @classmethod
+            def from_cubical_grid(cls, values, **kwargs):
+                return cls._make(values, "prepare_cubical_filtration", **kwargs)
 
             def _compute_forest(self):
                 calls.append("forest")
@@ -205,31 +202,42 @@ class PerformanceHarnessTests(unittest.TestCase):
                 calls.append("interior")
 
             def compute_measurement_landscapes(self, function, label, **kwargs):
-                calls.append("landscape")
+                calls.append(("landscape", function.__name__))
                 if kwargs["cache"] or kwargs["cache_profiles"]:
                     raise AssertionError("Unexpected functional reuse")
                 return SimpleNamespace(landscapes={1: None}, x_grid=[0, 1])
 
-        config = _config("landscapes")
-        config.update(dimensions=[2], sizes_2d=[3], samplers=["uniform"], repeats=1)
+        def fake_prepare(data):
+            calls.append("filtration")
+
+        config = _config(dimensions=[2], samplers=["uniform"], repeats=1,
+                         points_sizes_2d=[3], cubical_sizes_2d=[3])
         with tempfile.TemporaryDirectory() as temporary:
             spec_path = Path(temporary) / "spec.json"
             checkpoint = Path(temporary) / "checkpoint.json"
-            for case in runner.build_cases(config):
+            cases = runner.build_cases(config)
+            self.assertEqual({(case["kind"], case["mode"]) for case in cases},
+                             {(kind, mode) for kind in runner.KINDS for mode in runner.MODES})
+            for case in cases:
                 calls.clear()
                 spec_path.write_text(json.dumps(case))
                 with patch.object(persforest, "PersistenceForest", FakeForest), \
-                     patch.object(gudhi, "AlphaComplex", FakeAlpha), \
+                     patch.object(forest_module, "prepare_point_filtration", fake_prepare), \
+                     patch.object(forest_module, "prepare_cubical_filtration", fake_prepare), \
                      patch.dict(sys.modules, {"sampling": sampling}):
                     self.assertEqual(runner._worker(spec_path, checkpoint), 0)
                 result = json.loads(checkpoint.read_text())
                 self.assertEqual(result["status"], "ok")
+                self.assertEqual(calls.count("filtration"), 1)
                 self.assertEqual(calls.count("forest"), 1)
-                self.assertEqual(calls.count("landscape"), 1)
+                functional = "signed_chain_volume" if case["kind"] == "points" else "cubical_chain_volume"
+                self.assertEqual(calls.count(("landscape", functional)), 1)
                 self.assertEqual("interior" in calls, case["mode"] == "cycles")
                 self.assertEqual("activity" in calls, case["mode"] == "cycles")
-                self.assertAlmostEqual(result["time_to_barcode_s"], result["time_alpha_s"] +
+                self.assertAlmostEqual(result["time_to_barcode_s"], result["time_filtration_s"] +
                                        result["time_forest_s"] + result["time_barcode_with_interior_s"])
+                self.assertAlmostEqual(result["time_persforest_s"],
+                                       result["time_to_barcode_s"] - result["time_filtration_s"])
                 self.assertAlmostEqual(result["time_pipeline_s"], result["time_to_barcode_s"] + result["time_landscape_s"])
                 self.assertGreaterEqual(result["peak_rss_bytes"], result["peak_rss_to_barcode_bytes"])
 
@@ -256,36 +264,33 @@ class PerformanceHarnessTests(unittest.TestCase):
         self.assertEqual(result["status"], "memory_limit")
         self.assertEqual(result["exit_code"], -9)
 
-    def test_plots_and_failure_accounting_with_synthetic_records(self):
-        cases = runner.build_cases(dict(_config("landscapes"), dimensions=[2],
-                                        sizes_2d=[10], samplers=["uniform"], repeats=1))
+    def test_plots_and_summary_with_synthetic_records(self):
+        cases = runner.build_cases(_config(dimensions=[2], repeats=2, points_sizes_2d=[10, 20],
+                                           cubical_sizes_2d=[4, 8]))
         rows = []
         for case in cases:
-            rows.append(dict(case, status="ok", time_to_barcode_s=4.0,
-                             time_to_barcode_excluding_alpha_s=3.0, time_forest_s=2.0,
-                             time_barcode_with_interior_s=1.0, time_landscape_s=1.0,
-                             time_pipeline_s=5.0, alpha_pct_to_barcode=25.0,
-                             alpha_pct_pipeline=20.0, landscape_pct_pipeline=20.0,
-                             landscape_pct_excluding_alpha=25.0,
-                             peak_rss_to_barcode_bytes=1024**3, peak_rss_bytes=2 * 1024**3,
-                             point_cloud_sha256="cloud", barcode_endpoints_sha256="bars"))
-        rows.append(dict(rows[0], status="memory_limit", repeat=1, case_id="failed"))
-        self.assertEqual(sum(row["n_incomplete"] for row in plotting.summarize(rows)), 1)
-        paired = plotting.paired_ratios(rows)
-        self.assertEqual(len(paired), 2)
-        self.assertTrue(all(row["time_forest_s_cycles_over_diffs"] == 1 for row in paired))
-        with tempfile.TemporaryDirectory() as temporary:
+            rows.append(dict(case, status="ok", time_filtration_s=1.0, time_forest_s=2.0,
+                             time_barcode_with_interior_s=1.0, time_persforest_s=3.0,
+                             time_to_barcode_s=4.0, time_landscape_s=1.0,
+                             time_persforest_and_landscape_s=4.0, n_bars=5, n_events=9,
+                             peak_rss_to_barcode_bytes=1024**3, peak_rss_bytes=2 * 1024**3))
+        # A landscape timeout keeps the barcode timing but not the landscape.
+        rows.append(dict(rows[0], status="timeout", repeat=2, case_id="timed_out",
+                         time_persforest_s=6.0, time_landscape_s=99.0))
+        summary = plotting.summarize(rows)
+        first = next(row for row in summary if all(row[key] == rows[0][key] for key in
+                                                   ("kind", "dim", "sampler", "size", "mode")))
+        self.assertEqual((first["n_attempts"], first["n_ok"]), (3, 2))
+        self.assertEqual(first["time_persforest_s_max"], 6.0)
+        self.assertEqual(first["time_landscape_s_max"], 1.0)
+        with tempfile.TemporaryDirectory() as temporary, contextlib.redirect_stdout(io.StringIO()):
             output = Path(temporary)
-            paths = plotting.make_plots(rows, output, 32)
-            self.assertEqual(len(paths), 10)
+            plotting.print_table(summary)
+            paths = plotting.make_plots(summary, output, "synthetic")
+            self.assertEqual(len(paths), 6)
             self.assertTrue(all(path.stat().st_size > 100 for path in paths))
-            self.assertTrue((output / "summary.csv").exists())
-            self.assertTrue((output / "failures.csv").exists())
-            plotting._write_csv(output / "failures.csv", [])
-            self.assertEqual((output / "failures.csv").read_text(), "")
         import matplotlib.pyplot as plt
         self.assertEqual(plt.get_fignums(), [])
-
 
 if __name__ == "__main__":
     unittest.main()

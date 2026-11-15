@@ -1,245 +1,137 @@
 # PersistenceForest runtime and memory benchmarks
 
-This is a separate benchmark harness; `benchmarks/benchmark.py` is unchanged.
-It uses the existing environment and dependencies. **A command without `--run`
-only prints a plan.** No calibration or warm-up benchmark runs implicitly.
+Serial, isolated measurements of `PersistenceForest` on point clouds (alpha
+filtration) and cubical grids (`top_cells` sublevel filtration), in 2D and 3D.
+The focus is `storage="diffs"` (the default): time to build the persistence
+forest and barcode, and time to compute measurement landscapes of a fixed
+boundary functional. `storage="cycles"` is measured at smaller sizes as a
+comparison. **A command without `--run` only prints a plan.**
 
-## Plan and workloads
+## Inputs
 
-| Suite | Modes | 2D sizes | 3D sizes |
-| --- | --- | --- | --- |
-| `barcode` | both | 1k, 5k, 10k, 25k, 50k, 100k | 500, 1k, 2.5k, 5k, 10k, 15k, 20k |
-| `diff-scaling` | `diffs` | 150k, 200k, 300k, 400k | 20k, 25k, 50k, 75k |
-| `landscapes` | both × two functionals | 500, 1k, 2.5k, 5k, 10k, 20k | 250, 500, 1k, 2.5k, 5k |
+All inputs come from seeded local generators in `sampling.py`; seeds are stable
+functions of base seed, input kind, dimension, size, family and repeat, so all
+modes of one repeat receive identical inputs.
 
-The old benchmark used maxima of 200k / 50k with 10 repeats. The new common
-schedule is smaller to accommodate interiors, especially in 3D. These are
-proposed sizes, **not measured memory guarantees**. The extension is a separate,
-opt-in experiment. Landscapes start smaller because the current implementation
-allocates and sorts arrays proportional to bar count × grid size, in addition to
-building measurement profiles and kernels. Override any schedule after seeing
-your machine's results.
+| Family | Point clouds (`size` = number of points) | Cubical grids (`size` = side length, `side**dim` top cells) |
+| --- | --- | --- |
+| noise | `uniform`: uniform in the unit cube | `uniform`: i.i.d. uniform pixel values |
+| one large cycle | `noisy_sphere`: unit circle/sphere, coordinate noise std 0.05 | `single_hole`: `| |x - c| - 0.3 |` around the center, Gaussian noise std 0.03 |
+| fixed holes | `holes`: unit cube minus 30 balls, radii uniform in [0, 0.05] | `holes`: low background with 30 cones `max(0, 1 - |x - c_i| / r_i)` (same ball distribution), noise std 0.03 |
 
-Modes use the production constructor, with `reduce=True`, radius-unit alpha
-filtration values, `filtration_tol=1e-12`, and normal barcode dispatch:
+The one-large-cycle families are the expensive case: one long-lived cycle with
+a large boundary. Point-cloud families are unchanged from the September 2026
+runs, so the same seed gives the same cloud.
 
-| Name | Constructor option |
-| --- | --- |
-| `diffs` | `storage="diffs"` (default) |
-| `cycles` | `storage="cycles"` |
+## Schedules
 
-Results saved before the storage option was introduced use the former mode
-names (`standard`, `keep_simplex_diff`, `compute_interior`, `diff_only_mode`).
-`compute_interior` corresponds to `cycles` and `diff_only_mode` to `diffs`;
-`compare_runs.py` pairs cases by mode name, so it does not pair old and new runs.
+Sizes are point counts for clouds and side lengths for grids. Diff-mode
+barcodes run at every size. Landscapes and the `cycles` comparison run only up
+to their caps (inclusive); above the landscape cap, cases measure the barcode
+only.
 
-All suites default to three independently seeded repetitions and three cloud
-families per dimension: uniform unit cube, noisy unit circle/sphere (coordinate
-noise std 0.05), and uniform cube with 30 excluded balls (radii uniform in
-[0, 0.05]). Seeds are stable functions of base seed, dimension, size, sampler,
-and repeat. All modes and functionals receive identical clouds for a given
-case; mode/functional order is shuffled deterministically within each block.
-Sizes increase so a limit can stop subsequent larger cases in the same group.
-These repeats measure both sampling variability and runtime variability;
-min–max bands are descriptive, not confidence intervals.
+| Schedule | Input | Sizes | Landscapes up to | `cycles` up to |
+| --- | --- | --- | --- | --- |
+| `pilot` | points 2D | 10k, 100k, 400k, 1M | 100k | 100k |
+| | points 3D | 5k, 50k, 250k | 50k | 50k |
+| | cubical 2D | 128², 512², 2048² | 512² | 512² |
+| | cubical 3D | 32³, 64³, 128³ | 64³ | 64³ |
+| `full` | points 2D | 10k, 25k, 50k, 100k, 250k, 500k, 1M | 100k | 100k |
+| | points 3D | 5k, 10k, 25k, 50k, 100k, 250k | 25k | 25k |
+| | cubical 2D | 128², 256², 512², 1024², 1448², 2048² | 512² | 512² |
+| | cubical 3D | 24³, 32³, 48³, 64³, 96³, 128³ | 64³ | 48³ |
 
-`sampling.py` implements the same distribution families using local generators;
-it does not reproduce the old clouds bit for bit. Two issues in the old hole
-sampler motivated a separate implementation: its benchmark label says radius
-0.05 but passes 0.5, and its fill loop counts array batches instead of accepted
-points. This benchmark explicitly uses 0.05 and preallocates exactly n points
-with bounded rejection batches. The old files are unchanged.
+The pilot is a sparse, single-repeat run to get intuition about runtimes; tune
+`SCHEDULES` in `run.py` from its results before the overnight `full` run.
+`--kinds`, `--dimensions`, `--samplers`, `--modes` and
+`--{points,cubical}-sizes-{2,3}d` restrict or override a schedule.
 
 ## Run from the repository root
 
-Preview the complete comparison (234 cases by default):
-
 ```sh
-.venv/bin/python benchmarks/performance/run.py --suite barcode
+# Preview (no computation)
+.venv/bin/python benchmarks/performance/run.py --schedule pilot \
+  --output benchmarks/performance/results/2026-11-pilot
+
+# Pilot: one repeat, 15 min per-case timeout, keep the laptop awake
+caffeinate -i .venv/bin/python benchmarks/performance/run.py --schedule pilot \
+  --repeats 1 --timeout-s 900 --output benchmarks/performance/results/2026-11-pilot --run
+
+# Overnight
+caffeinate -i .venv/bin/python benchmarks/performance/run.py --schedule full \
+  --repeats 3 --output benchmarks/performance/results/2026-11-full --run
+
+# Summary table and figures (also for partial runs)
+MPLCONFIGDIR=/tmp/persforest-benchmark-mpl .venv/bin/python benchmarks/performance/plot.py \
+  benchmarks/performance/results/2026-11-pilot
 ```
 
-Start with a short, real check **when you are ready to compute**:
+Add `--resume` to the same run command after an interruption (configuration,
+sources and environment must be unchanged; `--retry-failed` also retries limit
+hits). Use a new output directory after code changes. Keep the machine on mains
+power and avoid other heavy work during a run; record anything unusual.
 
-```sh
-.venv/bin/python benchmarks/performance/run.py --suite barcode \
-  --sizes-2d 100 500 --sizes-3d 100 250 --samplers uniform --repeats 1 \
-  --output benchmarks/performance/results/pilot --run
-```
+## What is measured
 
-Then run the experiments separately:
-
-```sh
-.venv/bin/python benchmarks/performance/run.py --suite barcode \
-  --output benchmarks/performance/results/barcode --run
-
-.venv/bin/python benchmarks/performance/run.py --suite landscapes \
-  --output benchmarks/performance/results/landscapes --run
-
-.venv/bin/python benchmarks/performance/run.py --suite diff-scaling \
-  --output benchmarks/performance/results/diff-scaling --run
-```
-
-For 2D only, add `--dimensions 2`. To extend the two-mode comparison to your
-upper requested sizes, use `--sizes-2d 100000 150000 200000 --sizes-3d 20000 25000`
-in a **new output directory**. `--modes`, `--samplers`, `--repeats`,
-`--base-seed`, `--grid-points`, and `--max-k` are configurable; see `--help`.
-The diff-scaling suite always selects `diffs`, regardless of `--modes`.
-
-Resume using the **same command and configuration**, adding `--resume`.
-Completed and failed/skipped records are retained. Add `--retry-failed` to
-retry unsuccessful cases; another limit still blocks that group at that size
-and above during the new invocation. A manifest mismatch refuses resume; use a
-new directory for changed code, configuration, Python/packages or environment.
-Run only one supervisor per output directory. Ctrl-C stops the active worker;
-completed rows survive and the interrupted case can run again on resume.
-
-Workers run **serially**, with common native-library thread limits set to one.
-Keep power/thermal conditions consistent and close memory-heavy applications.
-There is no in-process warm-up: imports and process startup are outside the
-reported scientific timers, while alpha/forest/landscape calls are first calls
-in that process. `worker_wall_s` also records startup and supervisor overhead.
-
-## Compare the barcode-diff optimization with saved runs
-
-Reuse the existing seeds and run settings, writing to a **new** directory. This
-400k noisy-circle command runs three repetitions; omit `--run` to preview:
-
-```sh
-.venv/bin/python benchmarks/performance/run.py --suite diff-scaling \
-  --dimensions 2 --sizes-2d 400000 --samplers noisy_sphere --repeats 3 \
-  --output benchmarks/performance/results/diff-unions-400k --run
-
-.venv/bin/python benchmarks/performance/compare_runs.py \
-  benchmarks/performance/results/diff-scaling \
-  benchmarks/performance/results/diff-unions-400k
-```
-
-Add `--resume` to the same run command after an interruption. Do not resume the
-old pre-optimization directory with changed code. The comparison script only
-reads results, pairs matching settings/seeds, verifies point-cloud and barcode
-endpoint hashes, and reports total/barcode median timings and peak RSS. Hash
-agreement checks endpoints, not representatives; regression tests check those.
-Historical speedups may also reflect power, load, and thermal differences.
-
-For a shorter comparison, use `--sizes-2d 50000`, a new output directory, and
-compare against `benchmarks/performance/results/barcode`. Seeds do not depend on
-the suite name. Broader validation can use the original `diff-scaling` schedule
-in another new directory.
-
-## Memory measurement and the 48 GB machine
-
-The default watchdog threshold is **32 GiB process RSS**, leaving headroom on a
-48 GB MacBook; each case also has a **one-hour timeout**. Change them with
-`--memory-limit-gib` and `--timeout-s`. An external supervisor polls RSS every
-0.25 seconds (configurable), so it can stop a worker even during native code.
-macOS uses `ps`; Linux uses `/proc`. A memory/timeout limit skips subsequent
-same-or-larger sizes for that dimension/sampler/mode/functional, including
-remaining repetitions. Other modes continue.
-
-This is a sampled stop rule, **not a hard allocation limit**. Allocation spikes
-can overshoot it. RSS and `ru_maxrss` measure resident memory, including Python
-and native allocations; they do not measure total swapped/compressed backing
-storage, GPU memory, or whole-system pressure. In particular, macOS compression
-can mask pressure. Lower the threshold if other applications need substantial
-memory. There is deliberately no `RLIMIT_AS`: virtual address limits do not
-provide a reliable macOS physical-memory budget.
-
-The OS high-water mark (`resource.ru_maxrss`, correctly normalized from bytes
-on macOS / KiB on Linux) captures short resident peaks missed by polling in
-successful workers. The result retains both that information and the sampled
-peak. Reported peaks include imports, sampling, alpha, and all prior stages;
-they are **cumulative process peaks**, not Python object sizes, retained heap,
-or incremental per-stage allocations. `baseline_import_peak_rss_bytes` gives
-context but should not simply be subtracted to infer algorithm allocation.
-Failed/killed workers only provide the last checkpoint and sampled peak: these
-are lower bounds on what a completed run would require.
-
-## Timing definitions
+Each case runs in a fresh worker process (one thread, `PYTHONHASHSEED=0`) via
+the public factories `PersistenceForest.from_points` and
+`PersistenceForest.from_cubical_grid` with `reduce=True` and
+`filtration_tol=1e-12`. A benchmark-local subclass times the existing phase
+methods; the filtration preparation function is wrapped in place, without
+copying its output.
 
 | Result column | Meaning |
 | --- | --- |
-| `time_to_barcode_excluding_alpha_s` | Primary package comparison: complete constructor minus alpha build |
-| `time_to_barcode_s` | Point cloud → fully computed barcode, including alpha and requested interiors |
-| `time_forest_s` | Constructor setup, filtration traversal/materialization, forest build, reduction and activity; excludes alpha, barcode and interiors |
-| `time_barcode_s` | Normal cycle/diff barcode method |
-| `time_interior_s` | Additional interior reconstruction, when enabled |
-| `time_barcode_with_interior_s` | Barcode plus interior reconstruction |
-| `time_alpha_s` | GUDHI AlphaComplex initialization + create_simplex_tree |
-| `alpha_pct_to_barcode` | 100 × alpha / total time to barcode |
-| `time_landscape_s` | Complete fresh measurement-landscape call, including representative iterator, functionals, kernels, evaluation and sorting |
-| `time_pipeline_s` | Alpha + forest + barcode/interiors + one landscape functional |
-| `landscape_pct_pipeline`, `alpha_pct_pipeline` | Respective share of that full pipeline |
-| `landscape_pct_excluding_alpha` | Landscape share with alpha removed from the denominator |
-| `time_sampling_s`, `time_from_sampling_s` | Separate data generation time, and generation + pipeline |
-| `peak_rss_to_forest_bytes` | Cumulative peak just before barcode computation |
-| `peak_rss_to_barcode_bytes` | Cumulative peak through completed barcode and interiors |
-| `peak_rss_bytes` | Whole-worker peak, including landscape if requested |
+| `time_persforest_s` | **Primary**: forest sweep, reduction and barcode (with interiors for `cycles`), excluding filtration preparation |
+| `time_landscape_s` | One fresh `compute_measurement_landscapes` call (diff mode includes reconstructing representatives) |
+| `time_persforest_and_landscape_s` | Sum of the two above |
+| `time_filtration_s` | Alpha complex (GUDHI) or cubical cell preparation |
+| `time_forest_s`, `time_barcode_with_interior_s` | Split of `time_persforest_s` |
+| `time_to_barcode_s`, `time_pipeline_s` | Including filtration preparation; pipeline also includes the landscape |
+| `time_sampling_s` | Input generation, never included above |
+| `peak_rss_to_barcode_bytes`, `peak_rss_bytes` | Cumulative process peaks through the barcode / the whole worker |
+| `n_input`, `n_events`, `n_bars` | Points or top cells; filtration events; bars |
 
-Point cloud → pipeline timings start with an existing array, excluding synthetic
-sampling. Timers exclude imports, endpoint/count diagnostics and checkpoint I/O.
-A benchmark-local subclass wraps existing phase methods; a worker-local alpha
-wrapper times creation and returns the original GUDHI simplex tree. It neither
-supplies a manual filtration nor duplicates tree storage. Iterating/extracting
-the alpha filtration is assigned to forest setup, matching the constructor's
-own separation. Additional raw build/reduction/activity timers are retained.
-Small wrapper overhead remains; very small cases are primarily smoke checks.
+The landscape functional is the boundary measure of each representative:
+length in 2D, area in 3D (`signed_chain_volume` for clouds,
+`cubical_chain_volume` for grids; the latter measures staircase length along
+grid cells). It is unsigned, as in the public API, with all bars, 5 levels and
+512 grid points, and with caching disabled. Input, endpoint and package hashes
+are recorded as diagnostics; diffs and cycles should give identical barcode
+endpoint hashes.
 
-Landscape functionals are `constant_one_functional` and
-`signed_chain_edge_length` in 2D. In 3D, codimension-one representatives are
-2-chains, so the geometric comparison uses `signed_chain_volume` (intrinsic
-triangle area / boundary surface area, **not enclosed volume**). This keeps two
-functionals per dimension. Default measurement is unsigned, as in the public
-API; `--signed` selects signed chains in a distinct experiment. Even constant-one
-still pays iterator and unsigned-conversion costs. All bars are included
-(`min_bar_length=0`), with 5 levels and 512 grid points by default. Both family
-and functional caching are disabled. Each functional gets its **own fresh
-process and forest**, avoiding cross-functional cache/allocator contamination.
-Its full-pipeline denominator contains that functional only, never both.
+## Limits and memory
+
+The supervisor polls worker RSS (every 0.25 s) and stops a worker above
+`--memory-limit-gib` (default 32 GiB, for a 48 GB machine) or after
+`--timeout-s` (default 30 min). A limit skips larger sizes of the same input
+kind, dimension, family, mode and landscape setting. A landscape that hits a
+limit keeps its already completed barcode timings, which the plots use.
+This is a sampled stop rule, not a hard allocation limit, and RSS does not see
+compressed or swapped memory on macOS. Killed workers only provide lower bounds.
 
 ## Data and plots
 
-Each output directory contains:
+Each output directory contains `manifest.json` (configuration, sampler
+parameters, Python/platform/package versions, source and lockfile hashes, Git
+revision and status), `results.jsonl` (canonical raw records), `results.csv`
+(flat export) and `workers/` (per-case spec, checkpoint and log).
 
-- `manifest.json`: schedule, sampler parameters, package/Python/platform details,
-  source/lockfile SHA-256 hashes, Git revision/status, and thread policy.
-- `results.jsonl`: durable raw records after every attempt; canonical data for
-  plotting/resume. On resume it is compacted to complete latest records.
-- `results.csv`: a convenient flat export with seconds, bytes, seeds, modes,
-  counts, percentages, exit statuses and diagnostic hashes. Missing fields
-  remain empty, rather than looking like successful zero-time runs.
-- `workers/`: per-case specification, most recent checkpoint and stdout/stderr
-  log, including partial progress if a process is killed. Retrying replaces
-  that case's worker files while prior JSONL attempts remain until compaction.
+`plot.py RESULTS_DIR` writes `plots/summary.csv` (median, min and max over
+repeats), prints a diff-mode table and saves:
 
-Generate plots independently, including for partially finished runs:
+- `runtime`: diff-mode forest + barcode (solid) and landscape (dashed) time
+  against size on log-log axes, one panel per input kind and dimension, with a
+  slope-one reference line.
+- `breakdown`: diff-mode stage times (filtration, forest, barcode, landscape)
+  at the largest size with landscapes.
+- `modes`: diffs vs cycles, total time and peak memory, where both ran.
 
-```sh
-MPLCONFIGDIR=/tmp/persforest-benchmark-mpl .venv/bin/python benchmarks/performance/plot.py \
-  benchmarks/performance/results/barcode \
-  benchmarks/performance/results/landscapes \
-  benchmarks/performance/results/diff-scaling
-```
-
-Each run gets a `plots/` directory containing PDF/PNG runtime and memory scaling,
-phase times, alpha/landscape percentages, completion fractions, and matched
-cycles/diffs ratios (values above one favor diffs). Landscape plots
-also compare functionals directly. `summary.csv` contains median/min/max and
-success counts; `paired_ratios.csv` contains ratios for identical successful
-cloud/functional/repeat pairs; `failures.csv` lists unsuccessful cases when any
-exist. Plots never pool distinct manifests or mix the extended `diffs`
-schedule into two-mode aggregates. Diff-scaling overlaps the common schedule
-at its endpoints to support later comparisons.
-
-Review completion plots and sample counts with timing curves: successful-only
-medians at memory limits can be biased. Cloud and exact sorted-barcode-endpoint
-hashes are diagnostics, not mathematical proofs or tolerance-aware correctness
-tests; investigate mismatches before interpreting mode comparisons. The
-benchmark does not assume diff-only is faster or smaller: those are hypotheses
-for the measured results.
-
-Generated datasets/logs/plots can be large. Keep `results/` out of version control
-(for example using your local Git exclude configuration), or choose an output
-directory outside this repository. No generated scientific data is included.
+Results are local research output and are git-ignored.
+`results/historical-2026-09-barcode` is the one kept earlier run, made with the
+removed root-level package and the former mode names (`diff_only_mode`
+corresponds to `diffs`, `compute_interior` to `cycles`); its schema differs
+and `plot.py` does not read it.
 
 ## Lightweight verification of the harness
 
@@ -249,21 +141,5 @@ MPLBACKEND=Agg MPLCONFIGDIR=/tmp/persforest-benchmark-mpl \
   -p 'test_performance_harness.py' -v
 ```
 
-These tests use small sampler arrays, mocked scientific stages, and synthetic
-plot records. They do not construct a real alpha complex or PersistenceForest,
-and they do not provide empirical benchmark results.
-
-## Cubical grids
-
-`cubical.py` measures `PersistenceForest.from_cubical_grid` on 2D grids of
-256², 512² and 1024² and 3D grids of 32³, 64³ and 96³, for uniform and
-Gaussian-smoothed (σ = 2 pixels) noise, with seeded repeats. Preparation of the
-cell filtration is timed separately from the sweep and barcode. Each case runs
-in a fresh interpreter, so peak RSS is per case. `storage="cycles"` is limited
-to grids of at most 512² top cells because stored cycles grow superlinearly in
-memory. Like the main harness, it only previews without `--run`:
-
-```sh
-.venv/bin/python benchmarks/performance/cubical.py
-.venv/bin/python benchmarks/performance/cubical.py --run --output benchmarks/performance/results/cubical
-```
+These tests use small generated inputs, mocked scientific stages and synthetic
+records. They do not run a real forest and do not provide benchmark results.
