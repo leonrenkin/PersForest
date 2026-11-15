@@ -67,6 +67,35 @@ def _compute_loop_activity(self):
 
     return
 
+def _iter_bar_diff_steps(self, bar: PFBar) -> Iterator[tuple]:
+    """Yield the diff replay of a bar in descending filtration order.
+
+    Each item is ``(node, active_start, active_end, diffs)`` where ``diffs``
+    is ``((barcode_interior, barcode_codim1), (interior, codim1))``: the
+    accumulated diffs of merged branches, then the node's own diffs, in the
+    order in which they must be applied. Applying the diffs of all items up to
+    and including one gives the representative of that node.
+    """
+    _require_barcode_diffs(self)
+    for nid in reversed(bar._node_progression):
+        node = self.nodes[nid]
+        if not node._simplex_diff_available:
+            raise ValueError("node._simplex_diff_available is not available; this should not happen")
+        active_start, active_end = self._node_activity(node)
+        yield node, active_start, active_end, (
+            (node._barcode_interior_diff, node._barcode_codim1_simplex_diff),
+            (node._interior_diff, node._codim1_simplex_diff),
+        )
+
+
+def _apply_diff_step(cells: CellFiltration, signed_simplices: set, interior: set, diffs: tuple) -> None:
+    """Apply one item of ``_iter_bar_diff_steps`` to live boundary and interior sets."""
+    for interior_diff, codim1_simplex_diff in diffs:
+        update_chain_with_diff(cells, signed_simplices, interior_diff, codim1_simplex_diff)
+        if interior_diff is not None:
+            interior.update(interior_diff)
+
+
 def iter_bar_cycle_reps(self, bar: PFBar) -> Iterator[SignedChain]:
     """Yield iterator of representatives of a bar in descending filtration order.
 
@@ -85,32 +114,10 @@ def iter_bar_cycle_reps(self, bar: PFBar) -> Iterator[SignedChain]:
         yield from reversed(bar.cycle_reps)
         return
 
-    _require_barcode_diffs(self)
     interior = set()
     simplices = set()
-    for nid in reversed(bar._node_progression):
-        node = self.nodes[nid]
-        if not node._simplex_diff_available:
-            raise ValueError("node._simplex_diff_available is not available; this should not happen")
-
-        active_start, active_end = self._node_activity(node)
-        simplices = update_chain_with_diff(
-            cells=self._cells,
-            signed_simplices=simplices,
-            interior_diff=node._barcode_interior_diff,
-            codim1_simplex_diff=node._barcode_codim1_simplex_diff,
-        )
-        simplices = update_chain_with_diff(
-            cells=self._cells,
-            signed_simplices=simplices,
-            interior_diff=node._interior_diff,
-            codim1_simplex_diff=node._codim1_simplex_diff,
-        )
-        if node._interior_diff is not None:
-            interior.update(node._interior_diff)
-        if node._barcode_interior_diff is not None:
-            interior.update(node._barcode_interior_diff)
-
+    for _node, active_start, active_end, diffs in _iter_bar_diff_steps(self, bar):
+        _apply_diff_step(self._cells, simplices, interior, diffs)
         yield SignedChain(
             signed_simplices=simplices.copy(),
             active_start=active_start,
@@ -124,7 +131,8 @@ def cycle_for_bar_at(self, bar: PFBar, filt_val: float) -> SignedChain:
 
         Stored representatives are used with ``storage="cycles"``. With ``storage="diffs"``,
         replay the bar's simplex diffs from death toward birth and return the
-        first representative active on ``[active_start, active_end)``.
+        first representative active on ``[active_start, active_end)``. The
+        replay works on live sets and copies only the returned representative.
 
         Parameters
         ----------
@@ -145,9 +153,18 @@ def cycle_for_bar_at(self, bar: PFBar, filt_val: float) -> SignedChain:
     if self.storage == "cycles":
         return bar.cycle_at_filtration_value(filt_val)
 
-    for cycle_rep in self.iter_bar_cycle_reps(bar):
-        if cycle_rep.active_start <= filt_val < cycle_rep.active_end:
-            return cycle_rep
+    interior = set()
+    simplices = set()
+    for _node, active_start, active_end, diffs in _iter_bar_diff_steps(self, bar):
+        _apply_diff_step(self._cells, simplices, interior, diffs)
+        if active_start <= filt_val < active_end:
+            return SignedChain(
+                signed_simplices=simplices.copy(),
+                active_start=active_start,
+                active_end=active_end,
+                interior_available=True,
+                interior=interior.copy(),
+            )
     raise ValueError(f"Filtration value is in lifespan but no cycle representative was found; this should not happen")
 
 def _add_interior_to_bar(self, bar: PFBar):
