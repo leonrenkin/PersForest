@@ -100,7 +100,6 @@ def _reduce_forest(self, print_info: bool = False):
 
         # p might have been deleted as a child in a previous iteration of this outer loop
         if p.id not in self.nodes.keys():
-            print("continue case")
             continue
 
         for cid in p.children.copy():
