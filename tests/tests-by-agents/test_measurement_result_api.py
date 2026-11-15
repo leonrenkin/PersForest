@@ -85,6 +85,23 @@ class SignednessTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             forest.plot_barcode_measurement(signed_chain_edge_length, signed='no', bar=long)
 
+    def test_generic_single_bar_plot_defaults_to_unsigned(self):
+        import matplotlib.pyplot as plt
+        from persforest.plotting.landscapes import plot_barcode_measurement_generic
+        forest = build(fan())
+        long = next(bar for bar in forest.barcode if bar.birth == 1)
+        for signed in (False, True):
+            with self.subTest(signed=signed):
+                expected = forest.compute_measurement_profiles(
+                    signed_chain_edge_length, 'x', signed=signed, cache=False)[long]
+                kwargs = {} if not signed else {'signed': True}
+                ax, step = plot_barcode_measurement_generic(forest, signed_chain_edge_length, long, **kwargs)
+                np.testing.assert_array_equal(step.vals, expected.vals)
+                plt.close(ax.figure)
+        unsigned = forest.compute_measurement_profiles(signed_chain_edge_length, 'x', cache=False)[long]
+        signed = forest.compute_measurement_profiles(signed_chain_edge_length, 'x', signed=True, cache=False)[long]
+        self.assertFalse(np.array_equal(unsigned.vals, signed.vals))
+
 
 class ForestOwnedCacheTests(unittest.TestCase):
     def test_numerical_profile_function_never_touches_a_registry(self):

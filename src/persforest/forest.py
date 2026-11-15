@@ -1939,13 +1939,13 @@ class PersistenceForest:
         tuple[matplotlib.axes.Axes, StepFunctionData]
             The axes and the piecewise-constant measurement data.
         """
-        from persforest.landscapes.profiles import _signed_measurement
         from persforest.plotting.landscapes import plot_barcode_measurement_generic
 
         return plot_barcode_measurement_generic(
             forest=self,
-            cycle_func=_signed_measurement(cycle_func, signed),
+            cycle_func=cycle_func,
             bar=bar,
+            signed=signed,
             ax=ax,
             x_range=x_range,
             y_range=y_range,

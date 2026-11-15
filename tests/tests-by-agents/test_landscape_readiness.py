@@ -20,7 +20,7 @@ class LandscapeReadinessTests(unittest.TestCase):
         calls = [lambda: compute_measurement_profiles(forest, forbidden, 'existing', signed=True),
                  lambda: forest.compute_measurement_profiles(forbidden, 'existing'),
                  lambda: forest.compute_barcode_functionals(forbidden, 'existing'),
-                 lambda: _build_step_function_data(forest, object(), forbidden)]
+                 lambda: _build_step_function_data(forest, object(), forbidden, signed=True)]
         for cache in (False, True):
             calls.append(lambda cache=cache: forest.compute_measurement_landscapes(
                 forbidden, 'existing', cache=cache, cache_profiles=cache))

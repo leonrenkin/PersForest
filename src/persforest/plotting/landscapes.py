@@ -26,6 +26,7 @@ def plot_barcode_measurement_generic(
         cycle_func: CycleValueFunc,
         bar=None,
         *,
+        signed: bool = False,
         ax: Optional["matplotlib.axes.Axes"] = None,
         x_range: Optional[Tuple[float, float]] = None,
         y_range: Optional[Tuple[float, float]] = None,
@@ -47,6 +48,9 @@ def plot_barcode_measurement_generic(
         value to each cycle representative of the bar.
     bar :
         Bar object from `forest.barcode`. If None, `forest.max_bar()` is used.
+    signed : bool, default False
+        As in ``compute_measurement_profiles``: if False, ``cycle_func`` is
+        evaluated after ``chain.unsigned()``; if True, on the stored chains.
     ax : matplotlib.axes.Axes, optional
         Axis to draw on. If None, a new figure and axis are created.
     x_range : (float, float), optional
@@ -75,7 +79,7 @@ def plot_barcode_measurement_generic(
     if bar is None:
         bar = forest.max_bar()
 
-    step_func = _build_step_function_data(forest=forest, bar=bar,cycle_func=cycle_func)
+    step_func = _build_step_function_data(forest=forest, bar=bar, cycle_func=cycle_func, signed=signed)
 
     if ax is None:
         _, ax = plt.subplots()

@@ -168,18 +168,22 @@ def _measurement_geometry(forest):
 
 def _build_step_function_data(
     forest: object, bar: Any, cycle_func: CycleValueFunc, baseline: float = 0.0,
+    *, signed: bool,
 ) -> StepFunctionData:
     """Measure descending representatives once and store ascending [start,end) data.
+
+    ``signed`` is required and follows :func:`_signed_measurement`.
 
     Callbacks borrow representatives and coordinates and must not mutate them.
     Only scalar records are retained, including when representatives are reconstructed from diffs.
     """
     require_computed_barcode(forest)
+    measurement = _signed_measurement(cycle_func, signed)
     if bar not in forest.barcode:
         raise ValueError("Bar is not in barcode of forest")
     records = []
     for cycle in forest.iter_bar_cycle_reps(bar):
-        value = cycle_func(cycle, _measurement_geometry(forest))
+        value = measurement(cycle, _measurement_geometry(forest))
         if not np.isscalar(value) or np.iscomplexobj(value):
             raise ValueError("Measurements must return a real scalar")
         records.append((cycle.active_start, cycle.active_end, float(value)))
@@ -251,7 +255,7 @@ def compute_measurement_profiles(
     require_computed_barcode(forest)
     if not callable(cycle_func):
         raise TypeError("cycle_func must be callable")
-    measurement = _signed_measurement(cycle_func, signed)
+    _signed_measurement(cycle_func, signed)  # validates signed before any work
     if not isinstance(label, str):
         raise TypeError("label must be a string")
     # Measurements may describe themselves through these two attributes;
@@ -284,7 +288,8 @@ def compute_measurement_profiles(
     source_manifest = tuple((float(bar.birth), float(bar.death), tuple(getattr(bar, "_node_progression", ()))) for bar in source_bars)
     selected = [bar for bar in source_bars if bar.death - bar.birth >= min_bar_length]
     bars = tuple(ProfileBar(i, float(bar.birth), float(bar.death), getattr(bar, "root_id", None)) for i, bar in enumerate(selected))
-    steps = {i: _build_step_function_data(forest, bar, measurement, baseline) for i, bar in enumerate(selected)}
+    steps = {i: _build_step_function_data(forest, bar, cycle_func, baseline, signed=signed)
+             for i, bar in enumerate(selected)}
     return MeasurementProfiles(
         forest_id=str(getattr(forest, "id", id(forest))), label=label, baseline=baseline,
         bars=bars, step_functions=steps, signed=bool(signed),

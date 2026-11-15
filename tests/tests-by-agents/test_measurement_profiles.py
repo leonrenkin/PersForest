@@ -31,7 +31,7 @@ class MeasurementProfileTests(unittest.TestCase):
 
     def test_birth_transition_death_and_duplicate_grid_coordinates(self):
         forest = profile_forest([(1, 7, [(1, 3, 6), (3, 7, 2)])])
-        step = _build_step_function_data(forest, forest.barcode[0], measured)
+        step = _build_step_function_data(forest, forest.barcode[0], measured, signed=True)
         grid = np.array([np.nextafter(1, -np.inf), 1, np.nextafter(1, np.inf),
                          np.nextafter(3, -np.inf), 3, 3, np.nextafter(3, np.inf),
                          np.nextafter(7, -np.inf), 7, np.nextafter(7, np.inf)])
@@ -86,7 +86,7 @@ class MeasurementProfileTests(unittest.TestCase):
         forest = profile_forest([(1, 2, [(1, 2, 1)])])
         profiles = compute_measurement_profiles(forest, measured, 'test', signed=True)
         with self.assertRaises(ValueError):
-            _build_step_function_data(forest, object(), measured)
+            _build_step_function_data(forest, object(), measured, signed=True)
         for reference in (5, object()):
             with self.assertRaisesRegex(ValueError, "no measurement profile"):
                 profiles[reference]

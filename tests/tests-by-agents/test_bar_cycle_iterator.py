@@ -51,7 +51,7 @@ class BarCycleIteratorTests(unittest.TestCase):
                             vals=[measurement(r, points) for r in full_bar.cycle_reps],
                         )
                         for source, source_bar in ((forest, bar), (full, full_bar)):
-                            sf = _build_step_function_data(source, source_bar, measurement)
+                            sf = _build_step_function_data(source, source_bar, measurement, signed=True)
                             self.assertTrue(np.all(np.diff(sf.starts) >= 0))
                             self.assertTrue(np.all(np.diff(sf.ends) >= 0))
                             np.testing.assert_array_equal(sf.starts, original.starts)
@@ -63,7 +63,7 @@ class BarCycleIteratorTests(unittest.TestCase):
         forest = SimpleNamespace(
             barcode=[bar], point_cloud=[], iter_bar_cycle_reps=lambda bar: iter(())
         )
-        sf = _build_step_function_data(forest, bar, lambda *_: 1., baseline=3.)
+        sf = _build_step_function_data(forest, bar, lambda *_: 1., baseline=3., signed=True)
         self.assertEqual(sf.starts.size, 0)
         self.assertEqual(sf.ends.size, 0)
         self.assertEqual(sf.vals.size, 0)
