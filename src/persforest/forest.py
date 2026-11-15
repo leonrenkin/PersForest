@@ -603,7 +603,26 @@ class PersistenceForest:
     # ----- Useful barcode functions --------
 
     def max_bar(self)-> PFBar:
-        """Return the bar with the longest lifespan."""
+        """
+        Return the bar with the longest lifespan.
+
+        Returns
+        -------
+        PFBar
+            A bar of maximal lifespan; among equal lifespans, the first in
+            ``barcode`` order.
+
+        Raises
+        ------
+        RuntimeError
+            If the barcode has not been computed.
+        ValueError
+            If the computed barcode is empty.
+        """
+        if not self._barcode_computed:
+            raise RuntimeError("Barcode has not been computed; call compute_barcode() first")
+        if not self.barcode:
+            raise ValueError("Barcode is empty; there is no longest bar")
         return max(self.barcode, key=lambda bar: bar.lifespan())
     
     def longest_bars(self,k:int) -> List[PFBar]:
