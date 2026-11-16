@@ -102,8 +102,8 @@ segmentation.table()           # one dict per nucleus
 segmentation.labels()          # label image, 0 = background
 ```
 
-**Notebooks:** run them on the TIFFs in `data/`, or on a small synthetic stack
-if `data/` is empty.
+**Notebooks:** each runs on the stack set in `STACK_PATH`, or on a small
+synthetic stack if it is `None`. For many stacks, use the command line.
 
 | notebook | content |
 |---|---|
@@ -185,8 +185,8 @@ need much memory.
 Microscopy data is not stored in this repository: a single 2048 x 2048 x 20
 stack is about 160 MB, beyond what belongs in a Git repository. Put your stacks
 in `data/` (ignored by Git). `nucseg.write_synthetic_stack(path)` writes a small
-synthetic stack for trying the pipeline; the notebooks use it when `data/` is
-empty.
+synthetic stack for trying the pipeline; the notebooks use it when no data is
+given.
 
 Clear notebook outputs before committing: figures of your stacks are stored in
 the notebook files.
