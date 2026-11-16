@@ -10,6 +10,10 @@ from numpy.typing import NDArray
 
 from .images import downsample_labels
 from .images import gaussian_upsample
+from .inference import Background
+from .inference import estimate_background
+from .inference import infer_parameters
+from .inference import needs_background
 from .parameters import Parameters
 from .pipeline import Result
 from .pipeline import segment
@@ -46,6 +50,11 @@ class Segmentation:
         (at factor 1 and at most ``LARGE_IMAGE`` pixels).
     tiles : list of TileResult
         Per-tile summaries, when segmented in tiles.
+    parameters : Parameters or None
+        The parameters used, with inferred intensity parameters filled in.
+    background : Background or None
+        The background estimate the intensity parameters were inferred from;
+        None if all of them were given.
     """
 
     image: NDArray[np.float64]
@@ -54,6 +63,8 @@ class Segmentation:
     groups: NDArray[np.int_]
     result: Result | None = None
     tiles: list[TileResult] = field(default_factory=list)
+    parameters: Parameters | None = None
+    background: Background | None = None
 
     @property
     def n_segments(self) -> int:
@@ -74,6 +85,8 @@ def segment_image(image: NDArray[np.float64], parameters: Parameters = Parameter
     image : ndarray, shape (rows, columns)
         Intensities in [0, 1], e.g. from ``images.preprocess``.
     parameters : Parameters
+        Intensity parameters left at None are inferred from ``image`` with
+        ``infer_parameters``; ``Segmentation.parameters`` holds the values used.
     workers : int
         Processes segmenting tiles in parallel. In a script, call
         ``segment_image`` under ``if __name__ == "__main__":`` when
@@ -82,11 +95,16 @@ def segment_image(image: NDArray[np.float64], parameters: Parameters = Parameter
         Upsampled images, and images of more than ``LARGE_IMAGE`` pixels, are
         segmented in tiles of ``tile_size`` original pixels with a margin of
         ``tile_margin`` original pixels, which should exceed the largest
-        droplet with its bright surroundings. A tile that cuts a droplet it
-        owns is redone with the margin doubled, up to twice (``tiles``).
+        droplet with its bright surroundings. Tile edges inside the image are
+        framed just below ``min_level``, so a droplet reaching one is
+        detected as cut; a tile that cuts a droplet it owns is redone with
+        the margin doubled, up to twice (``tiles``).
 
+    Warns with ``InferredLevelsWarning`` when intensity levels are inferred.
     Warns if the smoothing cut segments into several pieces of at least
-    ``min_area``: ``smooth_radius`` is then too large.
+    ``min_area``: ``smooth_radius`` is then too large. Warns if tiles still
+    cut droplets after the last widening of their margin: these droplets are
+    dropped, and ``tile_margin`` is too small.
     """
     image = np.asarray(image, dtype=float)
     if image.ndim != 2:
@@ -94,6 +112,9 @@ def segment_image(image: NDArray[np.float64], parameters: Parameters = Parameter
     if image.min() < 0 or image.max() > 1:
         raise ValueError(f"intensities must lie in [0, 1], got {image.min():g} to {image.max():g}; "
                          "scale the image first, e.g. with dropseg.preprocess")
+    # Inferred once from the whole image, so that every tile is segmented with the same levels.
+    background = estimate_background(image) if needs_background(parameters) else None
+    parameters = infer_parameters(image, parameters, background)
     factor = parameters.upsample
     if factor == 1 and image.size <= LARGE_IMAGE:
         result = segment(image, parameters.settings())
@@ -105,8 +126,14 @@ def segment_image(image: NDArray[np.float64], parameters: Parameters = Parameter
         segmentation = Segmentation(upsampler(parameters)(image), labels, factor,
                                     assemble_groups(tile_results, image.shape, factor), tiles=tile_results)
         n_broken = sum(tile_result.broken for tile_result in tile_results)
+        if n_cut := sum(tile_result.cut for tile_result in tile_results):
+            warnings.warn(f"tiles cut {n_cut} droplet piece(s) even after their margin was widened from "
+                          f"tile_margin = {tile_margin} px (a droplet counts once in each tile it reaches); "
+                          "these droplets are missing from the labels. Pass a larger tile_margin (and "
+                          "tile_size), above the largest droplet with its bright surroundings", stacklevel=2)
     if n_broken:
         warn_broken(n_broken, parameters)
+    segmentation.parameters, segmentation.background = parameters, background
     return segmentation
 
 

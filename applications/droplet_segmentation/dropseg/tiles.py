@@ -8,9 +8,15 @@ lies inside that tile, away from its edge. Segments touching the tile's edge
 inside the image are cut by the tile and dropped; they are counted, and a
 tile that cut a segment it owns is segmented again with a wider margin.
 
-Beyond the grid counts as brighter than everything, so within a margin of a
-tile's edge the forest differs from that of the whole image; the margin must
-also cover the background around the droplets near the core's edge.
+Beyond the grid counts as brighter than everything, so a droplet reaching a
+tile's edge would merge with the outside and form no bar: it would vanish
+without being counted as cut. Each edge of a tile inside the image is
+therefore framed by a row of fine pixels just below ``min_level`` (``FRAME``):
+a droplet reaching it still forms its bar and its segment, which touches the
+edge, is counted, and makes the tile retry. Away from its edges the forest
+of a tile matches that of the whole image only if the margin also covers the
+background around the droplets near the core's edge. The image border is not
+framed: droplets cut by it lie partly outside the image, as before.
 """
 
 from concurrent.futures import ProcessPoolExecutor
@@ -23,6 +29,10 @@ from scipy import ndimage
 
 from .pipeline import Settings
 from .pipeline import segment
+
+#: The frame lies this far below ``min_level``: darker than every segment, which flooding grows down to
+#: ``min_level``, yet not so dark that the frame of a tile without droplets encloses a region of its own.
+FRAME = 1e-6
 
 
 @dataclass(frozen=True)
@@ -78,31 +88,35 @@ class TileResult:
 
 def segment_tile(image: NDArray[np.float64], tile: Tile, settings: Settings, upsampler: Callable,
                  factor: int) -> TileResult:
-    """Upsample and segment one tile, keeping the segments centered in its core."""
-    result = segment(upsampler(image[tile.outer]), settings)
-    labels = result.labels
+    """Upsample and segment one tile, keeping the segments centered in its core.
+
+    The edges of the tile inside the image are framed with pixels just below
+    ``settings.min_level`` (module docstring); segments reaching them are cut.
+    """
+    fine = upsampler(image[tile.outer])
+    full = image.shape
+    # One framed row or column on each side of the tile that lies inside the image.
+    pads = ((int(tile.outer[0].start > 0), int(tile.outer[0].stop < full[0])),
+            (int(tile.outer[1].start > 0), int(tile.outer[1].stop < full[1])))
+    result = segment(np.pad(fine, pads, constant_values=settings.min_level - FRAME), settings)
+    inner = tuple(slice(before, before + length) for (before, _), length in zip(pads, fine.shape))
+    labels, groups = result.labels[inner], result.groups[inner]
     ids = np.unique(labels[labels > 0])
     centers = np.array(ndimage.center_of_mass(np.ones(labels.shape), labels, ids)).reshape(-1, 2)
     # Centroids in original pixels of the whole image; a fine pixel's center is (i + 0.5) / factor.
     centers = (centers + 0.5) / factor + [tile.outer[0].start, tile.outer[1].start]
     in_core = ((tile.core[0].start <= centers[:, 0]) & (centers[:, 0] < tile.core[0].stop)
                & (tile.core[1].start <= centers[:, 1]) & (centers[:, 1] < tile.core[1].stop))
-    # Edges of the tile that lie inside the image cut segments; the image border does not.
+    # Segments reaching a framed edge are cut by the tile; the image border does not cut.
     edge = np.zeros(labels.shape, dtype=bool)
-    full = image.shape
-    if tile.outer[0].start > 0:
-        edge[0, :] = True
-    if tile.outer[0].stop < full[0]:
-        edge[-1, :] = True
-    if tile.outer[1].start > 0:
-        edge[:, 0] = True
-    if tile.outer[1].stop < full[1]:
-        edge[:, -1] = True
+    for axis, side in ((0, 0), (0, 1), (1, 0), (1, 1)):
+        if pads[axis][side]:
+            edge[(slice(None),) * axis + ((0, -1)[side],)] = True
     touching = np.isin(ids, np.unique(labels[edge]))
     kept = ids[in_core & ~touching]
     seconds = sum(result.timings.values())
     keep = np.isin(labels, kept)
-    return TileResult(tile, np.where(keep, labels, 0), np.where(keep, result.groups, 0), len(result.selections),
+    return TileResult(tile, np.where(keep, labels, 0), np.where(keep, groups, 0), len(result.selections),
                       len(result.late), sum(bool(split.lobes) for split in result.splits.values()),
                       int((in_core & touching).sum()), seconds, int(np.isin(result.broken, kept).sum()))
 

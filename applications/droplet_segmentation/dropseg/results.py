@@ -122,7 +122,11 @@ def save_results(folder, stem: str, image: NDArray[np.float64], segmentation: Se
 
     ``scale`` is the number of output pixels per original pixel in the
     boundary overlay, rounded up to a multiple of the upsampling factor.
-    ``extra`` is added to the JSON record. Returns the files written.
+    ``extra`` is added to the JSON record. The record holds the parameters
+    used (``segmentation.parameters``, with inferred values filled in), so that
+    ``--parameters`` repeats the segmentation exactly; ``inferred`` names the
+    intensity parameters inferred from the image and ``background`` the
+    estimate they come from. Returns the files written.
     """
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
@@ -137,8 +141,11 @@ def save_results(folder, stem: str, image: NDArray[np.float64], segmentation: Se
     segment_table(segmentation.labels, segmentation.image, factor).to_csv(paths["segments.csv"])
     overlay = boundary_overlay(image, segmentation.labels, factor, scale, vmax, segmentation.groups)
     Image.fromarray(overlay).save(paths["boundaries.png"])
+    used = segmentation.parameters if segmentation.parameters is not None else parameters
+    background = segmentation.background
     record = {"image": stem, "shape": list(image.shape), "segments": segmentation.n_segments,
-              "parameters": parameters.record(),
+              "parameters": used.record(), "inferred": parameters.unset,
+              "background": None if background is None else background.record(),
               "preprocessing": None if preprocessing is None else preprocessing.record(), **(extra or {})}
     paths["parameters.json"].write_text(json.dumps(record, indent=1))
     return list(paths.values())

@@ -16,12 +16,15 @@ from dataclasses import replace
 import io
 import math
 import time
+import warnings
 
 import ipywidgets as widgets
 import matplotlib.pyplot as plt
 from matplotlib import patheffects
 import numpy as np
 
+from .inference import InferredLevelsWarning
+from .inference import infer_parameters
 from .parameters import STEPS
 from .parameters import Parameters
 from .pipeline import peak
@@ -380,7 +383,9 @@ class Tuner:
     window : tuple of slice
         ``(rows, columns)`` of the window, original pixels.
     parameters : Parameters
-        Starting values.
+        Starting values. Intensity parameters left at None start from the
+        values inferred from the whole ``image``, as ``segment_image`` does
+        (without its ``InferredLevelsWarning``: tuning them is the point here).
     vmax : float, optional
         Brightness shown as white.
     size : float
@@ -389,7 +394,9 @@ class Tuner:
 
     def __init__(self, image, window, parameters: Parameters = Parameters(), vmax=None, size=6.0):
         self.stages = Stages(image, window)
-        self.parameters = parameters
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", InferredLevelsWarning)
+            self.parameters = infer_parameters(image, parameters)
         self.vmax = vmax
         self.size = size
 

@@ -6,7 +6,12 @@ peak of the image's persistence forest (built with `persforest`), takes one
 level-set outline per droplet, splits 8-shaped outlines of touching droplets
 at their waist, and grows the outlines into segments. Every parameter is an
 intensity in [0, 1] or a length in pixels of the original image, so the same
-parameters work at the original resolution and upsampled.
+parameters work at the original resolution and upsampled. The three intensity
+levels have no fixed defaults: unless you give them, they are inferred from
+each image's background and noise, with a warning (see
+[Inferred intensity levels](#inferred-intensity-levels)). Inferred levels are
+a starting point; levels tuned with `dropseg.Tuner` and passed explicitly work
+better in practice.
 
 **Suited for:** bright objects on a darker background, isolated or touching,
 from a few pixels to tens of pixels across, in 8- or 16-bit images.
@@ -35,12 +40,15 @@ the notebooks and your own scripts from this folder, or add it to
 ```sh
 python -m dropseg example_data/simulated_puncta.png --out results
 python -m dropseg my_images/ --upsample 4 --smooth-radius 0.3 --min-area 4 --workers 4 --out results
+python -m dropseg my_images/ --min-level 0.15 --out results    # min_bar_length, split_level inferred
 python -m dropseg my_images/ --parameters results/simulated_puncta_parameters.json --out results
 ```
 
 Every parameter below is an option (`--min-bar-length 0.15`), and
 `--parameters` reads a JSON file of parameters, such as the
-`_parameters.json` of an earlier run. `--workers 4` segments the tiles of
+`_parameters.json` of an earlier run. Intensity levels given neither way are
+inferred from each image; the command prints the values it used and
+recommends tuning them with `dropseg.Tuner`. `--workers 4` segments the tiles of
 upsampled or large images on 4 processes (default 1); the results don't
 depend on it. `python -m dropseg --help` lists all options.
 
@@ -52,7 +60,8 @@ import dropseg
 raw, full_scale = dropseg.load_image("my_image.tif")      # channel=... for color images
 image = dropseg.preprocess(raw, full_scale)                # scale to [0, 1]
 parameters = dropseg.Parameters(upsample=4, smooth_radius=0.3, min_area=4)
-segmentation = dropseg.segment_image(image, parameters, workers=4)
+segmentation = dropseg.segment_image(image, parameters, workers=4)   # intensity levels inferred
+segmentation.parameters                                    # the parameters used, inferred levels filled in
 segmentation.labels                                        # 0 = background, 1, 2, ... = droplets
 segmentation.original_labels                               # the same on the original pixels
 dropseg.save_results("results", "my_image", image, segmentation, parameters)
@@ -81,7 +90,11 @@ when `workers > 1` (parallel processes re-import the script).
   use only part of their range, e.g. 12-bit data saved as 16 bit, use
   `Preprocessing(normalize="percentile")` (`--normalize percentile`), which
   maps the 1st and 99.9th percentile to 0 and 1. `segment_image` refuses
-  values outside [0, 1].
+  values outside [0, 1]. With inferred intensity levels the scaling hardly
+  matters, as long as droplets are not clipped at 1; levels you give are
+  absolute, so they depend on it: with `"full scale"`, 12-bit data in a
+  16-bit file never exceeds 0.06, and with `"percentile"` the scale depends
+  on how much of the image the droplets cover.
 - `Preprocessing(crop=..., blur=...)` crops the image and smooths noise
   (Gaussian, in pixels) before the segmentation.
 - **Droplets touching the image border get no segment:** the forest treats
@@ -108,15 +121,15 @@ when `workers > 1` (parallel processes re-import the script).
 | `name_labels_4x.tif` | When upsampled: the labels on the fine grid. |
 | `name_segments.csv` | Per segment: `area` and equivalent `radius` in original pixels, centroid `row` and `column` (pixel index), `mean` and `max` intensity in [0, 1]. |
 | `name_boundaries.png` | The image with the boundaries, each original pixel drawn as `scale` × `scale` pixels. Yellow edges border the background, red edges separate neighbors cut apart by the forest, blue edges lobes of one 8-shaped outline. |
-| `name_parameters.json` | Parameters, preprocessing and segment count, readable by `--parameters`. |
+| `name_parameters.json` | Parameters used (inferred levels filled in), which of them were inferred, the background estimate, preprocessing and segment count; readable by `--parameters`, which then repeats the segmentation exactly. |
 
 ## The steps and their parameters
 
 | Step | What it does | Parameter (default) |
 |---|---|---|
-| 1. peaks | Keeps the peaks that rise at least `min_bar_length` above the saddle to a brighter neighbor or to the background. | `min_bar_length` (0.2) |
-| 2. branches | Two peaks separating below `split_level` are two droplets; above it, the dimmer one is merged into the brighter. | `split_level` (0.3) |
-| 3. outlines | Takes each droplet's outline at `min_level`, or after its split from a neighbor if that is higher. | `min_level` (0.1); `convexity_tol` (off) |
+| 1. peaks | Keeps the peaks that rise at least `min_bar_length` above the saddle to a brighter neighbor or to the background. | `min_bar_length` (inferred) |
+| 2. branches | Two peaks separating below `split_level` are two droplets; above it, the dimmer one is merged into the brighter. | `split_level` (inferred) |
+| 3. outlines | Takes each droplet's outline at `min_level`, or after its split from a neighbor if that is higher. | `min_level` (inferred); `convexity_tol` (off) |
 | 4. lobes | Splits 8-shaped outlines at their waist. A lobe whose brightest pixel does not rise `min_bar_length` above the outline's birth is removed. | `split_lobes` (on), `lobe_waist` (0.75) |
 | 5. flooding | Grows each segment from bright to dark down to `min_level`. Touching segments meet in the valley between them. A lobe still smaller than `min_area` joins the neighboring lobe of its outline with the brightest shared boundary. | none (uses `min_level`, `min_area`) |
 | 6. smoothing | Alpha opening of each segment: removes protrusions narrower than about 2 × `smooth_radius`. | `smooth_radius` (off) |
@@ -128,9 +141,9 @@ All parameters of `dropseg.Parameters`:
 |---|---|---|---|
 | `upsample` | 1 | factor | Segment a grid this many times finer: 1, 2 or 4. |
 | `kernel_width` | 0.35 | original px | Width of the Gaussian upsampling kernel. Wider smooths more but blurs touching droplets together. |
-| `min_bar_length` | 0.2 | intensity | Minimal rise of a peak above its saddle (step 1) and of a lobe (step 4). |
-| `split_level` | 0.3 | intensity | Peaks separating below it are separate droplets (step 2). Must exceed `min_level`. |
-| `min_level` | 0.1 | intensity | Level of the outlines (step 3) and floor of the flooding (step 5). Must lie above the background. |
+| `min_bar_length` | inferred: 8 σ | intensity | Minimal rise of a peak above its saddle (step 1) and of a lobe (step 4). |
+| `split_level` | inferred: `min_level` + `min_bar_length` | intensity | Peaks separating below it are separate droplets (step 2). Must exceed `min_level`. |
+| `min_level` | inferred: b + 5 σ | intensity | Level of the outlines (step 3) and floor of the flooding (step 5). Must lie above the background. |
 | `convexity_tol` | None | deficit | If set (0.4 to 0.5), step 3 climbs to the first outline whose convex-hull perimeter deficit is at most this. Against messy outlines on a noisy background. |
 | `split_lobes` | True | | Split 8-shaped outlines (step 4). |
 | `smooth_radius` | None | original px | Alpha opening radius (step 6). Useful only when upsampled, 0.3 to 0.5. |
@@ -138,16 +151,65 @@ All parameters of `dropseg.Parameters`:
 | `birth_offset` | 0.1 | × `min_bar_length` | Rarely changed. Outlines lie at least this far above the bar's birth, past its first wiggly outlines. |
 | `lobe_waist` | 0.75 | ratio | Split if the waist is at most this fraction of the lobe's width: s/ρ, where s is half the waist width and ρ the lobe radius, read from the alpha filtration of the outline. Independent of size and resolution. |
 
-The defaults suit small dim puncta (radius 1 to 3 px) on a dark background
-in 8-bit confocal images. For other data, check `min_level` against the
-background first.
+### Inferred intensity levels
+
+`min_bar_length`, `split_level` and `min_level` default to `None`.
+`segment_image`, the command line and the `Tuner` then infer them from the
+whole image with `infer_parameters` (once, before any tiling); values you
+give are used as given, and only the missing ones are inferred around them:
+
+- background b: the median of the image; noise σ: the robust standard
+  deviation of the pixels at or below the median (`estimate_background`);
+- `min_level` = b + 5 σ, `min_bar_length` = 8 σ, and `split_level` =
+  `min_level` + `min_bar_length`, from the final values of the other two.
+
+These levels move with any rescaling or offset of the intensities, so the
+result does not depend on the bit depth or the normalization. The factors
+were calibrated on simulated images with known droplets (large and small,
+dark and bright, uneven backgrounds, several noise levels); they are a
+starting point. They can mislead on images where droplets cover more than
+about half of the pixels (the median is then not the background) and with
+strongly uneven illumination (one median for the whole image; σ then grows,
+which keeps the levels above the background but makes them coarser).
+Inference also has limits on real data:
+
+- The levels follow the *pixel* noise. Dim structure above it (haze,
+  out-of-focus light) is not noise; its peaks then pass `min_bar_length`.
+  On a real Golgi image (`data_lucy/`) the inferred levels gave several
+  times more segments than the hand-tuned ones. Give `min_bar_length` (and
+  `min_level`) for such data, and use the inferred values only as a lower
+  bound.
+- If the noise cannot be measured, nothing is inferred: `segment_image`
+  raises and asks for `min_level` and `min_bar_length` (the command line
+  stops with that message). This happens when the background is clipped at
+  the lowest intensity (half or more of the pixels there, common after a
+  black-level or background subtraction, as in `data_lucy/`), or when most
+  dark pixels share one value (a flat or coarsely quantized background), so
+  that σ would come out as zero or one intensity step and every faint
+  ripple would pass. With both levels given, `split_level` is still derived
+  from them.
+
+Every inference warns with `dropseg.InferredLevelsWarning`, naming the
+values and recommending the `Tuner`; levels you give produce no warning.
+The `Tuner` starts its sliders from the inferred values without warning.
+
+`segmentation.parameters` and the `_parameters.json` hold the values used,
+and `segmentation.background` the estimate (None if it was not needed).
+
+```python
+parameters = dropseg.infer_parameters(image, dropseg.Parameters(min_level=0.15, upsample=4))
+```
+
+returns the parameters with the missing levels filled in, e.g. as starting
+values to adjust.
 
 ## Choosing the parameters
 
 A procedure that works for people and for agents:
 
-1. **Background.** Look at the intensity histogram of the preprocessed image
-   (section 2 of the notebook). `min_level` must lie clearly above the
+1. **Background.** Start from the inferred levels (`infer_parameters`, or
+   leave them unset). Look at the intensity histogram of the preprocessed
+   image (section 2 of the notebook): `min_level` must lie clearly above the
    background (including its noise and any uneven illumination), and
    `split_level` above `min_level`. A background of 0.15 needs a `min_level`
    of about 0.3, for example.
@@ -196,8 +258,15 @@ resolution, are segmented in tiles of `tile_size` (64) original pixels, on `work
 processes (default 1). Each tile has a margin of `tile_margin` (12)
 pixels, which should exceed the largest droplet with its bright
 surroundings. A tile that cuts a droplet it owns is redone with the margin
-doubled, up to twice. For droplets larger than about 10 px, pass a larger
-margin, e.g. `tile_size=128, tile_margin=32` (`--tile-size`, `--tile-margin`).
+doubled, up to twice; droplets still cut after that are dropped with a
+warning. For droplets larger than about 10 px, pass a larger margin, e.g.
+`tile_size=128, tile_margin=32` (`--tile-size`, `--tile-margin`). Each tile
+edge inside the image is framed by a row of pixels just below `min_level`:
+the forest treats everything beyond the grid as brighter than the image, so
+without the frame a droplet reaching the edge would merge with the outside
+and vanish uncounted. With it, the droplet forms a segment that touches the
+edge, which triggers the retry or the warning. The image border is not
+framed; droplets cut by it get no segment, as at 1×.
 
 Typical times on an Apple M4 Pro: a 256 × 256 px image takes about 2 s at 1×
 (one forest, `workers` doesn't matter), and about 30 s at 4× on one process or
@@ -212,6 +281,7 @@ process. Results are identical in every run and for any number of workers.
 | `dropseg/__init__.py` | The public interface. |
 | `dropseg/__main__.py` | The command line. |
 | `dropseg/parameters.py` | `Parameters` and the steps that read them (`STEPS`). |
+| `dropseg/inference.py` | `estimate_background` and `infer_parameters`: intensity levels from the image. |
 | `dropseg/whole_image.py` | `segment_image` and `Segmentation`. |
 | `dropseg/images.py` | Loading, preprocessing, upsampling. |
 | `dropseg/results.py` | `save_results`, `segment_table`, `boundary_overlay`. |

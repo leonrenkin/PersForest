@@ -4,6 +4,10 @@ Lengths are in pixels of the original image and intensities in [0, 1], so the
 same parameters segment the image at its own resolution (``upsample=1``) or
 upsampled (``upsample=4``). ``Parameters.settings`` converts them to the
 units of the grid the steps run on.
+
+The intensity parameters (``INTENSITY_PARAMETERS``) have no fixed defaults:
+suitable levels depend on the background and brightness of the data. Left at
+None, they are inferred from the image (``inference.infer_parameters``).
 """
 
 from dataclasses import asdict
@@ -12,6 +16,9 @@ from dataclasses import fields
 import math
 
 from .pipeline import Settings
+
+# The absolute intensity levels; None means "infer from the image".
+INTENSITY_PARAMETERS = ("min_bar_length", "split_level", "min_level")
 
 # The parameters each step reads; a step also depends on those of all earlier steps.
 STEPS = {
@@ -30,7 +37,10 @@ class Parameters:
     """Parameters of the segmentation; lengths in original pixels, intensities in [0, 1].
 
     The first block is meant to be tuned; the second has defaults relative to
-    the first and rarely needs changing.
+    the first and rarely needs changing. ``min_bar_length``, ``split_level``
+    and ``min_level`` default to None: ``segment_image`` (and the ``Tuner``)
+    then infer them from the image with ``infer_parameters``, in units of its
+    background noise. Values given are always used as given.
 
     Attributes
     ----------
@@ -40,13 +50,13 @@ class Parameters:
     kernel_width : float
         Width of the Gaussian upsampling kernel, original pixels; wider
         smooths more and lowers small peaks.
-    min_bar_length : float
+    min_bar_length : float or None
         Step 1 (peaks): minimal rise of a peak above the saddle to its
         neighbor or the background. Also the minimal rise of a lobe in step 4.
-    split_level : float
+    split_level : float or None
         Step 2 (branches): peaks separating from their neighbor below this
         level are droplets of their own; above it, they are part of the neighbor.
-    min_level : float
+    min_level : float or None
         Step 3 (outlines): outlines are taken at this level, or after the
         droplet's last split below ``split_level`` if that is higher.
         Step 5 (flooding): segments grow down to this level. Must lie below
@@ -78,9 +88,9 @@ class Parameters:
 
     upsample: int = 1
     kernel_width: float = 0.35
-    min_bar_length: float = 0.2
-    split_level: float = 0.3
-    min_level: float = 0.1
+    min_bar_length: float | None = None
+    split_level: float | None = None
+    min_level: float | None = None
     convexity_tol: float | None = None
     split_lobes: bool = True
     smooth_radius: float | None = None
@@ -90,21 +100,39 @@ class Parameters:
     lobe_waist: float = 0.75
 
     def __post_init__(self):
-        if self.min_level >= self.split_level:
+        if self.min_level is not None and self.split_level is not None and self.min_level >= self.split_level:
             raise ValueError(f"min_level {self.min_level} must lie below split_level {self.split_level}")
         if int(self.upsample) != self.upsample or self.upsample < 1:
             raise ValueError(f"upsample must be a positive integer, got {self.upsample}")
-        if self.min_bar_length <= 0:
+        if self.min_bar_length is not None and self.min_bar_length <= 0:
             raise ValueError(f"min_bar_length must be positive, got {self.min_bar_length}")
         if self.kernel_width <= 0:
             raise ValueError(f"kernel_width must be positive, got {self.kernel_width}")
+
+    @property
+    def unset(self) -> list[str]:
+        """The intensity parameters left at None, which ``infer_parameters`` would fill in."""
+        return [name for name in INTENSITY_PARAMETERS if getattr(self, name) is None]
+
+    @property
+    def resolved(self) -> bool:
+        """Whether all intensity parameters are set (none is left to infer)."""
+        return not self.unset
 
     def settings(self, storage: str = "cycles") -> Settings:
         """The settings of the steps, in pixels of the upsampled grid.
 
         ``storage="diffs"`` reconstructs representatives instead of storing
         them, for large grids; the segments are the same.
+
+        Raises
+        ------
+        ValueError
+            If an intensity parameter is None; ``infer_parameters`` sets them.
         """
+        if not self.resolved:
+            raise ValueError(f"{', '.join(self.unset)} not set; give them, or infer them from the image with "
+                             "dropseg.infer_parameters(image, parameters)")
         factor = self.upsample
         return Settings(
             storage=storage,

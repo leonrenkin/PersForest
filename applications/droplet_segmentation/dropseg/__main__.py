@@ -4,7 +4,10 @@ Segments every image and writes the files of ``results.save_results`` for
 each. Every field of ``Parameters`` is an option (``--min-bar-length 0.15``);
 ``--parameters FILE`` reads them from a JSON file, either a plain
 ``{"upsample": 4, ...}`` dict or the ``_parameters.json`` a previous run
-wrote, and options given on the command line override it.
+wrote, and options given on the command line override it. Intensity
+parameters given neither way are inferred from each image
+(``infer_parameters``); the values used are printed and saved, with the
+advice to tune them with ``dropseg.Tuner`` and pass them explicitly.
 """
 
 from dataclasses import fields
@@ -13,11 +16,14 @@ import argparse
 import json
 import sys
 import time
+import warnings
 
 from .images import IMAGE_SUFFIXES
 from .images import Preprocessing
 from .images import load_image
 from .images import preprocess
+from .inference import InferredLevelsWarning
+from .parameters import INTENSITY_PARAMETERS
 from .parameters import Parameters
 from .results import save_results
 from .whole_image import segment_image
@@ -72,7 +78,8 @@ def parser() -> argparse.ArgumentParser:
     for field in fields(Parameters):
         group.add_argument(f"--{field.name.replace('_', '-')}", dest=field.name, type=_type(field), default=None,
                            metavar=field.type.__name__.upper() if isinstance(field.type, type) else "VALUE",
-                           help=f"{_HELP[field.name]} (default {field.default})")
+                           help=f"{_HELP[field.name]} (default "
+                                f"{'inferred from each image' if field.name in INTENSITY_PARAMETERS else field.default})")
     images = parser.add_argument_group("images")
     images.add_argument("--channel", type=int, help="channel of a color image")
     images.add_argument("--normalize", choices=("full-scale", "percentile"), default="full-scale",
@@ -126,17 +133,35 @@ def main(argv=None) -> int:
     preprocessing = Preprocessing("full scale" if arguments.normalize == "full-scale" else "percentile",
                                   *arguments.percentiles, blur=arguments.blur)
     print(f"parameters: {parameters}")
+    inferred = parameters.unset
     for path in image_paths(arguments.images):
         clock = time.perf_counter()
         raw, full_scale = load_image(path, arguments.channel)
         image = preprocess(raw, full_scale, preprocessing)
-        segmentation = segment_image(image, parameters, arguments.workers, arguments.tile_size, arguments.tile_margin)
+        try:
+            with warnings.catch_warnings():  # the inferred levels are printed below instead
+                warnings.simplefilter("ignore", InferredLevelsWarning)
+                segmentation = segment_image(image, parameters, arguments.workers, arguments.tile_size,
+                                             arguments.tile_margin)
+        except ValueError as error:  # e.g. levels that cannot be inferred from this image
+            raise SystemExit(f"error: {path.name}: {error}")
         written = save_results(arguments.out, path.stem, image, segmentation, parameters, preprocessing,
                                arguments.overlay_scale, arguments.vmax,
                                extra={"file": str(path), "tile_size": arguments.tile_size,
                                       "tile_margin": arguments.tile_margin})
         print(f"{path.name}: {segmentation.n_segments} segments in {time.perf_counter() - clock:.1f} s -> "
               f"{', '.join(p.name for p in written)}")
+        if inferred:
+            used = segmentation.parameters
+            levels = ", ".join(f"{name} {getattr(used, name):.3g}" for name in inferred)
+            source = ("" if segmentation.background is None else
+                      f" from background {segmentation.background.level:.3g}, noise "
+                      f"{segmentation.background.noise:.3g}")
+            print(f"  inferred{source}: {levels}")
+    if inferred:
+        print(f"warning: {', '.join(inferred)} were inferred from each image; automatic levels are only a "
+              "starting point. Tune them on a window with dropseg.Tuner and pass them with --parameters or "
+              "the options above.", file=sys.stderr)
     return 0
 
 
