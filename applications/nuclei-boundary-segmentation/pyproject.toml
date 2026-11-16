@@ -1,0 +1,36 @@
+[project]
+name = "nucseg"
+version = "0.1.0"
+description = "Nuclear outlines and volumes from nuclear-envelope-like stainings (e.g. ER markers) with persistence forests."
+readme = "README.md"
+authors = [{name = "Leon Renkin", email = "leon.renkin@gmail.com"}]
+license = "MIT"
+requires-python = ">=3.11,<3.15"
+dependencies = [
+    "persforest>=0.2.0",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "tifffile>=2024.2.12",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+# Tables in the notebooks and interactive 3D surfaces.
+notebooks = [
+    "pandas>=2.2",
+    "plotly>=6.0",
+    "ipykernel>=6.29",
+    "nbformat>=5.10",
+]
+
+[project.scripts]
+nucseg = "nucseg.__main__:main"
+
+[tool.uv.sources]
+# Developed inside the persforest repository; after a split, pin a released
+# persforest version or a git revision instead.
+persforest = { path = "../..", editable = true }
+
+[build-system]
+requires = ["uv_build>=0.13.6,<0.14"]
+build-backend = "uv_build"
