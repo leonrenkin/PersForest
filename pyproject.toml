@@ -57,8 +57,20 @@ droplets = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.13.6,<0.14"]
-build-backend = "uv_build"
+# Build-time only: the compiled construction engine (cpp/) and its bindings.
+requires = ["scikit-build-core>=1.1.2,<2", "nanobind>=3.1,<4"]
+build-backend = "scikit_build_core.build"
 
-[tool.uv.build-backend]
-source-exclude = ["**/.DS_Store"]
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+build-dir = "build/{wheel_tag}"
+cmake.build-type = "Release"
+wheel.packages = ["src/persforest"]
+# The sdist holds the package, the engine sources and the build files only.
+sdist.exclude = ["*"]
+sdist.include = ["/src/persforest/**/*.py", "/cpp/*.cpp", "/cpp/*.hpp", "/CMakeLists.txt",
+                 "/LICENSE", "/README.md", "/pyproject.toml"]
+
+[tool.uv]
+# Rebuild the editable install when the compiled engine or its build changes.
+cache-keys = [{ file = "pyproject.toml" }, { file = "CMakeLists.txt" }, { file = "cpp/**/*" }]

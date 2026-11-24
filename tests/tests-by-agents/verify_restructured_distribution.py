@@ -18,7 +18,7 @@ import zipfile
 
 
 def main() -> None:
-    """Verify that wheel/sdist ship exactly the src package's Python files."""
+    """Verify the archives: Python files of src, the compiled engine, and its sources."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('dist_dir', type=Path)
     args = parser.parse_args()
@@ -27,12 +27,19 @@ def main() -> None:
     dist_info = f"persforest-{project['version']}.dist-info/"
     expected = {path.relative_to(root / 'src').as_posix(): path.read_bytes()
                 for path in (root / 'src/persforest').rglob('*.py')}
+    # Sources and build files of the compiled engine, shipped in the sdist only.
+    engine_sources = {path.relative_to(root).as_posix(): path.read_bytes()
+                      for path in [root / 'CMakeLists.txt', *sorted((root / 'cpp').glob('*.[ch]pp'))]}
     wheel, = args.dist_dir.glob('*.whl')
     sdist, = args.dist_dir.glob('*.tar.gz')
     with zipfile.ZipFile(wheel) as archive:
         members = archive.namelist()
         actual = {item.filename: archive.read(item) for item in archive.infolist()
                   if item.filename.startswith('persforest/') and not item.is_dir()}
+        extensions = [name for name in actual if name.startswith('persforest/_engine.')
+                      and name.endswith(('.so', '.pyd'))]
+        assert len(extensions) == 1, ('expected one compiled engine module', extensions)
+        actual.pop(extensions[0])
         assert actual == expected, ('wheel package mismatch', actual.keys() ^ expected.keys())
         assert all(name.startswith(('persforest/', dist_info)) for name in members)
         metadata = archive.read(dist_info + 'METADATA').decode()
@@ -44,9 +51,13 @@ def main() -> None:
     with tarfile.open(sdist) as archive:
         names = [member.name for member in archive.getmembers() if member.isfile()]
         prefix = names[0].split('/')[0] + '/'
-        allowed = {'LICENSE', 'README.md', 'pyproject.toml', 'pyproject.toml.orig', 'PKG-INFO'}
+        allowed = {'LICENSE', 'README.md', 'pyproject.toml', 'pyproject.toml.orig', 'PKG-INFO', *engine_sources}
         assert all(name.removeprefix(prefix).startswith('src/persforest/')
                    or name.removeprefix(prefix) in allowed for name in names), names
+        shipped_sources = {name.removeprefix(prefix): archive.extractfile(name).read()
+                           for name in names if name.removeprefix(prefix) in engine_sources}
+        assert shipped_sources == engine_sources, ('sdist engine sources mismatch',
+                                                   shipped_sources.keys() ^ engine_sources.keys())
         actual = {name.removeprefix(prefix + 'src/'): archive.extractfile(name).read()
                   for name in names if name.startswith(prefix + 'src/persforest/')}
         assert actual == expected, ('sdist package mismatch', actual.keys() ^ expected.keys())
@@ -56,7 +67,8 @@ def main() -> None:
     report = dict(package_files=len(expected), wheel_members=wheel_members, sdist_members=names,
                   hashes={path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in [wheel, sdist]})
     (args.dist_dir / 'verified-contents.json').write_text(json.dumps(report, indent=2) + '\n')
-    print(f'VERIFIED: {len(expected)} src files in both archives; no reference/private/generated files.')
+    print(f'VERIFIED: {len(expected)} src files in both archives, the compiled engine in the wheel and its '
+          f'{len(engine_sources)} source files in the sdist; no reference/private/generated files.')
     print('Unpacked:', unpacked / prefix.rstrip('/'))
 
 

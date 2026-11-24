@@ -37,7 +37,10 @@ in `examples/tendril_regression/`. Citation metadata is in
 ## Installation
 
 Requires Python 3.11–3.14. The base installation needs only NumPy and GUDHI;
-plotting dependencies are optional extras.
+plotting dependencies are optional extras. Installing from source compiles a
+small C++ extension, so a C++17 compiler is required (Xcode Command Line Tools
+on macOS, GCC or Clang on Linux, Visual Studio Build Tools on Windows); CMake
+and the other build tools are fetched automatically.
 
 ```bash
 git clone https://github.com/leonrenkin/persforest.git
@@ -62,6 +65,9 @@ package editably together with all extras:
 uv sync --all-extras --locked
 uv run python examples/pers_forest_example.py
 ```
+
+`uv sync` rebuilds the C++ extension when files in `cpp/` or the build
+configuration change.
 
 ## Quickstart
 
