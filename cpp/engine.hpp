@@ -59,7 +59,9 @@ struct ForestArrays {
 // and roots with several children are split into one root per child.
 //
 // Throws std::invalid_argument for inputs violating the engine's assumptions
-// (IDs out of range, a facet with more than two top cells, decreasing values).
+// (IDs out of range, a facet with more than two top cells, decreasing values)
+// and for inputs too large for its 32-bit IDs: more than 2^31 - 1 cells or
+// 2^30 - 1 events.
 ForestArrays build_forest(const CellEvents& events, bool reduce, double filtration_tol);
 
 }  // namespace persforest

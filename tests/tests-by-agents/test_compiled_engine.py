@@ -93,6 +93,10 @@ class CompiledEngineTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'more than two top cells'):
             _engine.build_forest(np.array([3, 4, 5, 6, 0, 1, 2], dtype=np.int64), np.zeros(7), 3, 7,
                                  three_tops, np.ones(3, dtype=np.int8), True, 0.0)
+        # Node and cell IDs are 32-bit inside the engine.
+        with self.assertRaisesRegex(ValueError, '32-bit IDs'):
+            _engine.build_forest(np.zeros(0, dtype=np.int64), np.zeros(0), 0, 2 ** 31,
+                                 np.zeros((0, 2), dtype=np.int64), np.zeros(0, dtype=np.int8), True, 0.0)
 
 
 if __name__ == '__main__':
