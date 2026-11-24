@@ -11,7 +11,8 @@ find_package(nanobind CONFIG REQUIRED)
 
 # The engine is plain C++17 (cpp/engine.*); bindings.cpp is the only file that
 # knows about Python. No fast-math: filtration ties and tolerances rely on
-# exact IEEE comparisons.
-nanobind_add_module(_engine NB_STATIC cpp/bindings.cpp cpp/engine.cpp)
+# exact IEEE comparisons. NOMINSIZE keeps -O3: nanobind's default -Os slows
+# the engine by about 20%.
+nanobind_add_module(_engine NB_STATIC NOMINSIZE cpp/bindings.cpp cpp/engine.cpp)
 
 install(TARGETS _engine LIBRARY DESTINATION persforest)
