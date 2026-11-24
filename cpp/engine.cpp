@@ -141,46 +141,54 @@ Nodes sweep(const CellEvents& events) {
 ForestArrays build_forest(const CellEvents& events, bool reduce, double filtration_tol) {
     check_input(events);
     Nodes nodes = sweep(events);
+    nodes.is_birth_root = std::vector<std::uint8_t>();
     const std::int64_t n_swept = static_cast<std::int64_t>(nodes.value.size());
 
     // Reduction: a child within the tolerance above its parent is merged into
-    // it. Parents have larger IDs, so descending IDs resolve chains top-down.
+    // it. Parents have larger IDs, so descending IDs resolve chains top-down,
+    // and every parent's representative is known when its children are
+    // visited. The reduced forest takes over the sweep's values and parent
+    // links: merged nodes are no longer alive, the others link to the
+    // representative of their parent.
+    std::vector<double> value = std::move(nodes.value);
+    std::vector<std::int64_t> parent = std::move(nodes.parent);
     std::vector<std::int64_t> representative(n_swept);
-    for (std::int64_t v = n_swept - 1; v >= 0; --v) {
-        const std::int64_t p = nodes.parent[v];
-        representative[v] = v;
-        if (!reduce || p == kNone) continue;
-        if (nodes.value[v] < nodes.value[p]) {
-            throw std::invalid_argument("invalid parent-child filtration order");
-        }
-        if (nodes.value[v] <= nodes.value[p] + filtration_tol) representative[v] = representative[p];
-    }
-
-    std::vector<double> value(nodes.value);
-    std::vector<std::int64_t> parent(n_swept, kNone);
     std::vector<std::uint8_t> alive(n_swept, 0);
-    for (std::int64_t v = 0; v < n_swept; ++v) {
-        if (representative[v] != v) continue;
-        alive[v] = 1;
-        if (nodes.parent[v] != kNone) parent[v] = representative[nodes.parent[v]];
-    }
     std::vector<std::int64_t> n_children(n_swept, 0);
-    for (std::int64_t v = 0; v < n_swept; ++v) {
-        if (alive[v] && parent[v] != kNone) ++n_children[parent[v]];
+    for (std::int64_t v = n_swept - 1; v >= 0; --v) {
+        const std::int64_t p = parent[v];
+        representative[v] = v;
+        if (reduce && p != kNone) {
+            if (value[v] < value[p]) {
+                throw std::invalid_argument("invalid parent-child filtration order");
+            }
+            if (value[v] <= value[p] + filtration_tol) representative[v] = representative[p];
+        }
+        if (representative[v] != v) {
+            parent[v] = kNone;
+            continue;
+        }
+        alive[v] = 1;
+        if (p != kNone) {
+            parent[v] = representative[p];
+            ++n_children[parent[v]];
+        }
     }
     if (reduce) {
         // A root whose children all collapsed into it carries no class.
-        for (std::int64_t v = 0; v < n_swept; ++v) {
-            if (alive[v] && parent[v] == kNone && n_children[v] == 0) alive[v] = 0;
-        }
         // Normalize roots: every child of a root gets a root of its own (new,
         // larger IDs); the first child keeps the existing root.
-        std::vector<std::int64_t> first_child(n_swept, kNone);
+        std::vector<std::uint8_t> has_first_child(n_swept, 0);
         for (std::int64_t v = 0; v < n_swept; ++v) {
-            if (!alive[v] || parent[v] == kNone || parent[parent[v]] != kNone) continue;
+            if (!alive[v]) continue;
             const std::int64_t root = parent[v];
-            if (first_child[root] == kNone) {
-                first_child[root] = v;
+            if (root == kNone) {
+                if (n_children[v] == 0) alive[v] = 0;
+                continue;
+            }
+            if (parent[root] != kNone) continue;
+            if (!has_first_child[root]) {
+                has_first_child[root] = 1;
                 continue;
             }
             value.push_back(value[root]);
@@ -194,9 +202,11 @@ ForestArrays build_forest(const CellEvents& events, bool reduce, double filtrati
     const std::int64_t n_nodes = static_cast<std::int64_t>(value.size());
 
     // Bars by the elder rule: leaves from the latest created; at a merge, the
-    // first arriving branches end there and the last one continues.
+    // first arriving branches end there and the last one continues. A node is
+    // visited before the leaves below it, which have smaller IDs, so
+    // n_children still tells leaves apart; walks then count it down to the
+    // branches yet to arrive.
     ForestArrays out;
-    std::vector<std::int64_t> covered(n_nodes, 0);
     std::vector<std::int64_t> stop_node;
     std::vector<std::int64_t> walk;
     out.progression_offsets.push_back(0);
@@ -206,12 +216,8 @@ ForestArrays build_forest(const CellEvents& events, bool reduce, double filtrati
         walk.assign(1, leaf);
         std::int64_t p = parent[leaf];
         while (parent[p] != kNone) {
-            if (covered[p] < n_children[p] - 1) {
-                ++covered[p];
-                break;
-            }
+            if (--n_children[p] > 0) break;
             walk.push_back(p);
-            ++covered[p];
             p = parent[p];
         }
         out.bar_birth.push_back(value[p]);
@@ -220,31 +226,35 @@ ForestArrays build_forest(const CellEvents& events, bool reduce, double filtrati
         out.progression_nodes.insert(out.progression_nodes.end(), walk.rbegin(), walk.rend());
         out.progression_offsets.push_back(static_cast<std::int64_t>(out.progression_nodes.size()));
     }
+    n_children = std::vector<std::int64_t>();
     const std::int64_t n_bars = static_cast<std::int64_t>(out.bar_birth.size());
 
-    // A bar splits off the bar whose progression contains its stop node.
-    std::vector<std::int64_t> owner(n_nodes, kNone);
-    for (std::int64_t b = 0; b < n_bars; ++b) {
-        for (std::int64_t i = out.progression_offsets[b]; i < out.progression_offsets[b + 1]; ++i) {
-            owner[out.progression_nodes[i]] = b;
+    {
+        // A bar splits off the bar whose progression contains its stop node.
+        std::vector<std::int64_t> owner(n_nodes, kNone);
+        for (std::int64_t b = 0; b < n_bars; ++b) {
+            for (std::int64_t i = out.progression_offsets[b]; i < out.progression_offsets[b + 1]; ++i) {
+                owner[out.progression_nodes[i]] = b;
+            }
+        }
+        // Trees are numbered by their roots in ID order; parents have larger IDs.
+        std::vector<std::int64_t> tree(n_nodes, kNone);
+        std::int64_t n_trees = 0;
+        for (std::int64_t v = 0; v < n_nodes; ++v) {
+            if (alive[v] && parent[v] == kNone) tree[v] = n_trees++;
+        }
+        for (std::int64_t v = n_nodes - 1; v >= 0; --v) {
+            if (alive[v] && parent[v] != kNone) tree[v] = tree[parent[v]];
+        }
+        out.bar_parent.resize(n_bars);
+        out.bar_tree.resize(n_bars);
+        for (std::int64_t b = 0; b < n_bars; ++b) {
+            const std::int64_t stop = stop_node[b];
+            out.bar_parent[b] = parent[stop] == kNone ? kNone : owner[stop];
+            out.bar_tree[b] = tree[stop];
         }
     }
-    // Trees are numbered by their roots in ID order; parents have larger IDs.
-    std::vector<std::int64_t> tree(n_nodes, kNone);
-    std::int64_t n_trees = 0;
-    for (std::int64_t v = 0; v < n_nodes; ++v) {
-        if (alive[v] && parent[v] == kNone) tree[v] = n_trees++;
-    }
-    for (std::int64_t v = n_nodes - 1; v >= 0; --v) {
-        if (alive[v] && parent[v] != kNone) tree[v] = tree[parent[v]];
-    }
-    out.bar_parent.resize(n_bars);
-    out.bar_tree.resize(n_bars);
-    for (std::int64_t b = 0; b < n_bars; ++b) {
-        const std::int64_t stop = stop_node[b];
-        out.bar_parent[b] = parent[stop] == kNone ? kNone : owner[stop];
-        out.bar_tree[b] = tree[stop];
-    }
+    stop_node = std::vector<std::int64_t>();
 
     // Depth-first post-order: roots and children by ascending ID. Parents have
     // larger IDs, so one ascending pass gives subtree sizes; a descending pass
@@ -252,29 +262,31 @@ ForestArrays build_forest(const CellEvents& events, bool reduce, double filtrati
     // a parent's children) from its end, largest ID first. `end` holds a
     // node's subtree size until the node is placed, then the end of the range
     // still free for its children.
-    std::vector<std::int64_t> end(n_nodes, 0);
-    std::int64_t n_out = 0;
-    for (std::int64_t v = 0; v < n_nodes; ++v) {
-        if (!alive[v]) continue;
-        ++end[v];
-        if (parent[v] == kNone) {
-            n_out += end[v];
-        } else {
-            end[parent[v]] += end[v];
-        }
-    }
     std::vector<std::int64_t> post(n_nodes, kNone);
     std::vector<std::int64_t> first(n_nodes, kNone);
-    std::int64_t roots_end = n_out;
-    for (std::int64_t v = n_nodes - 1; v >= 0; --v) {
-        if (!alive[v]) continue;
-        std::int64_t& range_end = parent[v] == kNone ? roots_end : end[parent[v]];
-        post[v] = range_end - 1;
-        first[v] = range_end - end[v];
-        range_end = first[v];
-        end[v] = post[v];
+    std::int64_t n_out = 0;
+    {
+        std::vector<std::int64_t> end(n_nodes, 0);
+        for (std::int64_t v = 0; v < n_nodes; ++v) {
+            if (!alive[v]) continue;
+            ++end[v];
+            if (parent[v] == kNone) {
+                n_out += end[v];
+            } else {
+                end[parent[v]] += end[v];
+            }
+        }
+        std::int64_t roots_end = n_out;
+        for (std::int64_t v = n_nodes - 1; v >= 0; --v) {
+            if (!alive[v]) continue;
+            std::int64_t& range_end = parent[v] == kNone ? roots_end : end[parent[v]];
+            post[v] = range_end - 1;
+            first[v] = range_end - end[v];
+            range_end = first[v];
+            end[v] = post[v];
+        }
     }
-    end = std::vector<std::int64_t>();
+    alive = std::vector<std::uint8_t>();
 
     out.node_value.resize(n_out);
     out.node_parent.resize(n_out);
@@ -286,26 +298,31 @@ ForestArrays build_forest(const CellEvents& events, bool reduce, double filtrati
         out.node_first[post[v]] = first[v];
     }
     for (std::int64_t& node : out.progression_nodes) node = post[node];
+    value = std::vector<double>();
+    first = std::vector<std::int64_t>();
+    // Roots carry no diffs: from here on, post marks the nodes that own diffs.
+    for (std::int64_t v = 0; v < n_nodes; ++v) {
+        if (parent[v] == kNone) post[v] = kNone;
+    }
+    parent = std::vector<std::int64_t>();
 
-    // Diffs of collapsed nodes belong to their representative; roots carry none.
-    auto diff_owner = [&](std::int64_t u) {
-        if (nodes.diff_cell[u] == kNone) return kNone;
-        const std::int64_t owner_node = representative[u];
-        if (!alive[owner_node] || parent[owner_node] == kNone) return kNone;
-        return post[owner_node];
-    };
+    // Diffs of collapsed nodes belong to their representative, which is alive
+    // unless it is a root. Each sweep node's entry in `representative` is
+    // replaced by the post-order position of the node owning its diff.
+    std::vector<std::int64_t>& diff_target = representative;
     out.diff_offsets.assign(n_out + 1, 0);
     for (std::int64_t u = 0; u < n_swept; ++u) {
-        const std::int64_t target = diff_owner(u);
-        if (target != kNone) ++out.diff_offsets[target + 1];
+        diff_target[u] = nodes.diff_cell[u] == kNone ? kNone : post[representative[u]];
+        if (diff_target[u] != kNone) ++out.diff_offsets[diff_target[u] + 1];
     }
+    post = std::vector<std::int64_t>();
     for (std::int64_t v = 0; v < n_out; ++v) out.diff_offsets[v + 1] += out.diff_offsets[v];
     out.diff_cells.resize(out.diff_offsets[n_out]);
     out.diff_signs.resize(out.diff_offsets[n_out]);
     {
         std::vector<std::int64_t> fill(out.diff_offsets.begin(), out.diff_offsets.end() - 1);
         for (std::int64_t u = 0; u < n_swept; ++u) {
-            const std::int64_t target = diff_owner(u);
+            const std::int64_t target = diff_target[u];
             if (target == kNone) continue;
             const std::int64_t slot = fill[target]++;
             out.diff_cells[slot] = nodes.diff_cell[u];
