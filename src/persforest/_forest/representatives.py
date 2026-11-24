@@ -4,7 +4,8 @@ from collections import defaultdict
 from persforest.barcode import PFBar
 from persforest.chains import SignedChain
 from persforest.filtrations._interface import CellFiltration
-from persforest.filtrations._interface import oriented_boundary
+from persforest.filtrations._interface import facet_ids
+from persforest.filtrations._interface import signed_incidences
 from typing import Iterator
 from typing import List
 from typing import Set
@@ -27,15 +28,14 @@ def update_chain_with_diff(cells: CellFiltration, signed_simplices: Set[tuple], 
     Parameters
     ----------
     cells : CellFiltration
-        Cell filtration providing the boundary map of the forest's top cells.
+        Cell filtration providing the boundary map on cell keys.
     signed_simplices : set[tuple]
-        Current oriented codimension-one simplices, stored as
-        ``(simplex_tuple, orientation)``.
+        Current oriented codimension-one cells, stored as ``(cell_key, orientation)``.
     interior_diff : set[tuple] | None
-        Oriented full-dimensional simplices whose signed boundaries should be
-        added to ``signed_simplices``.
+        Oriented top cells ``(cell_key, orientation)`` whose signed boundaries
+        should be added to ``signed_simplices``.
     codim1_simplex_diff : set[tuple] | None
-        Oriented codimension-one simplices to remove from ``signed_simplices``.
+        Oriented codimension-one cells to remove from ``signed_simplices``.
 
     Returns
     -------
@@ -44,8 +44,8 @@ def update_chain_with_diff(cells: CellFiltration, signed_simplices: Set[tuple], 
     """
 
     if interior_diff is not None:
-        for oriented_simplex in interior_diff:
-            signed_simplices.update(oriented_boundary(cells, oriented_simplex[0], oriented_simplex[1]))
+        for top, orientation in interior_diff:
+            signed_simplices.update((facet, orientation * incidence) for facet, incidence in cells.boundary(top))
 
     if codim1_simplex_diff is not None:
         for oriented_simplex in codim1_simplex_diff:
@@ -88,12 +88,48 @@ def _iter_bar_diff_steps(self, bar: PFBar) -> Iterator[tuple]:
         )
 
 
+def _keyed_diffs(cells: CellFiltration, diffs: tuple) -> tuple:
+    """Convert the cell IDs of one replay step's diffs to cell keys with a single lookup.
+
+    ``diffs`` is a tuple of ``(interior_diff, codim1_simplex_diff)`` pairs of
+    ``(cell_id, orientation)`` sets or None. Converting per step keeps the
+    cost proportional to the diffs, not to the representative.
+    """
+    ids = [cell for pair in diffs for diff in pair if diff is not None for cell, _ in diff]
+    if not ids:
+        return diffs
+    keys = iter(cells.cell_keys(ids))
+    # Iterating each unchanged set again visits its entries in the same order.
+    return tuple(tuple(None if diff is None else {(next(keys), sign) for _, sign in diff} for diff in pair)
+                 for pair in diffs)
+
+
 def _apply_diff_step(cells: CellFiltration, signed_simplices: set, interior: set, diffs: tuple) -> None:
-    """Apply one item of ``_iter_bar_diff_steps`` to live boundary and interior sets."""
-    for interior_diff, codim1_simplex_diff in diffs:
+    """Apply one item of ``_iter_bar_diff_steps`` to live keyed boundary and interior sets."""
+    for interior_diff, codim1_simplex_diff in _keyed_diffs(cells, diffs):
         update_chain_with_diff(cells, signed_simplices, interior_diff, codim1_simplex_diff)
         if interior_diff is not None:
             interior.update(interior_diff)
+
+
+def _apply_id_diff_step(cells: CellFiltration, signed_ids: set, interior_ids: set, diffs: tuple) -> None:
+    """Apply one item of ``_iter_bar_diff_steps`` to live sets of ``(cell_id, sign)`` pairs."""
+    for interior_diff, codim1_simplex_diff in diffs:
+        if interior_diff is not None:
+            for top_id, orientation in interior_diff:
+                signed_ids.update(zip(facet_ids(cells, top_id), signed_incidences(cells, orientation)))
+            interior_ids.update(interior_diff)
+        if codim1_simplex_diff is not None:
+            for entry in codim1_simplex_diff:
+                signed_ids.remove(entry)
+
+
+def _keyed_set(cells: CellFiltration, signed_ids: set) -> set:
+    """Convert a set of ``(cell_id, sign)`` pairs to public ``(cell_key, sign)`` pairs in one lookup."""
+    if not signed_ids:
+        return set()
+    ids, signs = zip(*signed_ids)
+    return set(zip(cells.cell_keys(ids), signs))
 
 
 def iter_bar_cycle_reps(self, bar: PFBar) -> Iterator[SignedChain]:
@@ -153,29 +189,33 @@ def cycle_for_bar_at(self, bar: PFBar, filt_val: float) -> SignedChain:
     if self.storage == "cycles":
         return bar.cycle_at_filtration_value(filt_val)
 
+    # Only the returned representative needs public keys: replay on IDs and
+    # convert once, instead of converting every step as the iterator must.
     interior = set()
     simplices = set()
     for _node, active_start, active_end, diffs in _iter_bar_diff_steps(self, bar):
-        _apply_diff_step(self._cells, simplices, interior, diffs)
+        _apply_id_diff_step(self._cells, simplices, interior, diffs)
         if active_start <= filt_val < active_end:
             return SignedChain(
-                signed_simplices=simplices.copy(),
+                signed_simplices=_keyed_set(self._cells, simplices),
                 active_start=active_start,
                 active_end=active_end,
                 interior_available=True,
-                interior=interior.copy(),
+                interior=_keyed_set(self._cells, interior),
             )
     raise ValueError(f"Filtration value is in lifespan but no cycle representative was found; this should not happen")
 
-def _support_cells(self, support: str) -> list:
-    """Return all cells an additive measurement with ``support`` can weigh.
+def _support_cells(self, support: str) -> list[int]:
+    """Return the IDs of all cells an additive measurement with ``support`` can weigh.
 
     These are the codimension-one cells (``"boundary"``) or the top cells
     (``"interior"``) of the filtration, in event order.
     """
     cells = self._cells
-    dimension = cells.top_dimension - (1 if support == "boundary" else 0)
-    return [cell for cell, _ in cells.events if cells.dimension(cell) == dimension]
+    n_top = cells.n_top
+    if support == "boundary":
+        return [cell for cell in cells.event_cells.tolist() if cell >= n_top]
+    return [cell for cell in cells.event_cells.tolist() if cell < n_top]
 
 # Contribution, in multiples of the cell weight, of a boundary cell whose
 # present orientations are encoded as a mask (bit 1: +1, bit 2: -1).
@@ -190,8 +230,8 @@ def _iter_bar_additive_values(self, bar: PFBar, weights: dict, support: str, sig
 
     Evaluates the sum of ``weights`` over the support of each representative
     of ``bar``, in the order of ``iter_bar_cycle_reps``, by replaying the
-    simplex diffs once. ``weights`` maps every cell that can occur to its
-    weight. The cost is proportional to the size of the diffs, not of the
+    simplex diffs once. ``weights`` maps the ID of every cell that can occur
+    to its weight. The cost is proportional to the size of the diffs, not of the
     representatives.
 
     The value is a Neumaier-compensated running sum. It is exactly zero when
@@ -233,7 +273,8 @@ def _iter_bar_additive_values(self, bar: PFBar, weights: dict, support: str, sig
                 # Adding the boundary of an interior cell; adding a present
                 # oriented cell is a no-op, as for the reconstructed sets.
                 for interior_cell, orientation in interior_diff:
-                    for facet, facet_orientation in oriented_boundary(cells, interior_cell, orientation):
+                    for facet, facet_orientation in zip(facet_ids(cells, interior_cell),
+                                                        signed_incidences(cells, orientation)):
                         bit = 1 if facet_orientation > 0 else 2
                         old = masks.get(facet, 0)
                         if old & bit:
@@ -279,7 +320,6 @@ def _add_interior_to_bar(self, bar: PFBar):
 
     _require_barcode_diffs(self)
     interior = set()
-    simplices = set()
 
     for nid in reversed(bar._node_progression):
         node = self.nodes[nid]
@@ -287,10 +327,10 @@ def _add_interior_to_bar(self, bar: PFBar):
         if not node._simplex_diff_available:
             raise ValueError(f"Simplex diffs are unavailable for node {nid}")
 
-        if node._interior_diff is not None:
-            interior.update(node._interior_diff)
-        if node._barcode_interior_diff is not None:
-            interior.update(node._barcode_interior_diff)
+        for interior_diff, _ in _keyed_diffs(self._cells, ((node._interior_diff, None),
+                                                          (node._barcode_interior_diff, None))):
+            if interior_diff is not None:
+                interior.update(interior_diff)
 
         if node.cycle is None:
             raise ValueError(f"Node with id {node.id} has node.cycle = None. This should not happen.")
@@ -351,7 +391,7 @@ def interior_simplex_activity(self) -> dict[tuple[int, ...], list[tuple[PFBar, f
     activity = defaultdict(list)
 
     for bar in self.barcode:
-        active_end_by_simplex: dict[tuple[int, ...], float] = {}
+        active_end_by_simplex: dict[int, float] = {}
         for node_id in reversed(bar._node_progression):
             node = self.nodes[node_id]
             if not node._simplex_diff_available:
@@ -364,12 +404,13 @@ def interior_simplex_activity(self) -> dict[tuple[int, ...], list[tuple[PFBar, f
                     for simplex, _orientation in interior_diff:
                         active_end_by_simplex.setdefault(simplex, node.filt_val)
 
-        for simplex_key, active_end in active_end_by_simplex.items():
-            activity[simplex_key].append(
+        for simplex, active_end in active_end_by_simplex.items():
+            activity[simplex].append(
                 (bar, bar.birth, active_end)
             )
 
-    return dict(activity)
+    keys = self._cells.cell_keys(list(activity))
+    return dict(zip(keys, activity.values()))
 
 def _active_bars_with_cycles_at(
     self,

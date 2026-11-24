@@ -10,7 +10,7 @@ import numpy as np
 
 from persforest import PersistenceForest
 from persforest.chains import SignedChain
-from persforest.filtrations.cubical import CubicalFiltration
+from persforest.filtrations.cubical import cubical_boundary
 from persforest.geometry.cubical import cubical_chain_to_vertex_chain
 from persforest.geometry.cubical import make_cubical_geometry
 from persforest.geometry.loops import PlanarLoops
@@ -39,14 +39,11 @@ from persforest.measurements.loops import on_taut_loops
 from persforest.measurements import shape
 from persforest.plotting.loops import plot_planar_loops
 
-_GRID = CubicalFiltration(2, [])
-
-
 def region_chain(mask, spacing=(1.0, 1.0)):
     """Boundary chain of the pixels in ``mask`` and the grid geometry."""
     coefficients = {}
     for i, j in zip(*np.nonzero(mask)):
-        for facet, sign in _GRID.boundary((2 * i + 1, 2 * j + 1)):
+        for facet, sign in cubical_boundary((2 * i + 1, 2 * j + 1)):
             coefficients[facet] = coefficients.get(facet, 0) + sign
     chain = SignedChain({(facet, int(np.sign(c))) for facet, c in coefficients.items() if c})
     return chain, make_cubical_geometry(mask.shape, spacing, 0.0, "top_cells")

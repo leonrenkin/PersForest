@@ -279,6 +279,21 @@ class PersistenceForest:
 
     # ----- input preparation ----------
 
+    @property
+    def filtration(self) -> list[tuple[tuple[int, ...], float]]:
+        """Top cells and their facets with filtration values, in forward order.
+
+        A list of ``(cell_key, filtration_value)`` pairs: vertex tuples for
+        simplicial forests, doubled coordinates for cubical grids. The engine
+        stores integer cell IDs; this list is built on first access.
+        """
+        events = self.__dict__.get("_filtration_events")
+        if events is None:
+            cells = self._cells
+            events = list(zip(cells.cell_keys(cells.event_cells), cells.event_values.tolist()))
+            self._filtration_events = events
+        return events
+
     def _require_point_cloud(self, method: str) -> None:
         """Reject point-cloud renderers for forests without a point cloud."""
         if self.point_cloud is None:
@@ -346,9 +361,6 @@ class PersistenceForest:
         self.roots: set[int]  = set()                 #List of roots of trees in the forest
 
         self.levels: list[float] = []               #Critical filtration values, might give duplicates in current implementation
-
-        # Top cells and their facets; shared with the engine's cell filtration.
-        self.filtration = self._cells.events
 
         self.barcode: set[PFBar] = set()
         self._barcode_computed = False

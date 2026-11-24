@@ -1,18 +1,22 @@
-"""Cell-filtration contract: simplicial and cubical boundaries, engine isolation."""
+"""Cell-filtration contract: boundaries, integer cell IDs, event order, engine isolation."""
 import ast
 from collections import defaultdict
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 
 import numpy as np
 
-from persforest.filtrations._interface import oriented_boundary
-from persforest.filtrations.cubical import CubicalFiltration
-from persforest.filtrations.simplicial import SimplicialFiltration
+from persforest.filtrations._interface import facet_ids, signed_incidences
+from persforest.filtrations.cubical import cubical_boundary, cubical_dimension, prepare_cubical_filtration
+from persforest.filtrations.delaunay import prepare_point_filtration
+from persforest.filtrations.simplicial import SimplicialFiltration, simplicial_boundary, simplicial_events
 
 ENGINE = Path(__file__).resolve().parents[2] / 'src' / 'persforest' / '_forest'
 ALLOWED_ENGINE_IMPORTS = ('persforest._forest', 'persforest.barcode', 'persforest.chains',
                           'persforest.filtrations._interface')
+SIMPLICIAL = SimpleNamespace(boundary=simplicial_boundary)
+CUBICAL = SimpleNamespace(boundary=cubical_boundary)
 
 
 def linear_boundary(cells, chain):
@@ -31,38 +35,67 @@ def coefficients(signed_terms):
     return {cell: c for cell, c in result.items() if c}
 
 
-class SimplicialAdapterTests(unittest.TestCase):
-    cells = SimplicialFiltration(np.zeros((5, 3)), [])
+def closed_triangles(points, triangles):
+    """Adapter over 2D triangles and their edges (edges first, value 0)."""
+    edges = sorted({tuple(sorted(edge)) for t in triangles for edge in ((t[0], t[1]), (t[0], t[2]), (t[1], t[2]))})
+    return SimplicialFiltration.from_events(np.asarray(points, dtype=float),
+                                            [(e, 0.0) for e in edges] + [(t, 0.0) for t in triangles])
 
+
+def oriented_facets(cells, top_id, orientation):
+    """Keyed boundary of a top cell as the engine assembles it from IDs."""
+    return tuple(zip(cells.cell_keys(facet_ids(cells, top_id)), signed_incidences(cells, orientation)))
+
+
+class SimplicialAdapterTests(unittest.TestCase):
     def test_literal_boundaries(self):
-        self.assertEqual(self.cells.boundary((4,)), ())
-        self.assertEqual(self.cells.boundary((1, 3)), (((3,), 1), ((1,), -1)))
-        self.assertEqual(self.cells.boundary((0, 1, 2)), (((1, 2), 1), ((0, 2), -1), ((0, 1), 1)))
-        self.assertEqual(self.cells.boundary((0, 1, 2, 3)),
+        self.assertEqual(simplicial_boundary((4,)), ())
+        self.assertEqual(simplicial_boundary((1, 3)), (((3,), 1), ((1,), -1)))
+        self.assertEqual(simplicial_boundary((0, 1, 2)), (((1, 2), 1), ((0, 2), -1), ((0, 1), 1)))
+        self.assertEqual(simplicial_boundary((0, 1, 2, 3)),
                          (((1, 2, 3), 1), ((0, 2, 3), -1), ((0, 1, 3), 1), ((0, 1, 2), -1)))
-        self.assertEqual([self.cells.dimension(c) for c in [(0,), (0, 1), (0, 1, 2, 3)]], [0, 1, 3])
 
     def test_boundary_of_boundary_and_orientation_reversal(self):
         for cell in [(0, 1), (0, 2, 4), (0, 1, 3, 4)]:
             with self.subTest(cell=cell):
-                self.assertEqual(linear_boundary(self.cells, dict(self.cells.boundary(cell))), {})
-                self.assertEqual(oriented_boundary(self.cells, cell, -1),
-                                 tuple((f, -c) for f, c in self.cells.boundary(cell)))
+                self.assertEqual(linear_boundary(SIMPLICIAL, dict(simplicial_boundary(cell))), {})
+        cells = closed_triangles([[0, 0], [1, 0], [0, 1]], [(0, 1, 2)])
+        self.assertEqual(oriented_facets(cells, 0, -1),
+                         tuple((f, -c) for f, c in oriented_facets(cells, 0, 1)))
 
     def test_orientation_is_geometric(self):
         points = np.array([[0, 0], [3, 0], [0, 4]], dtype=float)
-        self.assertEqual(SimplicialFiltration(points, []).orientation((0, 1, 2)), 1)
-        self.assertEqual(SimplicialFiltration(points[[0, 2, 1]], []).orientation((0, 1, 2)), -1)
+        self.assertEqual(closed_triangles(points, [(0, 1, 2)]).orientation(0), 1)
+        self.assertEqual(closed_triangles(points[[0, 2, 1]], [(0, 1, 2)]).orientation(0), -1)
 
     def test_shared_facet_cancels_between_coherently_oriented_triangles(self):
-        points = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], dtype=float)
-        cells = SimplicialFiltration(points, [])
+        cells = closed_triangles([[0, 0], [1, 0], [1, 1], [0, 1]], [(0, 1, 2), (0, 2, 3)])
         total = defaultdict(int)
-        for triangle in [(0, 1, 2), (0, 2, 3)]:
-            for facet, c in oriented_boundary(cells, triangle, cells.orientation(triangle)):
+        for top_id in range(cells.n_top):
+            for facet, c in oriented_facets(cells, top_id, cells.orientation(top_id)):
                 total[facet] += c
         self.assertEqual({f: c for f, c in total.items() if c},
                          {(0, 1): 1, (1, 2): 1, (2, 3): 1, (0, 3): -1})
+
+    def test_ids_facets_and_event_order_match_the_simplex_tree(self):
+        for dim, n_points in ((2, 40), (3, 25)):
+            points = np.random.default_rng(dim).random((n_points, dim))
+            for filtration_type in ('alpha', 'delaunay_cech'):
+                with self.subTest(dim=dim, filtration_type=filtration_type):
+                    tree, cells = prepare_point_filtration(points, filtration_type)
+                    expected = simplicial_events(tree.get_filtration(), dim)
+                    self.assertEqual(list(zip(cells.cell_keys(cells.event_cells), cells.event_values.tolist())),
+                                     expected)
+                    self.assertEqual(sorted(cells.event_cells.tolist()), list(range(cells.n_cells)))
+                    keys = cells.cell_keys(range(cells.n_cells))
+                    self.assertTrue(all(len(k) == dim + 1 for k in keys[:cells.n_top]))
+                    self.assertTrue(all(len(k) == dim for k in keys[cells.n_top:]))
+                    for top_id in range(cells.n_top):
+                        self.assertEqual(oriented_facets(cells, top_id, 1), simplicial_boundary(keys[top_id]))
+
+    def test_missing_facet_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'missing'):
+            SimplicialFiltration.from_events(np.zeros((3, 2)), [((0, 1), 0.0), ((0, 1, 2), 0.0)])
 
 
 class EngineIsolationTests(unittest.TestCase):
@@ -86,22 +119,47 @@ class EngineIsolationTests(unittest.TestCase):
 
 class CubicalAdapterTests(unittest.TestCase):
     def test_literal_boundaries_and_boundary_of_boundary(self):
-        cells = CubicalFiltration(3, [])
-        self.assertEqual(cells.boundary((0, 0, 0)), ())
-        self.assertEqual(cells.boundary((1, 0, 2)), (((2, 0, 2), 1), ((0, 0, 2), -1)))
+        self.assertEqual(cubical_boundary((0, 0, 0)), ())
+        self.assertEqual(cubical_boundary((1, 0, 2)), (((2, 0, 2), 1), ((0, 0, 2), -1)))
         # Square oriented by (x, y): right - left - top + bottom.
-        self.assertEqual(cells.boundary((1, 1, 0)),
+        self.assertEqual(cubical_boundary((1, 1, 0)),
                          (((2, 1, 0), 1), ((0, 1, 0), -1), ((1, 2, 0), -1), ((1, 0, 0), 1)))
         for cell in [(1, 1, 0), (1, 0, 1), (1, 1, 1), (3, 5, 1)]:
             with self.subTest(cell=cell):
-                self.assertEqual(linear_boundary(cells, dict(cells.boundary(cell))), {})
-        self.assertEqual([cells.dimension(c) for c in [(0, 2, 4), (1, 2, 4), (1, 3, 5)]], [0, 1, 3])
+                self.assertEqual(linear_boundary(CUBICAL, dict(cubical_boundary(cell))), {})
+        self.assertEqual([cubical_dimension(c) for c in [(0, 2, 4), (1, 2, 4), (1, 3, 5)]], [0, 1, 3])
 
     def test_adjacent_top_cells_cancel_on_their_shared_facet(self):
-        cells = CubicalFiltration(2, [])
-        total = linear_boundary(cells, {(1, 1): 1, (3, 1): 1})
+        total = linear_boundary(CUBICAL, {(1, 1): 1, (3, 1): 1})
         self.assertNotIn((2, 1), total)
         self.assertEqual(len(total), 6)
+
+    def test_ids_facets_and_event_order_match_doubled_coordinates(self):
+        rng = np.random.default_rng(11)
+        for shape in ((5,), (4, 6), (3, 4, 5)):
+            for filtration_type in ('top_cells', 'vertices'):
+                for values in (rng.random(shape), rng.integers(0, 3, shape).astype(float)):
+                    with self.subTest(shape=shape, filtration_type=filtration_type):
+                        _, cells = prepare_cubical_filtration(values, filtration_type)
+                        d = len(shape)
+                        keys = cells.cell_keys(range(cells.n_cells))
+                        self.assertEqual(len(set(keys)), cells.n_cells)
+                        # Short lookups take a pure-Python path; it must agree.
+                        self.assertEqual([cells.cell_keys([i])[0] for i in range(cells.n_cells)], keys)
+                        self.assertTrue(all(cubical_dimension(k) == d for k in keys[:cells.n_top]))
+                        self.assertTrue(all(cubical_dimension(k) == d - 1 for k in keys[cells.n_top:]))
+                        for top_id in range(cells.n_top):
+                            self.assertEqual(oriented_facets(cells, top_id, 1), cubical_boundary(keys[top_id]))
+                        # Forward order: value, then dimension (faces first), then doubled coordinates.
+                        order = cells.event_cells.tolist()
+                        self.assertEqual(sorted(order), list(range(cells.n_cells)))
+                        values_by_id = dict(zip(order, cells.event_values.tolist()))
+                        if filtration_type == 'top_cells':
+                            # Top cells are the pixels in row-major order.
+                            self.assertEqual([values_by_id[t] for t in range(cells.n_top)], values.ravel().tolist())
+                        expected = sorted(range(cells.n_cells),
+                                          key=lambda i: (values_by_id[i], cubical_dimension(keys[i]), keys[i]))
+                        self.assertEqual(order, expected)
 
 
 if __name__ == '__main__':

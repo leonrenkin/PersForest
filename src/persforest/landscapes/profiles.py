@@ -167,7 +167,7 @@ def _measurement_geometry(forest):
 
 
 def _additive_weights(forest: object, cycle_func: CycleValueFunc) -> dict | None:
-    """Return ``{cell: weight}`` if ``cycle_func`` can be evaluated incrementally.
+    """Return ``{cell_id: weight}`` if ``cycle_func`` can be evaluated incrementally.
 
     That requires an :class:`AdditiveMeasurement` and a forest with completed
     barcode diffs and a cell filtration. Otherwise return None, and profiles
@@ -181,8 +181,10 @@ def _additive_weights(forest: object, cycle_func: CycleValueFunc) -> dict | None
     from persforest._forest.representatives import _support_cells
     geometry = _measurement_geometry(forest)
     cycle_func.check_geometry(geometry)
-    cells = _support_cells(forest, cycle_func.support)
-    return dict(zip(cells, cycle_func.weights(cells, geometry).tolist()))
+    cell_ids = _support_cells(forest, cycle_func.support)
+    # Weight functions receive public cell keys; the replay looks weights up by cell ID.
+    keys = forest._cells.cell_keys(cell_ids)
+    return dict(zip(cell_ids, cycle_func.weights(keys, geometry).tolist()))
 
 
 def _build_step_function_data(

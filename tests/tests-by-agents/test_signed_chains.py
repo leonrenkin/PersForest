@@ -3,8 +3,7 @@ from itertools import permutations
 import unittest
 import numpy as np
 from persforest.chains import SignedChain, merge_at_simplex
-from persforest.filtrations._interface import oriented_boundary
-from persforest.filtrations.simplicial import SimplicialFiltration
+from persforest.filtrations.simplicial import SimplicialFiltration, simplicial_boundary
 from persforest.geometry.simplicial import simplex_orientation, sign_of_determinant
 from persforest._forest.representatives import update_chain_with_diff
 from persforest._forest.compute_barcode import are_dict_keys_sorted
@@ -13,15 +12,17 @@ from fixtures_small_filtrations import chain, fan
 from oracle_chains import coefficients, boundary, canonical
 
 
-CELLS = SimplicialFiltration(np.zeros((5, 3)), [])
+def oriented_boundary(simplex, orientation):
+    """Signed boundary of a vertex tuple with ``orientation`` applied."""
+    return tuple((facet, orientation * incidence) for facet, incidence in simplicial_boundary(simplex))
 
 
 class SignedChainTests(unittest.TestCase):
     def test_literal_boundaries_and_sign_reversal(self):
         for simplex, expected in [((0, 1, 2), chain('+12 -02 +01')),
                                   ((0, 1, 2, 3), chain('+123 -023 +013 -012'))]:
-            self.assertEqual(set(oriented_boundary(CELLS, simplex, 1)), expected)
-            self.assertEqual(set(oriented_boundary(CELLS, simplex, -1)), {(s, -v) for s, v in expected})
+            self.assertEqual(set(oriented_boundary(simplex, 1)), expected)
+            self.assertEqual(set(oriented_boundary(simplex, -1)), {(s, -v) for s, v in expected})
             self.assertEqual(boundary(coefficients(expected)), {})
 
     def test_orientation_under_all_vertex_permutations(self):
@@ -32,8 +33,7 @@ class SignedChainTests(unittest.TestCase):
                 with self.subTest(perm=perm):
                     _, sign = canonical(perm)
                     self.assertEqual(simplex_orientation(perm, points), sign)
-            cells = SimplicialFiltration(points.astype(float), [])
-            projected = coefficients(oriented_boundary(cells, simplex, cells.orientation(simplex)))
+            projected = coefficients(oriented_boundary(simplex, simplex_orientation(simplex, points)))
             self.assertEqual(projected, boundary({simplex: 1}))
 
     def test_determinant_sign_and_degeneracy(self):
@@ -61,11 +61,12 @@ class SignedChainTests(unittest.TestCase):
         self.assertIn(((0, 1), -1), b.signed_simplices)
 
     def test_diff_update_adds_signed_boundaries_and_removes_only_requested_terms(self):
+        cells = SimplicialFiltration.from_events(np.zeros((5, 2)), [])
         initial = set(chain('+34'))
-        result = update_chain_with_diff(CELLS, initial, set(chain('+012 -013')), set(chain('+01 -01')))
+        result = update_chain_with_diff(cells, initial, set(chain('+012 -013')), set(chain('+01 -01')))
         self.assertIs(result, initial)
         self.assertEqual(result, chain('+34 -02 +12 +03 -13'))
-        self.assertIs(update_chain_with_diff(CELLS, result, None, None), result)
+        self.assertIs(update_chain_with_diff(cells, result, None, None), result)
 
     def test_segments_simplices_coordinates_and_dimensions(self):
         points = fan().points

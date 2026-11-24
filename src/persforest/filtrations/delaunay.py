@@ -25,7 +25,7 @@ def prepare_alpha_filtration(
     """
     simplex_tree = gd.AlphaComplex(points=point_cloud).create_simplex_tree(output_squared_values=False)
     events = simplicial_events(simplex_tree.get_filtration(), point_cloud.shape[1])
-    return simplex_tree, SimplicialFiltration(point_cloud, events)
+    return simplex_tree, SimplicialFiltration.from_events(point_cloud, events)
 
 
 def prepare_delaunay_cech_filtration(
@@ -49,7 +49,7 @@ def prepare_delaunay_cech_filtration(
     """
     simplex_tree = gd.DelaunayCechComplex(points=point_cloud).create_simplex_tree(output_squared_values=False)
     events = simplicial_events(simplex_tree.get_filtration(), point_cloud.shape[1])
-    return simplex_tree, SimplicialFiltration(point_cloud, events)
+    return simplex_tree, SimplicialFiltration.from_events(point_cloud, events)
 
 
 def prepare_point_filtration(

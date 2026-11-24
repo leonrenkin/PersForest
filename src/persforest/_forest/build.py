@@ -1,15 +1,14 @@
 """_forest.build: reverse sweep over a cell filtration."""
 
-from collections.abc import Hashable
 from persforest._forest.graph_model import PFNode
 from persforest._forest.queries import _cached_root_id
 from persforest.chains import SignedChain
 from persforest.chains import merge_at_simplex
-from persforest.filtrations._interface import oriented_boundary
+from persforest.filtrations._interface import signed_incidences
 from typing import List
 import time
 
-def add_leaf(self, cell: Hashable, boundary: tuple, filt_val: float, orientation: int):
+def add_leaf(self, cell: int, boundary: tuple, filt_val: float, orientation: int, cell_keys: list | None = None):
     """
         Create a new leaf node for a top cell.
 
@@ -19,14 +18,16 @@ def add_leaf(self, cell: Hashable, boundary: tuple, filt_val: float, orientation
 
         Parameters
         ----------
-        cell : hashable
-            Top cell being added.
-        boundary : tuple of (cell, int)
-            Boundary of ``cell`` with ``orientation`` applied.
+        cell : int
+            ID of the top cell being added.
+        boundary : tuple of (int, int)
+            Facet IDs of ``cell`` with incidences, ``orientation`` applied.
         filt_val : float
             Filtration value where the cell enters.
         orientation : int
             Orientation (+/-1) of the cell in the complex.
+        cell_keys : list, optional
+            Key of every cell ID; required with ``storage="cycles"``.
 
         Returns
         -------
@@ -37,7 +38,7 @@ def add_leaf(self, cell: Hashable, boundary: tuple, filt_val: float, orientation
     nid = next(self._node_id)
 
     if self.storage == "cycles":
-        new_cycle = SignedChain(signed_simplices=set(boundary))
+        new_cycle = SignedChain(signed_simplices={(cell_keys[facet], sign) for facet, sign in boundary})
     else:
         new_cycle = None
 
@@ -96,7 +97,7 @@ def make_root(self, node: PFNode, filt_val: float):
 
     return
 
-def merge_nodes(self, node1: PFNode, node2: PFNode, cell: Hashable, filt_val: float):
+def merge_nodes(self, node1: PFNode, node2: PFNode, cell: int, filt_val: float, cell_keys: list | None = None):
     """ 
         Create a parent node by merging two active child nodes.
 
@@ -108,10 +109,12 @@ def merge_nodes(self, node1: PFNode, node2: PFNode, cell: Hashable, filt_val: fl
         ----------
         node1, node2 : PFNode
             Child nodes that are merged.
-        cell : hashable
-            Codimension-one cell at which the two children cycles merge.
+        cell : int
+            ID of the codimension-one cell at which the two children cycles merge.
         filt_val : float
             Filtration value of the merge event.
+        cell_keys : list, optional
+            Key of every cell ID; required with ``storage="cycles"``.
         """
 
     nid = next(self._node_id)
@@ -119,7 +122,7 @@ def merge_nodes(self, node1: PFNode, node2: PFNode, cell: Hashable, filt_val: fl
     node2.parent = nid
 
     if self.storage == "cycles":
-        parent_cycle = merge_at_simplex(cycle1 = node1.cycle, cycle2=node2.cycle,  simplex=cell) 
+        parent_cycle = merge_at_simplex(cycle1=node1.cycle, cycle2=node2.cycle, simplex=cell_keys[cell])
     else:
         parent_cycle = None
 
@@ -140,7 +143,7 @@ def merge_nodes(self, node1: PFNode, node2: PFNode, cell: Hashable, filt_val: fl
 
     return
 
-def update_node(self, node: PFNode, cell: Hashable, filt_val:float):
+def update_node(self, node: PFNode, cell: int, filt_val:float, cell_keys: list | None = None):
     """
         Create a parent node for an active node whose cycle changes.
 
@@ -151,14 +154,16 @@ def update_node(self, node: PFNode, cell: Hashable, filt_val:float):
         ----------
         node : PFNode
             Node whose representative is being updated.
-        cell : hashable
-            Codimension-one cell to remove from the representative.
+        cell : int
+            ID of the codimension-one cell to remove from the representative.
         filt_val : float
             Filtration value of the update event.
+        cell_keys : list, optional
+            Key of every cell ID; required with ``storage="cycles"``.
         """
 
     if self.storage == "cycles":
-        updated_cycle = node.cycle.cancel_simplex(simplex=cell)
+        updated_cycle = node.cycle.cancel_simplex(simplex=cell_keys[cell])
     else: updated_cycle = None
 
     nid = next(self._node_id)
@@ -202,21 +207,26 @@ def _compute_forest(self, print_info: bool = False):
     loop_forest_start = time.perf_counter()
 
     cells = self._cells
-    top_dimension = cells.top_dimension
+    n_top = cells.n_top
+    # Facet IDs per top cell; positions carry the incidences of facet_incidence.
+    top_facets = cells.top_facets.tolist()
+    incidences = {1: signed_incidences(cells, 1), -1: signed_incidences(cells, -1)}
+    # Stored cycles are public chains of cell keys; diffs keep integer IDs.
+    cell_keys = cells.cell_keys(range(cells.n_cells)) if self.storage == "cycles" else None
 
     # Facet -> leaves created by its incident top cells, in sweep order.
     facet_leaf_ids = {}
     # Node -> some ancestor, for root lookups; valid only during the sweep.
     ancestors: dict[int, int] = {}
 
-    for cell, filt_val in reversed(cells.events):
-        dimension = cells.dimension(cell)
-
-        if dimension == top_dimension:
+    # IDs below n_top are top cells, the others their facets.
+    for cell, filt_val in zip(reversed(cells.event_cells.tolist()), reversed(cells.event_values.tolist())):
+        if cell < n_top:
             orientation = cells.orientation(cell)
-            boundary = oriented_boundary(cells, cell, orientation)
+            boundary = tuple(zip(top_facets[cell], incidences[orientation]))
 
-            new_node = add_leaf(self, cell=cell, boundary=boundary, filt_val=filt_val, orientation=orientation)
+            new_node = add_leaf(self, cell=cell, boundary=boundary, filt_val=filt_val, orientation=orientation,
+                                cell_keys=cell_keys)
 
             for facet, _ in boundary:
                 if facet in facet_leaf_ids:
@@ -224,7 +234,7 @@ def _compute_forest(self, print_info: bool = False):
                 else:
                     facet_leaf_ids[facet] = [new_node.id]
 
-        elif dimension == top_dimension - 1:
+        else:
             # Leaves of the cofaces of this facet: [], [l1], [l1, l2] or [l1, l1].
             L_tmp_ids = facet_leaf_ids.pop(cell, [])
 
@@ -240,14 +250,14 @@ def _compute_forest(self, print_info: bool = False):
                 make_root(self, node=L[0], filt_val=filt_val)
 
             elif len(L) == 2 and L[0]!=L[1]: 
-                merge_nodes(self, node1=L[0], node2=L[1], cell=cell, filt_val=filt_val)
+                merge_nodes(self, node1=L[0], node2=L[1], cell=cell, filt_val=filt_val, cell_keys=cell_keys)
 
             elif len(L) == 2 and L[0]==L[1]:
                 # The same cycle contains the facet in both orientations; remove it.
-                update_node(self, node=L[0], cell=cell, filt_val=filt_val)
+                update_node(self, node=L[0], cell=cell, filt_val=filt_val, cell_keys=cell_keys)
 
             else:
-                raise ValueError(f"Facet {cell} has {len(L)} incident active cycles; expected at most 2")
+                raise ValueError(f"Facet {cells.cell_keys([cell])[0]} has {len(L)} incident active cycles; expected at most 2")
 
     loop_forest_time = time.perf_counter() - loop_forest_start
     if print_info:
