@@ -108,6 +108,22 @@ OutArray<std::int8_t> simplex_orientations(InMatrix<double> points, InMatrix<std
     return to_numpy(std::move(orientation));
 }
 
+OutArray<std::int64_t> simplicial_top_facets(InMatrix<std::int64_t> tops, InMatrix<std::int64_t> facets,
+                                             std::int64_t n_points) {
+    const auto dim = static_cast<std::int64_t>(facets.shape(1));
+    if (static_cast<std::int64_t>(tops.shape(1)) != dim + 1) {
+        throw std::invalid_argument("top simplices need one vertex more than their facets");
+    }
+    std::vector<std::int64_t> top_facets;
+    {
+        nb::gil_scoped_release release;
+        top_facets = persforest::simplicial_top_facets(tops.data(), static_cast<std::int64_t>(tops.shape(0)),
+                                                       facets.data(), static_cast<std::int64_t>(facets.shape(0)),
+                                                       dim, n_points);
+    }
+    return to_numpy(std::move(top_facets));
+}
+
 }  // namespace
 
 NB_MODULE(_engine, m) {
@@ -122,4 +138,6 @@ NB_MODULE(_engine, m) {
           "Order and number the top cells and facets of a cubical grid; return events, positions and facets.");
     m.def("simplex_orientations", &simplex_orientations, nb::arg("points"), nb::arg("simplices"),
           "Orientation (+1 or -1) of each simplex relative to the ambient frame; raise for near-degenerate ones.");
+    m.def("simplicial_top_facets", &simplicial_top_facets, nb::arg("tops"), nb::arg("facets"), nb::arg("n_points"),
+          "Facet IDs (n_top + facet row) of each top simplex, flattened; raise for missing or repeated facets.");
 }

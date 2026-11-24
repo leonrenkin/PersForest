@@ -10,7 +10,7 @@ import numpy as np
 from persforest.filtrations._interface import facet_ids, signed_incidences
 from persforest.filtrations.cubical import cubical_boundary, cubical_dimension, prepare_cubical_filtration
 from persforest.filtrations.delaunay import prepare_point_filtration
-from persforest.filtrations.simplicial import SimplicialFiltration, simplicial_boundary, simplicial_events
+from persforest.filtrations.simplicial import SimplicialFiltration, simplicial_boundary
 
 ENGINE = Path(__file__).resolve().parents[2] / 'src' / 'persforest' / '_forest'
 ALLOWED_ENGINE_IMPORTS = ('persforest._forest', 'persforest._engine', 'persforest.barcode', 'persforest.chains',
@@ -83,7 +83,8 @@ class SimplicialAdapterTests(unittest.TestCase):
             for filtration_type in ('alpha', 'delaunay_cech'):
                 with self.subTest(dim=dim, filtration_type=filtration_type):
                     tree, cells = prepare_point_filtration(points, filtration_type)
-                    expected = simplicial_events(tree.get_filtration(), dim)
+                    expected = [(tuple(simplex), value) for simplex, value in tree.get_filtration()
+                                if len(simplex) >= dim]
                     self.assertEqual(list(zip(cells.cell_keys(cells.event_cells), cells.event_values.tolist())),
                                      expected)
                     self.assertEqual(sorted(cells.event_cells.tolist()), list(range(cells.n_cells)))

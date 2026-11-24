@@ -2,7 +2,7 @@
 import gudhi as gd
 from numpy.typing import NDArray
 
-from persforest.filtrations.simplicial import SimplicialFiltration, simplicial_events
+from persforest.filtrations.simplicial import SimplicialFiltration
 
 POINT_FILTRATION_TYPES = ("alpha", "delaunay_cech")
 
@@ -24,8 +24,7 @@ def prepare_alpha_filtration(
         in GUDHI's filtration order. GUDHI lists vertices in increasing order.
     """
     simplex_tree = gd.AlphaComplex(points=point_cloud).create_simplex_tree(output_squared_values=False)
-    events = simplicial_events(simplex_tree.get_filtration(), point_cloud.shape[1])
-    return simplex_tree, SimplicialFiltration.from_events(point_cloud, events)
+    return simplex_tree, SimplicialFiltration.from_events(point_cloud, simplex_tree.get_filtration())
 
 
 def prepare_delaunay_cech_filtration(
@@ -48,8 +47,7 @@ def prepare_delaunay_cech_filtration(
         in GUDHI's filtration order.
     """
     simplex_tree = gd.DelaunayCechComplex(points=point_cloud).create_simplex_tree(output_squared_values=False)
-    events = simplicial_events(simplex_tree.get_filtration(), point_cloud.shape[1])
-    return simplex_tree, SimplicialFiltration.from_events(point_cloud, events)
+    return simplex_tree, SimplicialFiltration.from_events(point_cloud, simplex_tree.get_filtration())
 
 
 def prepare_point_filtration(

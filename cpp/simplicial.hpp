@@ -23,4 +23,19 @@ namespace persforest {
 std::vector<std::int8_t> simplex_orientations(const double* points, std::int64_t n_points, std::int64_t dim,
                                               const std::int64_t* simplices, std::int64_t n_simplices);
 
+// Facet IDs of each top simplex, n_top x (dim + 1) row-major. tops
+// (n_top x (dim + 1)) and facets (n_facets x dim) are rows of strictly
+// increasing vertex IDs below n_points; facet j of a top simplex omits its
+// vertex j, as in simplicial_boundary, and has ID n_top + its row in facets.
+// Facets are bucketed by their first vertex and sorted within each bucket, so
+// the lookup takes O((n_facets + n_top dim) log n_facets) time whatever the
+// vertex degrees.
+//
+// Throws std::invalid_argument for a row that is not strictly increasing or
+// has a vertex out of range, for a repeated facet, and for a facet of a top
+// simplex that is not among the facets.
+std::vector<std::int64_t> simplicial_top_facets(const std::int64_t* tops, std::int64_t n_top,
+                                                const std::int64_t* facets, std::int64_t n_facets,
+                                                std::int64_t dim, std::int64_t n_points);
+
 }  // namespace persforest
