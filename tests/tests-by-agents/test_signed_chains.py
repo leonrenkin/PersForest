@@ -8,7 +8,7 @@ from persforest.filtrations.simplicial import SimplicialFiltration
 from persforest.geometry.simplicial import simplex_orientation, sign_of_determinant
 from persforest._forest.representatives import update_chain_with_diff
 from persforest._forest.compute_barcode import are_dict_keys_sorted
-from persforest._forest.reduction import union_optional_sets
+from persforest._forest.reduction import merge_owned_sets
 from fixtures_small_filtrations import chain, fan
 from oracle_chains import coefficients, boundary, canonical
 
@@ -90,7 +90,7 @@ class SignedChainTests(unittest.TestCase):
         self.assertTrue(are_dict_keys_sorted({}))
         self.assertTrue(are_dict_keys_sorted({1: 0, 3: 0}))
         self.assertFalse(are_dict_keys_sorted({3: 0, 1: 0}))
-        self.assertIsNone(union_optional_sets(None, None))
-        self.assertEqual(union_optional_sets({1}, None), {1})
-        self.assertEqual(union_optional_sets(None, {2}), {2})
-        self.assertEqual(union_optional_sets({1}, {2}), {1, 2})
+        self.assertIsNone(merge_owned_sets(None, None))
+        self.assertEqual(merge_owned_sets({1}, None), {1})
+        self.assertEqual(merge_owned_sets(None, {2}), {2})
+        self.assertEqual(merge_owned_sets({1}, {2}), {1, 2})

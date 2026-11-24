@@ -30,6 +30,8 @@ optional dependencies blocked.
 - Public API, package imports, and installation without plotting extras.
 - Simplicial and cubical filtrations, signed chains, cycle progressions,
   interiors, filtration ties, and root normalization.
+- Construction resources: reduction memory on flat filtration regions and the
+  cyclic garbage collector being paused during a build and restored afterwards.
 - Both storage modes (`"diffs"`, `"cycles"`) and golden snapshots of small
   fixtures (`data/engine_golden.json`). Regenerate the snapshots with
   `python tests/tests-by-agents/engine_golden.py` only after an intended change.

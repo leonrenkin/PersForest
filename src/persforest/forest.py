@@ -18,6 +18,8 @@ from typing import Optional
 from typing import Sequence
 from typing import Tuple
 from typing import Union
+import contextlib
+import gc
 import inspect
 import itertools
 import math
@@ -40,6 +42,28 @@ Storage = Literal["diffs", "cycles"]
 
 _POINT_CLOUD_ONLY = "only appl(y/ies) to point clouds; a cubical grid has no vertices to draw."
 _CUBICAL_ONLY = "only applies to forests built with from_cubical_grid."
+
+
+@contextlib.contextmanager
+def _cyclic_gc_paused():
+    """Pause Python's cyclic garbage collector while building a forest.
+
+    The build allocates millions of small containers (nodes, diff sets). On
+    Python 3.11-3.13 the generational collections they trigger rescan the
+    growing heap and cost about a third of the build time; the incremental
+    collector of Python 3.14 has little such overhead. Reference counting
+    still frees objects immediately; only cyclic garbage, which the build does
+    not create, would wait for the next collection. The previous state is
+    restored, also on error, so a collector disabled by the caller stays
+    disabled.
+    """
+    was_enabled = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if was_enabled:
+            gc.enable()
 
 
 def _validated_options(reduce, compute_barcode, print_info, storage, filtration_tol) -> dict:
@@ -333,19 +357,20 @@ class PersistenceForest:
         self.landscape_families: Dict[str, Any] = {}
         self.measurement_profiles: Dict[str, Any] = {}
 
-        self._compute_forest(print_info = print_info)
+        with _cyclic_gc_paused():
+            self._compute_forest(print_info = print_info)
 
-        self.reduced = reduce
+            self.reduced = reduce
 
-        if reduce:
-            self._reduce_forest(print_info = print_info)
-   
-        # Compute where each stored cycle is active.
-        if self.storage == "cycles":
-            self._compute_loop_activity()
+            if reduce:
+                self._reduce_forest(print_info = print_info)
 
-        if compute_barcode:
-            self.compute_barcode(print_info=print_info)
+            # Compute where each stored cycle is active.
+            if self.storage == "cycles":
+                self._compute_loop_activity()
+
+            if compute_barcode:
+                self.compute_barcode(print_info=print_info)
 
     # ----- compute the forest ----------
 
@@ -507,9 +532,10 @@ class PersistenceForest:
         RuntimeError
             If the barcode has already been computed.
         """
-        self._compute_barcode_diff(print_info=print_info)
-        if self.storage == "cycles":
-            self._add_interior_to_barcode(print_info=print_info)
+        with _cyclic_gc_paused():
+            self._compute_barcode_diff(print_info=print_info)
+            if self.storage == "cycles":
+                self._add_interior_to_barcode(print_info=print_info)
 
     def iter_bar_cycle_reps(self, bar: PFBar) -> Iterator[SignedChain]:
         """Yield iterator of representatives of a bar in descending filtration order.

@@ -34,6 +34,27 @@ def _lattice_2d():
     return np.column_stack((x.ravel(), y.ravel()))
 
 
+def _cubical(values, filtration_type='top_cells'):
+    return lambda **options: PersistenceForest.from_cubical_grid(
+        values, filtration_type=filtration_type, **options)
+
+
+def _nested_plateaus_2d():
+    # Flat-valued holes: a value-3 annulus around a value-1 block whose
+    # value-2 centre is a second hole. Reduction collapses long equal-valued chains here.
+    values = np.zeros((12, 12))
+    values[2:10, 2:10] = 3.0
+    values[4:8, 4:8] = 1.0
+    values[5:7, 5:7] = 2.0
+    return values
+
+
+def _near_ties_2d():
+    # Values within the default filtration_tol of an integer level.
+    rng = np.random.default_rng(6)
+    return rng.integers(0, 3, (10, 10)).astype(float) + 1e-13 * rng.random((10, 10))
+
+
 CASES = {
     'triangle': _fixture(triangle),
     'split': _fixture(split),
@@ -44,6 +65,13 @@ CASES = {
     'alpha_uniform_2d_seed0_n40': _alpha(np.random.default_rng(0).random((40, 2))),
     'alpha_lattice_2d_4x4': _alpha(_lattice_2d()),
     'alpha_uniform_3d_seed1_n25': _alpha(np.random.default_rng(1).random((25, 3))),
+    'cubical_uniform_2d_seed2_12x12': _cubical(np.random.default_rng(2).random((12, 12))),
+    'cubical_ties_2d_seed3_12x12': _cubical(np.random.default_rng(3).integers(0, 4, (12, 12)).astype(float)),
+    'cubical_nested_plateaus_2d_12x12': _cubical(_nested_plateaus_2d()),
+    'cubical_near_ties_2d_seed6_10x10': _cubical(_near_ties_2d()),
+    'cubical_ties_3d_seed4_5x5x5': _cubical(np.random.default_rng(4).integers(0, 3, (5, 5, 5)).astype(float)),
+    'cubical_vertices_ties_2d_seed5_9x9': _cubical(
+        np.random.default_rng(5).integers(0, 4, (9, 9)).astype(float), 'vertices'),
 }
 
 

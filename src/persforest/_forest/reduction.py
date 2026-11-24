@@ -5,30 +5,38 @@ from typing import Optional
 from typing import Set
 import time
 
-def union_optional_sets(set1: Optional[Set], set2: Optional[Set]) -> Optional[Set]:
+def merge_owned_sets(kept: Optional[Set], absorbed: Optional[Set]) -> Optional[Set]:
     """
-    Return the union of two sets, where either set may be None.
+    Return the union of two diff sets, reusing the larger set in place.
 
     Parameters
     ----------
-    set1 : set or None
-        First set to union.
-    set2 : set or None
-        Second set to union.
+    kept : set or None
+        Diff set of the node that survives the collapse.
+    absorbed : set or None
+        Diff set of the node that is removed.
 
     Returns
     -------
     set or None
-        Union of the two sets, or None if both inputs are None.
+        The union, stored in one of the input sets, or None if both are None.
+
+    Notes
+    -----
+    Either input may be mutated. This is safe during reduction because every
+    diff set has exactly one live owner and the absorbing node takes ownership
+    of the result. Adding the smaller set to the larger keeps chains of
+    collapses on flat filtration regions linear; building a new union per
+    collapse was quadratic in time and memory.
     """
-    if set1 is None and set2 is None:
-        return None
-    elif set1 is None:
-        return set2
-    elif set2 is None:
-        return set1
-    else:
-        return set1 | set2
+    if kept is None:
+        return absorbed
+    if absorbed is None:
+        return kept
+    if len(kept) < len(absorbed):
+        kept, absorbed = absorbed, kept
+    kept |= absorbed
+    return kept
 
 def _collapse_parent_child(self, parent: PFNode, child: PFNode):
     """
@@ -50,8 +58,8 @@ def _collapse_parent_child(self, parent: PFNode, child: PFNode):
     del self.nodes[child.id]
 
     #update node simplex diffs
-    parent._interior_diff = union_optional_sets(parent._interior_diff, child._interior_diff)
-    parent._codim1_simplex_diff = union_optional_sets(parent._codim1_simplex_diff, child._codim1_simplex_diff)
+    parent._interior_diff = merge_owned_sets(parent._interior_diff, child._interior_diff)
+    parent._codim1_simplex_diff = merge_owned_sets(parent._codim1_simplex_diff, child._codim1_simplex_diff)
 
     #if parent is now isolated point in forest, delete it from forest completely
     if len(parent.children)==0 and parent.parent == None:
@@ -93,13 +101,13 @@ def _reduce_forest(self, print_info: bool = False):
     if print_info:
         print(f"Number of nodes before reduction: {len(self.nodes.keys())}")
 
-    #iterate over snapshot of the nodes in the tree, the nodes dict might be changed each iteration
-    node_list = list(self.nodes.values())
-
-    for p in node_list:
+    # Iterate over a snapshot of node ids: the nodes dict changes during the
+    # loop, and holding ids rather than nodes lets removed nodes be freed.
+    for node_id in list(self.nodes):
 
         # p might have been deleted as a child in a previous iteration of this outer loop
-        if p.id not in self.nodes.keys():
+        p = self.nodes.get(node_id)
+        if p is None:
             continue
 
         for cid in p.children.copy():
