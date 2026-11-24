@@ -1,5 +1,8 @@
 """Golden snapshots of construction output, used to guard engine refactors.
 
+Records bars, the bar-level forest structure, every representative with its
+interior, and interior activity, independent of node IDs.
+
 Run ``python tests/tests-by-agents/engine_golden.py`` from the repository root to
 regenerate ``data/engine_golden.json``. Regenerate only from an engine whose
 output is trusted; the snapshot records behavior, not correctness.
@@ -14,7 +17,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 from fixtures_small_filtrations import (  # noqa: E402
-    annulus, build, disconnected, fan, mode_options, reps, split, tetrahedra, triangle,
+    annulus, build, disconnected, fan, reps, split, tetrahedra, triangle,
 )
 from persforest import PersistenceForest  # noqa: E402
 
@@ -79,21 +82,42 @@ def _signed(terms):
     return sorted([list(simplex), int(sign)] for simplex, sign in terms)
 
 
+def bar_structure(forest) -> dict:
+    """Map each bar to ``(critical_values, parent_bar)``, independent of node IDs.
+
+    ``critical_values`` are the ascending values at which the bar's
+    representative changes, ending at its death; ``parent_bar`` is the bar it
+    splits off at its birth, or None.
+    """
+    owner = {node_id: bar for bar in forest.barcode for node_id in bar._node_progression}
+    structure = {}
+    for bar in forest.barcode:
+        values = tuple(forest.nodes[node_id].filt_val for node_id in bar._node_progression)
+        structure[bar] = (values, owner.get(forest.nodes[bar._node_progression[0]].parent))
+    return structure
+
+
 def snapshot(forest) -> dict:
-    """Return a JSON-compatible, iteration-order-independent construction record."""
+    """Return a JSON-compatible record of bars, forest structure and representatives.
+
+    The record does not depend on node IDs or iteration order. A parent bar is
+    identified by its own birth, death and critical values.
+    """
+    structure = bar_structure(forest)
     bars = []
     for bar in forest.barcode:
+        values, parent = structure[bar]
         cycle_reps = [[r.active_start, r.active_end, _signed(r.signed_simplices),
                        _signed(r.interior) if r.interior_available else None]
                       for r in reps(forest, bar)]
-        bars.append([bar.birth, bar.death, cycle_reps])
+        parent_key = None if parent is None else [parent.birth, parent.death, list(structure[parent][0])]
+        bars.append([bar.birth, bar.death, list(values), parent_key, cycle_reps])
     bars.sort(key=lambda item: json.dumps(item))
-    record = {'bars': bars, 'levels': list(forest.levels), 'node_count': len(forest.nodes)}
-    if forest._barcode_diffs_ready:
-        activity = forest.interior_simplex_activity()
-        record['interior_activity'] = sorted(
-            [list(simplex), sorted([b.birth, b.death, start, end] for b, start, end in rows)]
-            for simplex, rows in activity.items())
+    record = {'bars': bars}
+    activity = forest.interior_simplex_activity()
+    record['interior_activity'] = sorted(
+        [list(simplex), sorted([b.birth, b.death, start, end] for b, start, end in rows)]
+        for simplex, rows in activity.items())
     return record
 
 
@@ -103,8 +127,10 @@ def digest(record: dict) -> str:
 
 def summary(record: dict) -> dict:
     """Readable part stored next to the digest for diagnosing mismatches."""
-    return {'endpoints': sorted([b, d] for b, d, _ in record['bars']),
-            'node_count': record['node_count'], 'digest': digest(record)}
+    return {'endpoints': sorted([bar[0], bar[1]] for bar in record['bars']), 'digest': digest(record)}
+
+
+MODES = {'reduce=False': {'reduce': False}, 'reduce=True': {'reduce': True}}
 
 
 def compute_all() -> dict:
@@ -112,7 +138,7 @@ def compute_all() -> dict:
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', UserWarning)
         for name, make in CASES.items():
-            for mode, options in mode_options():
+            for mode, options in MODES.items():
                 result[f'{name}/{mode}'] = summary(snapshot(make(**options)))
     return result
 
