@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 from persforest.chains import SignedChain, merge_at_simplex
 from persforest.filtrations.simplicial import SimplicialFiltration, simplicial_boundary
-from persforest.geometry.simplicial import simplex_orientation, sign_of_determinant
+from persforest.geometry.simplicial import simplex_orientation
 from fixtures_small_filtrations import chain, fan
 from oracle_chains import coefficients, boundary, canonical
 
@@ -34,11 +34,13 @@ class SignedChainTests(unittest.TestCase):
             self.assertEqual(projected, boundary({simplex: 1}))
 
     def test_determinant_sign_and_degeneracy(self):
-        for matrix, expected in [(np.eye(3), 1), ([[0, 1], [1, 0]], -1),
-                                 ([[2, 3], [0, -4]], -1)]:
-            self.assertEqual(sign_of_determinant(matrix), expected)
+        # Edge vectors as rows of the matrix: the sign of its determinant.
+        for edges, expected in [(np.eye(3), 1), ([[0, 1], [1, 0]], -1), ([[2, 3], [0, -4]], -1)]:
+            edges = np.asarray(edges, dtype=float)
+            simplex = list(range(len(edges) + 1))
+            self.assertEqual(simplex_orientation(simplex, np.vstack((np.zeros(len(edges)), edges))), expected)
         with self.assertRaises(ValueError):
-            sign_of_determinant([[1, 2], [2, 4]])
+            simplex_orientation([0, 1, 2], np.array([[0, 0], [1, 2], [2, 4]]))
         with self.assertRaisesRegex(ValueError, r'simplex \(0, 1, 2\).*degenerate'):
             simplex_orientation([0, 1, 2], np.array([[0, 0], [1, 0], [2, 0]]))
 

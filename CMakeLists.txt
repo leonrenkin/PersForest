@@ -9,10 +9,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(Python 3.11 REQUIRED COMPONENTS Interpreter Development.Module)
 find_package(nanobind CONFIG REQUIRED)
 
-# The engine is plain C++17 (cpp/engine.*, cpp/cubical.*); bindings.cpp is the
-# only file that knows about Python. No fast-math: filtration ties and
-# tolerances rely on exact IEEE comparisons. NOMINSIZE keeps -O3: nanobind's
-# default -Os slows the engine by about 20%.
-nanobind_add_module(_engine NB_STATIC NOMINSIZE cpp/bindings.cpp cpp/engine.cpp cpp/cubical.cpp)
+# The engine is plain C++17 (cpp/engine.*, cpp/cubical.*, cpp/simplicial.*);
+# bindings.cpp is the only file that knows about Python. No fast-math:
+# filtration ties and tolerances rely on exact IEEE comparisons. NOMINSIZE
+# keeps -O3: nanobind's default -Os slows the engine by about 20%.
+nanobind_add_module(_engine NB_STATIC NOMINSIZE cpp/bindings.cpp cpp/engine.cpp cpp/cubical.cpp
+                    cpp/simplicial.cpp)
 
 install(TARGETS _engine LIBRARY DESTINATION persforest)

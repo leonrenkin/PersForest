@@ -9,6 +9,7 @@
 
 #include "cubical.hpp"
 #include "engine.hpp"
+#include "simplicial.hpp"
 
 namespace nb = nanobind;
 
@@ -16,6 +17,9 @@ namespace {
 
 template <typename T>
 using InArray = nb::ndarray<const T, nb::ndim<1>, nb::c_contig, nb::device::cpu>;
+
+template <typename T>
+using InMatrix = nb::ndarray<const T, nb::ndim<2>, nb::c_contig, nb::device::cpu>;
 
 template <typename T>
 using OutArray = nb::ndarray<nb::numpy, T, nb::ndim<1>>;
@@ -89,6 +93,21 @@ nb::dict cubical_events(std::vector<std::int64_t> top_shape, InArray<std::int32_
     return out;
 }
 
+OutArray<std::int8_t> simplex_orientations(InMatrix<double> points, InMatrix<std::int64_t> simplices) {
+    const auto dim = static_cast<std::int64_t>(points.shape(1));
+    if (static_cast<std::int64_t>(simplices.shape(1)) != dim + 1) {
+        throw std::invalid_argument("simplices need dim + 1 vertices for points in R^dim");
+    }
+    std::vector<std::int8_t> orientation;
+    {
+        nb::gil_scoped_release release;
+        orientation = persforest::simplex_orientations(points.data(), static_cast<std::int64_t>(points.shape(0)), dim,
+                                                       simplices.data(),
+                                                       static_cast<std::int64_t>(simplices.shape(0)));
+    }
+    return to_numpy(std::move(orientation));
+}
+
 }  // namespace
 
 NB_MODULE(_engine, m) {
@@ -101,4 +120,6 @@ NB_MODULE(_engine, m) {
     m.def("cubical_events", &cubical_events, nb::arg("top_shape"), nb::arg("cell_rank"), nb::arg("cell_value"),
           nb::arg("n_ranks"),
           "Order and number the top cells and facets of a cubical grid; return events, positions and facets.");
+    m.def("simplex_orientations", &simplex_orientations, nb::arg("points"), nb::arg("simplices"),
+          "Orientation (+1 or -1) of each simplex relative to the ambient frame; raise for near-degenerate ones.");
 }

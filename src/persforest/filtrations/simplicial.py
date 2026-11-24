@@ -7,7 +7,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from persforest.filtrations._validation import _validate_filtration
-from persforest.geometry.simplicial import simplex_orientation
+from persforest.geometry.simplicial import simplex_orientation, simplex_orientations
 
 Simplex = tuple[int, ...]
 
@@ -99,8 +99,8 @@ class SimplicialFiltration:
         return simplex_orientation(simplex=self.simplices[top_id], point_cloud=self.point_cloud)
 
     def top_orientations(self) -> NDArray[np.int8]:
-        return np.fromiter((self.orientation(top_id) for top_id in range(self.n_top)),
-                           dtype=np.int8, count=self.n_top)
+        return simplex_orientations(np.asarray(self.simplices[:self.n_top], dtype=np.int64).reshape(
+            self.n_top, self.top_dimension + 1), self.point_cloud)
 
     def cell_keys(self, cell_ids) -> list[Simplex]:
         simplices = self.simplices

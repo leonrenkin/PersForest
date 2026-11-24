@@ -10,42 +10,50 @@ from typing import Set
 from typing import Tuple
 import numpy as np
 
-def sign_of_determinant(vectors: Sequence[Sequence[float]] | NDArray) -> int:
+from persforest import _engine
+
+def simplex_orientations(simplices: Sequence[Sequence[int]] | NDArray, point_cloud: NDArray) -> NDArray[np.int8]:
     """
-    Computes the sign of the determinant of d vectors in R^d.
+    Compute the orientations of simplices with respect to the ambient point cloud.
 
     Parameters
     ----------
-    vectors : array-like, shape (d, d)
-        Collection of d vectors of length d.
+    simplices : array-like of int, shape (n_simplices, dim + 1)
+        Vertex ids of each simplex, in any order.
+    point_cloud : array-like, shape (n_points, dim)
+        Coordinates of all vertices.
 
     Returns
     -------
-    int
-        +1 if det > 0, -1 if det < 0.
+    ndarray of int8, shape (n_simplices,)
+        +1 or -1: the sign of the determinant of the edge vectors
+        ``point_cloud[v_k] - point_cloud[v_0]``, k = 1 .. dim.
 
     Raises
     ------
     ValueError
-        If the matrix is invalid, degenerate, or numerically near-degenerate.
+        If the shapes do not match or a vertex id is out of range, and for the
+        first simplex that is degenerate or fails the numerical check below.
+        The error identifies its vertex ids.
 
     Notes
     -----
-    Divide by the largest absolute entry before computing the determinant.
-    Reject normalized determinant magnitudes <= 1e-12. This conservative
-    numerical cutoff is invariant under uniform scaling; it is not an exact
-    degeneracy predicate. No higher-precision fallback is attempted.
+    The edge vectors are divided by their largest absolute entry before the
+    determinant is taken, and scaled determinants of magnitude <= 1e-12 are
+    rejected. This conservative numerical cutoff is invariant under uniform
+    scaling; it is not an exact degeneracy predicate. No higher-precision
+    fallback is attempted. The compiled engine applies the rule to all
+    simplices in one pass.
     """
-    A = np.array(vectors, dtype=float)
-    if A.ndim != 2 or A.shape[0] == 0 or A.shape[0] != A.shape[1]:
-        raise ValueError("Orientation requires a non-empty square matrix")
-    scale = np.max(np.abs(A))
-    if not np.isfinite(scale) or scale == 0:
-        raise ValueError("Orientation requires finite, nonzero edge vectors")
-    determinant = np.linalg.det(A / scale)
-    if not np.isfinite(determinant) or abs(determinant) <= 1e-12:
-        raise ValueError("Degenerate or numerically near-degenerate edge matrix")
-    return 1 if determinant > 0 else -1
+    points = np.ascontiguousarray(point_cloud, dtype=np.float64)
+    if points.ndim != 2 or points.shape[1] < 1:
+        raise ValueError("point_cloud must have shape (n_points, dim) with dim >= 1")
+    vertices = np.ascontiguousarray(simplices, dtype=np.int64)
+    if vertices.ndim == 1 and vertices.size == 0:
+        vertices = vertices.reshape(0, points.shape[1] + 1)
+    if vertices.ndim != 2 or vertices.shape[1] != points.shape[1] + 1:
+        raise ValueError(f"simplices in R^{points.shape[1]} need {points.shape[1] + 1} vertices each")
+    return _engine.simplex_orientations(points, vertices)
 
 def simplex_orientation(simplex: Sequence[int], point_cloud: NDArray) -> int:
     """
@@ -67,17 +75,9 @@ def simplex_orientation(simplex: Sequence[int], point_cloud: NDArray) -> int:
     ------
     ValueError
         If the simplex is degenerate or its orientation fails the numerical
-        check in ``sign_of_determinant``. The error identifies its vertex ids.
+        check of ``simplex_orientations``. The error identifies its vertex ids.
     """
-    with np.errstate(over="ignore", invalid="ignore"):
-        vectors = [point_cloud[i]-point_cloud[simplex[0]] for i in simplex[1:]]
-    try:
-        return sign_of_determinant(vectors=vectors)
-    except ValueError as error:
-        raise ValueError(
-            f"Cannot determine orientation reliably for simplex {tuple(simplex)}: "
-            "degenerate, numerically near-degenerate, or non-finite edge vectors."
-        ) from error
+    return int(simplex_orientations([simplex], point_cloud)[0])
 
 def boundary_faces_from_tetrahedra(
     tetrahedra: Iterable[Sequence[int]],
