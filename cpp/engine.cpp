@@ -246,40 +246,35 @@ ForestArrays build_forest(const CellEvents& events, bool reduce, double filtrati
         out.bar_tree[b] = tree[stop];
     }
 
-    // Depth-first post-order: roots and children by ascending ID.
-    std::vector<std::int64_t> child_offsets(n_nodes + 1, 0);
+    // Depth-first post-order: roots and children by ascending ID. Parents have
+    // larger IDs, so one ascending pass gives subtree sizes; a descending pass
+    // then places every subtree, filling the range left for the roots (or for
+    // a parent's children) from its end, largest ID first. `end` holds a
+    // node's subtree size until the node is placed, then the end of the range
+    // still free for its children.
+    std::vector<std::int64_t> end(n_nodes, 0);
+    std::int64_t n_out = 0;
     for (std::int64_t v = 0; v < n_nodes; ++v) {
-        if (alive[v] && parent[v] != kNone) ++child_offsets[parent[v] + 1];
-    }
-    for (std::int64_t v = 0; v < n_nodes; ++v) child_offsets[v + 1] += child_offsets[v];
-    std::vector<std::int64_t> children(child_offsets[n_nodes]);
-    {
-        std::vector<std::int64_t> fill(child_offsets.begin(), child_offsets.end() - 1);
-        for (std::int64_t v = 0; v < n_nodes; ++v) {
-            if (alive[v] && parent[v] != kNone) children[fill[parent[v]]++] = v;
+        if (!alive[v]) continue;
+        ++end[v];
+        if (parent[v] == kNone) {
+            n_out += end[v];
+        } else {
+            end[parent[v]] += end[v];
         }
     }
     std::vector<std::int64_t> post(n_nodes, kNone);
     std::vector<std::int64_t> first(n_nodes, kNone);
-    std::int64_t counter = 0;
-    std::vector<std::pair<std::int64_t, std::int64_t>> stack;
-    for (std::int64_t root = 0; root < n_nodes; ++root) {
-        if (!alive[root] || parent[root] != kNone) continue;
-        stack.emplace_back(root, child_offsets[root]);
-        first[root] = counter;
-        while (!stack.empty()) {
-            auto& [node, next] = stack.back();
-            if (next < child_offsets[node + 1]) {
-                const std::int64_t child = children[next++];
-                first[child] = counter;
-                stack.emplace_back(child, child_offsets[child]);
-            } else {
-                post[node] = counter++;
-                stack.pop_back();
-            }
-        }
+    std::int64_t roots_end = n_out;
+    for (std::int64_t v = n_nodes - 1; v >= 0; --v) {
+        if (!alive[v]) continue;
+        std::int64_t& range_end = parent[v] == kNone ? roots_end : end[parent[v]];
+        post[v] = range_end - 1;
+        first[v] = range_end - end[v];
+        range_end = first[v];
+        end[v] = post[v];
     }
-    const std::int64_t n_out = counter;
+    end = std::vector<std::int64_t>();
 
     out.node_value.resize(n_out);
     out.node_parent.resize(n_out);
