@@ -1,6 +1,6 @@
 """Serial, isolated runtime/RSS benchmarks. No computations without --run.
 
-See README.md for definitions, schedules, watchdog limitations and examples.
+See README.md for definitions, watchdog limitations and examples.
 Only the worker imports the scientific stack; the supervisor remains small.
 """
 
