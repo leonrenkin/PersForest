@@ -15,12 +15,12 @@ find_package(Threads REQUIRED)
 set(GEOGRAM_DIR cpp/third_party/geogram)
 set(GEOGRAM_SOURCES ${GEOGRAM_DIR}/Delaunay_psm.cpp)
 
-# The engine is plain C++17 (cpp/engine.*, cpp/cubical.*, cpp/simplicial.*);
-# bindings.cpp is the only file that knows about Python. No fast-math:
-# filtration ties and tolerances rely on exact IEEE comparisons. NOMINSIZE
-# keeps -O3: nanobind's default -Os slows the engine by about 20%.
+# The engine is plain C++17 (cpp/engine.*, cpp/cubical.*, cpp/simplicial.*,
+# cpp/alpha.*); bindings.cpp is the only file that knows about Python. No
+# fast-math: filtration ties and tolerances rely on exact IEEE comparisons.
+# NOMINSIZE keeps -O3: nanobind's default -Os slows the engine by about 20%.
 nanobind_add_module(_engine NB_STATIC NOMINSIZE cpp/bindings.cpp cpp/engine.cpp cpp/cubical.cpp
-                    cpp/simplicial.cpp ${GEOGRAM_SOURCES})
+                    cpp/simplicial.cpp cpp/alpha.cpp ${GEOGRAM_SOURCES})
 
 # GEO_STATIC_LIBS keeps geogram's API macros empty (no dllimport on Windows).
 # The header is a system include so its warnings stay out of our files.
@@ -41,5 +41,6 @@ else()
 endif()
 set_source_files_properties(${GEOGRAM_SOURCES} PROPERTIES
                             COMPILE_OPTIONS "${GEOGRAM_EXACT_FLAGS};${GEOGRAM_VENDORED_FLAGS}")
+set_source_files_properties(cpp/alpha.cpp PROPERTIES COMPILE_OPTIONS "${GEOGRAM_EXACT_FLAGS}")
 
 install(TARGETS _engine LIBRARY DESTINATION persforest)

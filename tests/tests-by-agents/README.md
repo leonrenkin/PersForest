@@ -46,6 +46,12 @@ optional dependencies blocked.
   error cases (`test_simplicial_adapter.py`); orientations of the compiled
   engine against single simplices and NumPy determinants
   (`test_orientation_numerics.py`).
+- The compiled 2D/3D alpha builder (geogram's Delaunay triangulation) against
+  GUDHI's alpha complex with `precision='exact'`: cells, values and bars in
+  general position, positive-length bars of degenerate inputs, the event order
+  and numbering contract, exact orientations of nearly flat cells, duplicates,
+  empty inputs, scaling, determinism across runs, threads and point order
+  (`test_alpha_builder.py`).
 - Measurements, measurement profiles and landscapes, checked against
   independent analytic computations.
 - Plot data, animations, MP4/HTML export, droplet segmentation, and the

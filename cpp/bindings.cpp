@@ -3,10 +3,12 @@
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/vector.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <utility>
 #include <vector>
 
+#include "alpha.hpp"
 #include "cubical.hpp"
 #include "engine.hpp"
 #include "simplicial.hpp"
@@ -24,12 +26,23 @@ using InMatrix = nb::ndarray<const T, nb::ndim<2>, nb::c_contig, nb::device::cpu
 template <typename T>
 using OutArray = nb::ndarray<nb::numpy, T, nb::ndim<1>>;
 
+template <typename T>
+using OutMatrix = nb::ndarray<nb::numpy, T, nb::ndim<2>>;
+
 // Hand a vector to NumPy without copying; the capsule frees it with the array.
 template <typename T>
 OutArray<T> to_numpy(std::vector<T>&& values) {
     auto* owned = new std::vector<T>(std::move(values));
     nb::capsule owner(owned, [](void* p) noexcept { delete static_cast<std::vector<T>*>(p); });
     return OutArray<T>(owned->data(), {owned->size()}, owner);
+}
+
+// The same for a row-major matrix with the given number of columns.
+template <typename T>
+OutMatrix<T> to_numpy(std::vector<T>&& values, std::size_t columns) {
+    auto* owned = new std::vector<T>(std::move(values));
+    nb::capsule owner(owned, [](void* p) noexcept { delete static_cast<std::vector<T>*>(p); });
+    return OutMatrix<T>(owned->data(), {owned->size() / columns, columns}, owner);
 }
 
 nb::dict build_forest(InArray<std::int64_t> event_cells, InArray<double> event_values, std::int64_t n_top,
@@ -124,6 +137,27 @@ OutArray<std::int64_t> simplicial_top_facets(InMatrix<std::int64_t> tops, InMatr
     return to_numpy(std::move(top_facets));
 }
 
+nb::dict alpha_filtration(InMatrix<double> points) {
+    const auto dim = static_cast<int>(points.shape(1));
+    persforest::AlphaFiltration filtration;
+    {
+        nb::gil_scoped_release release;
+        filtration = persforest::alpha_filtration(points.data(), static_cast<std::int64_t>(points.shape(0)), dim);
+    }
+    const auto width = static_cast<std::size_t>(dim) + 1;
+    nb::dict out;
+    out["n_top"] = filtration.n_top;
+    out["top_vertices"] = to_numpy(std::move(filtration.top_vertices), width);
+    out["facet_vertices"] = to_numpy(std::move(filtration.facet_vertices), width - 1);
+    out["top_facets"] = to_numpy(std::move(filtration.top_facets), width);
+    out["top_orientation"] = to_numpy(std::move(filtration.top_orientation));
+    out["event_cells"] = to_numpy(std::move(filtration.event_cells));
+    out["event_values"] = to_numpy(std::move(filtration.event_values));
+    out["n_exact_radii"] = filtration.n_exact_radii;
+    out["n_exact_gabriel_tests"] = filtration.n_exact_gabriel_tests;
+    return out;
+}
+
 }  // namespace
 
 NB_MODULE(_engine, m) {
@@ -140,4 +174,7 @@ NB_MODULE(_engine, m) {
           "Orientation (+1 or -1) of each simplex relative to the ambient frame; raise for near-degenerate ones.");
     m.def("simplicial_top_facets", &simplicial_top_facets, nb::arg("tops"), nb::arg("facets"), nb::arg("n_points"),
           "Facet IDs (n_top + facet row) of each top simplex, flattened; raise for missing or repeated facets.");
+    m.def("alpha_filtration", &alpha_filtration, nb::arg("points"),
+          "Alpha filtration (radius units) of points in R^2 or R^3 from geogram's Delaunay triangulation: top\n"
+          "simplices and facets numbered in event order, with exact orientations; see cpp/alpha.hpp.");
 }

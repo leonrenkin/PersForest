@@ -35,9 +35,10 @@ class SimplicialFiltration:
 
     Cell keys are increasing vertex tuples into ``point_cloud``. The reference
     orientation of a simplex is its vertex order; the ambient orientation of a
-    top simplex is the sign of its edge-vector determinant. Top simplices get
-    IDs ``0 .. n_top - 1`` and facets the following IDs, each in order of
-    first appearance in the events. Facet positions in ``top_facets`` follow
+    top simplex is the sign of its edge-vector determinant, precomputed in
+    ``top_orientation`` or else computed by ``simplex_orientations``. Top
+    simplices get IDs ``0 .. n_top - 1`` and facets the following IDs, each in
+    order of first appearance in the events. Facet positions in ``top_facets`` follow
     ``simplicial_boundary``. Vertices are stored as arrays; the key tuples
     are built on the first ``cell_keys`` call and kept.
 
@@ -49,6 +50,10 @@ class SimplicialFiltration:
         Increasing vertex ids of top cell ``i`` in row ``i``.
     facet_vertices : ndarray of int64, shape (n_cells - n_top, top_dimension)
         Increasing vertex ids of facet ``n_top + i`` in row ``i``.
+    top_orientation : ndarray of int8, shape (n_top,), optional
+        Orientations of the top cells, if their producer computed them; the
+        alpha builder does so exactly, also for nearly flat cells that
+        ``simplex_orientations`` rejects.
     top_dimension, n_top, n_cells, event_cells, event_values, top_facets, facet_incidence
         See ``filtrations._interface.CellFiltration``.
     """
@@ -61,6 +66,7 @@ class SimplicialFiltration:
     event_cells: NDArray[np.int64]
     event_values: NDArray[np.float64]
     top_facets: NDArray[np.int64]
+    top_orientation: NDArray[np.int8] | None = None
     _keys: list[Simplex] | None = field(default=None, init=False, repr=False)
 
     @classmethod
@@ -124,9 +130,13 @@ class SimplicialFiltration:
         return simplicial_boundary(cell)
 
     def orientation(self, top_id: int) -> int:
+        if self.top_orientation is not None:
+            return int(self.top_orientation[top_id])
         return simplex_orientation(simplex=self.top_vertices[top_id], point_cloud=self.point_cloud)
 
     def top_orientations(self) -> NDArray[np.int8]:
+        if self.top_orientation is not None:
+            return self.top_orientation
         return simplex_orientations(self.top_vertices, self.point_cloud)
 
     def cell_keys(self, cell_ids) -> list[Simplex]:
