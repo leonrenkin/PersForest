@@ -66,6 +66,23 @@ class CompiledEngineTests(unittest.TestCase):
                 self.assertLessEqual(first[parent[node]], first[node])
             self.assertLessEqual(first[node], node)
 
+    def test_small_and_large_chain_paths_agree(self):
+        from unittest.mock import patch
+        import persforest._forest.arrays as arrays_module
+        for make in (lambda: PersistenceForest.from_cubical_grid(np.random.default_rng(4).random((12, 12))),
+                     lambda: PersistenceForest.from_points(np.random.default_rng(5).random((40, 3)))):
+            forest = make()
+            arrays = build_forest_arrays(forest._cells, reduce=True, filtration_tol=forest.filtration_tol)
+            for node in range(len(arrays.node_value)):
+                entries = arrays.subtree_entries(node)
+                with patch.object(arrays_module, "_SMALL_CHAIN", 10 ** 9):
+                    small = arrays_module.chain_ids(forest._cells, *entries)
+                with patch.object(arrays_module, "_SMALL_CHAIN", -1):
+                    large = arrays_module.chain_ids(forest._cells, *entries)
+                self.assertEqual(set(zip(small[0], small[1])), set(zip(large[0], large[1])))
+                self.assertEqual(sorted(zip(small[2], small[3])), sorted(zip(large[2], large[3])))
+                self.assertEqual(len(small[0]), len(set(zip(small[0], small[1]))))
+
     def test_invalid_engine_input_raises_value_error(self):
         from persforest import _engine
         empty_facets = np.zeros((1, 2), dtype=np.int64)

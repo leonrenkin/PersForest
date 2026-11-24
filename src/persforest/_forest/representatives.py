@@ -17,10 +17,12 @@ from persforest.chains import SignedChain
 
 
 def _keyed(cells, ids, signs) -> set:
-    """``(cell_key, sign)`` pairs of ID and sign arrays."""
+    """``(cell_key, sign)`` pairs of ID and sign lists or arrays."""
     if len(ids) == 0:
         return set()
-    return set(zip(cells.cell_keys(ids.tolist()), signs.tolist()))
+    if isinstance(ids, np.ndarray):
+        ids, signs = ids.tolist(), signs.tolist()
+    return set(zip(cells.cell_keys(ids), signs))
 
 
 def _replay_steps(self, index: int) -> Iterator[tuple[int, np.ndarray, np.ndarray]]:

@@ -98,14 +98,32 @@ def build_forest_arrays(cells: CellFiltration, *, reduce: bool, filtration_tol: 
     return ForestArrays(**result)
 
 
+# Below this many diff entries, plain Python beats NumPy's per-call overhead.
+_SMALL_CHAIN = 64
+
+
 def chain_ids(cells: CellFiltration, diff_cells: NDArray[np.int64], diff_signs: NDArray[np.int8],
-              ) -> tuple[NDArray[np.int64], NDArray[np.int64], NDArray[np.int64], NDArray[np.int64]]:
-    """Signed boundary and interior of a set of diff entries, as ID arrays.
+              ) -> tuple[list[int], list[int], list[int], list[int]]:
+    """Signed boundary and interior of a set of diff entries, as ID lists.
 
     Returns ``(facets, facet_signs, tops, top_orientations)``: the signed facets
     of the entered top cells that no entry removes (each pair once), and the
     entered top cells with their orientations.
     """
+    if len(diff_cells) <= _SMALL_CHAIN:
+        n_top = cells.n_top
+        entries, signs = diff_cells.tolist(), diff_signs.tolist()
+        removed = {cell for cell in entries if cell >= n_top}
+        tops = [cell for cell in entries if cell < n_top]
+        orientations = [sign for cell, sign in zip(entries, signs) if cell < n_top]
+        pairs: dict = {}
+        if tops:
+            incidence = cells.facet_incidence
+            for row, orientation in zip(np.asarray(cells.top_facets)[tops].tolist(), orientations):
+                for facet, facet_incidence in zip(row, incidence):
+                    if facet not in removed:
+                        pairs[facet, orientation * facet_incidence] = None
+        return [facet for facet, _ in pairs], [sign for _, sign in pairs], tops, orientations
     is_top = diff_cells < cells.n_top
     tops = diff_cells[is_top]
     orientations = diff_signs[is_top].astype(np.int64)
@@ -115,4 +133,4 @@ def chain_ids(cells: CellFiltration, diff_cells: NDArray[np.int64], diff_signs: 
     keep = ~np.isin(facets, removed)
     facets, signs = facets[keep], signs[keep]
     _, first = np.unique(2 * facets + (signs > 0), return_index=True)
-    return facets[first], signs[first], tops, orientations
+    return facets[first].tolist(), signs[first].tolist(), tops.tolist(), orientations.tolist()
