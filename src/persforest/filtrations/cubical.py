@@ -1,6 +1,5 @@
 """Cubical filtrations of full rectangular grids."""
 
-import bisect
 from dataclasses import dataclass
 
 import numpy as np
@@ -47,9 +46,10 @@ class CubicalFiltration:
     the number of odd entries. Every top cell has the reference orientation of
     the array-axis frame (see ``cubical_boundary``).
 
-    Cell IDs number the blocks of ``_cell_values`` consecutively: first the top
-    cells in row-major order, then the facets normal to axis 0, axis 1, ...,
-    each block in row-major order. Facet positions in ``top_facets`` follow
+    Cell IDs follow the event order, top cells first: top cells are numbered
+    ``0 .. n_top - 1`` and facets ``n_top .. n_cells - 1``, each in the order in
+    which they enter the filtration, so the engine's sweep reads its per-cell
+    arrays sequentially. Facet positions in ``top_facets`` follow
     ``cubical_boundary``: (upper, lower) along axis 0, then axis 1, ...
 
     Attributes
@@ -57,12 +57,10 @@ class CubicalFiltration:
     top_dimension, n_top, n_cells, event_cells, event_values, top_facets, facet_incidence
         See ``filtrations._interface.CellFiltration``. Events are ordered by
         (value, dimension, doubled coordinates in row-major order).
-    block_offsets : tuple of int
-        First cell ID of each block, followed by ``n_cells``.
-    block_shapes : tuple of tuple of int
-        Index shape of each block.
-    block_parities : tuple of tuple of int
-        Doubled-coordinate parity of each block's cells.
+    doubled_shape : tuple of int
+        Extent ``2 n + 1`` of the doubled coordinates along each axis.
+    cell_positions : ndarray of int32, shape (n_cells,)
+        Row-major index of each cell's doubled coordinates in ``doubled_shape``.
     """
 
     top_dimension: int
@@ -72,9 +70,8 @@ class CubicalFiltration:
     event_values: NDArray[np.float64]
     top_facets: NDArray[np.int64]
     facet_incidence: tuple[int, ...]
-    block_offsets: tuple[int, ...]
-    block_shapes: tuple[tuple[int, ...], ...]
-    block_parities: tuple[tuple[int, ...], ...]
+    doubled_shape: tuple[int, ...]
+    cell_positions: NDArray[np.int32]
 
     def dimension(self, cell: Cell) -> int:
         return cubical_dimension(cell)
@@ -97,23 +94,17 @@ class CubicalFiltration:
             return []
         if ids.min() < 0 or ids.max() >= self.n_cells:
             raise ValueError("cell ID out of range")
-        coordinates = np.empty((ids.size, self.top_dimension), dtype=np.int64)
-        block_of = np.searchsorted(np.asarray(self.block_offsets), ids, side="right") - 1
-        for block in np.unique(block_of).tolist():
-            mask = block_of == block
-            index = np.unravel_index(ids[mask] - self.block_offsets[block], self.block_shapes[block])
-            coordinates[mask] = 2 * np.stack(index, axis=1) + np.asarray(self.block_parities[block])
-        return list(map(tuple, coordinates.tolist()))
+        coordinates = np.unravel_index(self.cell_positions[ids], self.doubled_shape)
+        return list(map(tuple, np.stack(coordinates, axis=1).tolist()))
 
     def _cell_key(self, cell_id: int) -> Cell:
         if not 0 <= cell_id < self.n_cells:
             raise ValueError("cell ID out of range")
-        block = bisect.bisect_right(self.block_offsets, cell_id) - 1
-        local = cell_id - self.block_offsets[block]
+        position = int(self.cell_positions[cell_id])
         coordinates = []
-        for extent, parity in zip(reversed(self.block_shapes[block]), reversed(self.block_parities[block])):
-            local, index = divmod(local, extent)
-            coordinates.append(2 * index + parity)
+        for extent in reversed(self.doubled_shape):
+            position, coordinate = divmod(position, extent)
+            coordinates.append(coordinate)
         return tuple(reversed(coordinates))
 
 
@@ -143,9 +134,8 @@ def _neighbor_extreme(array: NDArray, axis: int, reduce, pad_value: float | None
         width = [(0, 0)] * array.ndim
         width[axis] = (1, 1)
         array = np.pad(array, width, constant_values=pad_value)
-    lower = np.take(array, np.arange(array.shape[axis] - 1), axis=axis)
-    upper = np.take(array, np.arange(1, array.shape[axis]), axis=axis)
-    return reduce(lower, upper)
+    before = (slice(None),) * axis
+    return reduce(array[before + (slice(None, -1),)], array[before + (slice(1, None),)])
 
 
 def _cell_values(grid: NDArray, filtration_type: str, above_all=np.inf) -> list[tuple[NDArray, tuple[int, ...]]]:
@@ -179,25 +169,6 @@ def _cell_values(grid: NDArray, filtration_type: str, above_all=np.inf) -> list[
     return blocks
 
 
-def _top_facets(top_shape: tuple[int, ...], block_offsets: list[int]) -> NDArray[np.int64]:
-    """Facet IDs of every top cell, in ``cubical_boundary`` order.
-
-    Top cell ``i`` (doubled coordinates ``2 i + 1``) has, along axis ``a``, the
-    facets ``i + e_a`` (upper) and ``i`` (lower) of block ``1 + a``, whose
-    shape is ``top_shape + e_a``; this holds for both filtration types.
-    """
-    d = len(top_shape)
-    index = np.indices(top_shape).reshape(d, -1)
-    columns = []
-    for axis in range(d):
-        shape = tuple(n + (a == axis) for a, n in enumerate(top_shape))
-        upper = index.copy()
-        upper[axis] += 1
-        columns.append(block_offsets[1 + axis] + np.ravel_multi_index(upper, shape))
-        columns.append(block_offsets[1 + axis] + np.ravel_multi_index(index, shape))
-    return np.stack(columns, axis=1).astype(np.int64, copy=False)
-
-
 def prepare_cubical_filtration(values, filtration_type: str = "top_cells") -> tuple[NDArray, CubicalFiltration]:
     """Validate a grid and build its ordered top cells and facets.
 
@@ -222,31 +193,32 @@ def prepare_cubical_filtration(values, filtration_type: str = "top_cells") -> tu
     """
     grid = _validated_grid(values, filtration_type)
     d = grid.ndim
-    blocks = _cell_values(grid, filtration_type)
-    shapes = [block_values.shape for block_values, _ in blocks]
-    parities = [parities for _, parities in blocks]
-    offsets = np.concatenate(([0], np.cumsum([block_values.size for block_values, _ in blocks]))).tolist()
+    top_shape = grid.shape if filtration_type == "top_cells" else tuple(n - 1 for n in grid.shape)
     # Every cell takes the minimum or maximum of some grid entries, so ranks
     # among the distinct grid values order the cells as their values do. The
     # engine then sorts by (rank, dimension, doubled coordinates in row-major
-    # order) in linear time instead of comparison-sorting all cells.
+    # order) in linear time instead of comparison-sorting all cells, and
+    # numbers the cells in that order.
     levels, rank = np.unique(grid, return_inverse=True)
-    rank_blocks = _cell_values(rank.reshape(grid.shape), filtration_type, above_all=len(levels))
+    n_levels = len(levels)
+    del levels
+    rank_blocks = _cell_values(rank.reshape(grid.shape).astype(np.int32), filtration_type, above_all=n_levels)
     del rank
-    cell_rank = np.concatenate([block_rank.reshape(-1) for block_rank, _ in rank_blocks]).astype(np.int64, copy=False)
+    cell_rank = np.concatenate([block_rank.reshape(-1) for block_rank, _ in rank_blocks])
     del rank_blocks
-    order = _engine.cubical_event_order(list(shapes[0]), cell_rank, len(levels))
-    del cell_rank
+    cell_value = np.concatenate([block_values.reshape(-1) for block_values, _ in _cell_values(grid, filtration_type)])
+    events = _engine.cubical_events(list(top_shape), cell_rank, cell_value, n_levels)
+    del cell_rank, cell_value
+    n_top = int(np.prod(top_shape))
     cells = CubicalFiltration(
         top_dimension=d,
-        n_top=int(offsets[1]),
-        n_cells=int(offsets[-1]),
-        event_cells=order,
-        event_values=np.concatenate([block_values.reshape(-1) for block_values, _ in blocks])[order],
-        top_facets=_top_facets(shapes[0], offsets),
+        n_top=n_top,
+        n_cells=len(events["event_cells"]),
+        event_cells=events["event_cells"],
+        event_values=events["event_values"],
+        top_facets=events["top_facets"].reshape(n_top, 2 * d),
         facet_incidence=tuple(sign for axis in range(d) for sign in ((1, -1) if axis % 2 == 0 else (-1, 1))),
-        block_offsets=tuple(offsets),
-        block_shapes=tuple(tuple(shape) for shape in shapes),
-        block_parities=tuple(tuple(p) for p in parities),
+        doubled_shape=tuple(2 * n + 1 for n in top_shape),
+        cell_positions=events["cell_positions"],
     )
     return grid, cells

@@ -70,15 +70,23 @@ nb::dict build_forest(InArray<std::int64_t> event_cells, InArray<double> event_v
     return out;
 }
 
-OutArray<std::int64_t> cubical_event_order(std::vector<std::int64_t> top_shape, InArray<std::int64_t> cell_rank,
-                                           std::int64_t n_ranks) {
-    std::vector<std::int64_t> order;
+nb::dict cubical_events(std::vector<std::int64_t> top_shape, InArray<std::int32_t> cell_rank,
+                        InArray<double> cell_value, std::int64_t n_ranks) {
+    if (cell_rank.shape(0) != cell_value.shape(0)) {
+        throw std::invalid_argument("cell_rank and cell_value differ in length");
+    }
+    persforest::CubicalEvents events;
     {
         nb::gil_scoped_release release;
-        order = persforest::cubical_event_order(top_shape, cell_rank.data(),
-                                                static_cast<std::int64_t>(cell_rank.shape(0)), n_ranks);
+        events = persforest::cubical_events(top_shape, cell_rank.data(), cell_value.data(),
+                                            static_cast<std::int64_t>(cell_rank.shape(0)), n_ranks);
     }
-    return to_numpy(std::move(order));
+    nb::dict out;
+    out["event_cells"] = to_numpy(std::move(events.event_cells));
+    out["event_values"] = to_numpy(std::move(events.event_values));
+    out["cell_positions"] = to_numpy(std::move(events.cell_positions));
+    out["top_facets"] = to_numpy(std::move(events.top_facets));
+    return out;
 }
 
 }  // namespace
@@ -90,6 +98,7 @@ NB_MODULE(_engine, m) {
           nb::arg("n_cells"), nb::arg("top_facets"), nb::arg("top_orientation"), nb::arg("reduce"),
           nb::arg("filtration_tol"),
           "Run the reverse sweep, optional reduction and elder-rule bar extraction; return flat arrays.");
-    m.def("cubical_event_order", &cubical_event_order, nb::arg("top_shape"), nb::arg("cell_rank"), nb::arg("n_ranks"),
-          "Cell IDs of a cubical grid sorted by (rank, dimension, doubled coordinates in row-major order).");
+    m.def("cubical_events", &cubical_events, nb::arg("top_shape"), nb::arg("cell_rank"), nb::arg("cell_value"),
+          nb::arg("n_ranks"),
+          "Order and number the top cells and facets of a cubical grid; return events, positions and facets.");
 }

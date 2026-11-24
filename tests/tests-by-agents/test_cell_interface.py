@@ -158,8 +158,9 @@ class CubicalAdapterTests(unittest.TestCase):
                         self.assertEqual(sorted(order), list(range(cells.n_cells)))
                         values_by_id = dict(zip(order, cells.event_values.tolist()))
                         if filtration_type == 'top_cells':
-                            # Top cells are the pixels in row-major order.
-                            self.assertEqual([values_by_id[t] for t in range(cells.n_top)], values.ravel().tolist())
+                            # Each top cell takes the value of its pixel.
+                            self.assertEqual([values_by_id[t] for t in range(cells.n_top)],
+                                             [values[tuple((c - 1) // 2 for c in keys[t])] for t in range(cells.n_top)])
                         expected = sorted(range(cells.n_cells),
                                           key=lambda i: (values_by_id[i], cubical_dimension(keys[i]), keys[i]))
                         self.assertEqual(order, expected)

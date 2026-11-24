@@ -12,7 +12,7 @@ namespace persforest {
 
 // Version of the array interface between the engine and the Python layer.
 // Increase it whenever inputs or outputs of the engine change.
-constexpr int kEngineInterfaceVersion = 3;
+constexpr int kEngineInterfaceVersion = 4;
 
 // Cell filtration as consumed by the sweep. IDs 0 .. n_top - 1 are top cells,
 // IDs n_top .. n_cells - 1 their facets. All pointers are borrowed.
