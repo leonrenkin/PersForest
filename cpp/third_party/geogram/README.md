@@ -39,6 +39,6 @@ settings below are needed by the module, not stylistic:
 ## Updating
 
 Replace the three files with those of a newer commit, update the commit and
-hashes above, and rerun the builder tests (`test_alpha_builder.py`), which
+hashes above, and rerun the builder tests (`test_delaunay_builder.py`), which
 compare with GUDHI's `precision='exact'` mode and exact rational oracles. Do
 not edit the vendored files; keep any adaptation in persforest's own sources.

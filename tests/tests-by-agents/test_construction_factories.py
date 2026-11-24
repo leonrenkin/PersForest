@@ -77,7 +77,7 @@ class DelaunayCechTests(unittest.TestCase):
     def test_bars_match_gudhi_persistence_for_both_point_filtrations(self):
         # Both come from persforest's builders in 2D and 3D, compared with GUDHI's
         # exact mode. GUDHI's exact Delaunay–Čech radii are themselves inexact (up
-        # to 1e-10 relative seen); test_alpha_builder checks ours in rational arithmetic.
+        # to 1e-10 relative seen); test_delaunay_builder checks ours in rational arithmetic.
         reference = {"alpha": (lambda points: gudhi.AlphaComplex(points=points, precision="exact"), 1e-13),
                      "delaunay_cech": (lambda points: gudhi.DelaunayCechComplex(points=points, precision="exact"),
                                        1e-9)}

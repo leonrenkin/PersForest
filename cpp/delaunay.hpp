@@ -34,7 +34,7 @@ struct DelaunayFiltration {
 // are no top simplices and the result is empty. Events are ordered by value,
 // then facets before top simplices, then by increasing vertex tuple. A facet
 // never enters after a top simplex it bounds. Orientations and ball tests are
-// exact; radii are accurate to about 1e-12 relative or better (see alpha.cpp).
+// exact; radii are accurate to about 1e-12 relative or better (see delaunay.cpp).
 //
 // Both throw std::invalid_argument for another dimension, non-finite
 // coordinates, nonzero coordinates smaller than 2^-100 times the largest

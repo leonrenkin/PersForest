@@ -52,7 +52,7 @@ optional dependencies blocked.
   inputs, the event order and numbering contract, exact orientations of nearly
   flat cells, Delaunay–Čech values against minimal enclosing balls in rational
   arithmetic, duplicates, empty inputs, scaling, determinism across runs,
-  threads and point order (`test_alpha_builder.py`).
+  threads and point order (`test_delaunay_builder.py`).
 - Measurements, measurement profiles and landscapes, checked against
   independent analytic computations.
 - Plot data, animations, MP4/HTML export, droplet segmentation, and the

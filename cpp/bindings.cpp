@@ -8,8 +8,8 @@
 #include <utility>
 #include <vector>
 
-#include "alpha.hpp"
 #include "cubical.hpp"
+#include "delaunay.hpp"
 #include "engine.hpp"
 #include "simplicial.hpp"
 
@@ -178,8 +178,8 @@ NB_MODULE(_engine, m) {
           "Facet IDs (n_top + facet row) of each top simplex, flattened; raise for missing or repeated facets.");
     m.def("alpha_filtration", &delaunay_filtration<persforest::alpha_filtration>, nb::arg("points"),
           "Alpha filtration (radius units) of points in R^2 or R^3 from geogram's Delaunay triangulation: top\n"
-          "simplices and facets numbered in event order, with exact orientations; see cpp/alpha.hpp.");
+          "simplices and facets numbered in event order, with exact orientations; see cpp/delaunay.hpp.");
     m.def("delaunay_cech_filtration", &delaunay_filtration<persforest::delaunay_cech_filtration>, nb::arg("points"),
           "Delaunay-Cech filtration (radius units, minimal enclosing balls) of points in R^2 or R^3, laid out\n"
-          "as alpha_filtration; see cpp/alpha.hpp.");
+          "as alpha_filtration; see cpp/delaunay.hpp.");
 }

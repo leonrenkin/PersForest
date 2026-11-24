@@ -1,6 +1,6 @@
 """Delaunay-based filtrations of point clouds, in radius units.
 
-In R^2 and R^3 the compiled builders (``cpp/alpha.hpp``, on geogram's Delaunay
+In R^2 and R^3 the compiled builders (``cpp/delaunay.hpp``, on geogram's Delaunay
 triangulation) compute alpha and Delaunay–Čech filtrations; other dimensions
 use GUDHI.
 """
@@ -36,7 +36,7 @@ def alpha_filtration(point_cloud: NDArray) -> SimplicialFiltration:
     The complex is geogram's Delaunay triangulation, restricted to top simplices
     and their facets; a top simplex enters at its circumradius, a facet at the
     radius of its smallest circumsphere or, if attached, with its earliest
-    coface. See ``cpp/alpha.hpp`` for the exact definition.
+    coface. See ``cpp/delaunay.hpp`` for the exact definition.
 
     Parameters
     ----------

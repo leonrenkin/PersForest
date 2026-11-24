@@ -45,7 +45,7 @@
 // for these magnitudes (all differences below 2). A sign the filter cannot
 // certify is computed exactly; G has degree 6, so that never underflows (see
 // Scaling).
-#include "alpha.hpp"
+#include "delaunay.hpp"
 
 #include <Delaunay_psm.h>
 
