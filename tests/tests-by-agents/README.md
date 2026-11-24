@@ -41,6 +41,11 @@ optional dependencies blocked.
   filtrations (`test_compiled_engine.py`). Do not change the reference's logic.
 - The engine's linear-time cubical event order against a lexicographic sort of
   all cells, with ties (`test_cubical_event_order.py`).
+- The array-based simplicial adapter against a dict-based numbering of the same
+  events, for alpha and Delaunay–Čech in 1D–4D and custom input, with its
+  error cases (`test_simplicial_adapter.py`); orientations of the compiled
+  engine against single simplices and NumPy determinants
+  (`test_orientation_numerics.py`).
 - Measurements, measurement profiles and landscapes, checked against
   independent analytic computations.
 - Plot data, animations, MP4/HTML export, droplet segmentation, and the
