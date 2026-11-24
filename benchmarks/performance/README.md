@@ -1,15 +1,13 @@
 # PersistenceForest runtime and memory benchmarks
 
 Serial, isolated measurements of `PersistenceForest` on point clouds (alpha
-filtration) and cubical grids (`top_cells`), in 2D and 3D. The focus is
-`storage="diffs"`: time to build the forest and barcode, and time to compute
-measurement landscapes. `storage="cycles"` is measured at smaller sizes for
-comparison. **A command without `--run` only prints the plan.**
+filtration) and cubical grids (`top_cells`), in 2D and 3D: time to build the
+forest and barcode, and time to compute measurement landscapes. **A command
+without `--run` only prints the plan.**
 
 ## Inputs
 
-Seeded generators in `sampling.py`; all modes of one repeat receive identical
-inputs. `size` is the point count for clouds and the side length for grids.
+Seeded generators in `sampling.py`; each repeat has its own seed. `size` is the point count for clouds and the side length for grids.
 
 | Family | Point clouds | Cubical grids |
 | --- | --- | --- |
@@ -19,8 +17,8 @@ inputs. `size` is the point count for clouds and the side length for grids.
 
 The one-large-cycle families are the expensive case. Schedules (`pilot`: sparse,
 one repeat; `full`: dense, overnight) are defined in `SCHEDULES` in `run.py`;
-landscapes and `cycles` run only up to per-schedule size caps. `--kinds`,
-`--dimensions`, `--samplers`, `--modes` and `--{points,cubical}-sizes-{2,3}d`
+landscapes run only up to per-schedule size caps. `--kinds`,
+`--dimensions`, `--samplers` and `--{points,cubical}-sizes-{2,3}d`
 restrict or override a schedule.
 
 ## Running (from the repository root)
@@ -45,8 +43,10 @@ during a run.
 Each case runs in a fresh single-threaded worker via `from_points` /
 `from_cubical_grid`. The primary column `time_persforest_s` covers forest
 sweep, reduction and barcode, excluding filtration preparation
-(`time_filtration_s`). `time_landscape_s` is one uncached
-`compute_measurement_landscapes` call (in diff mode including representative
+(`time_filtration_s`); it splits into `time_forest_s` (the compiled engine,
+`time_forest_build_s`, and the setup around it) and `time_barcode_s` (creating
+the bar objects). `time_landscape_s` is one uncached
+`compute_measurement_landscapes` call (including representative
 reconstruction) of the unsigned boundary measure: length in 2D, area in 3D.
 Peak RSS is recorded through the barcode and for the whole worker.
 
@@ -56,10 +56,10 @@ a hard limit; killed workers give only lower bounds.
 
 Each output directory holds `manifest.json` (configuration, environment,
 source hashes, Git state), `results.jsonl`, `results.csv` and per-case
-`workers/`. `plot.py` writes `plots/summary.csv` and the `runtime`, `breakdown`
-and `modes` figures. Results are git-ignored;
-`results/historical-2026-09-barcode` predates the current schema and is not
-read by `plot.py`.
+`workers/`. `plot.py` writes `plots/summary.csv` and the `runtime` and
+`breakdown` figures. Results are git-ignored; `results/2026-11-pilot` (schema 2,
+with storage modes) and `results/historical-2026-09-barcode` predate the current
+schema 3 and measure the former Python engine.
 
 ## Harness tests
 

@@ -16,7 +16,6 @@ import math
 import os
 from pathlib import Path
 import platform
-import random
 import resource
 import subprocess
 import sys
@@ -28,33 +27,29 @@ ROOT = Path(__file__).resolve().parents[2]
 # Sibling modules (sampling) also when this file is loaded by path, e.g. in tests.
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-SCHEMA_VERSION = 2
-MODES = {
-    "diffs": {"storage": "diffs"},
-    "cycles": {"storage": "cycles"},
-}
+SCHEMA_VERSION = 3
 KINDS = ("points", "cubical")
 # Sizes are point counts for clouds and grid side lengths for cubical inputs
-# (side**dim top cells). Landscapes and the cycles comparison run only up to
-# their caps, in the same units; diff-mode barcodes run at every size.
+# (side**dim top cells). Landscapes run only up to their caps, in the same
+# units; barcodes run at every size.
 SCHEDULES = {
     "pilot": {
         ("points", 2): dict(sizes=[10_000, 100_000, 400_000, 1_000_000],
-                            landscape_max=100_000, cycles_max=100_000),
+                            landscape_max=100_000),
         ("points", 3): dict(sizes=[5_000, 50_000, 250_000],
-                            landscape_max=50_000, cycles_max=50_000),
-        ("cubical", 2): dict(sizes=[128, 512, 2048], landscape_max=512, cycles_max=512),
-        ("cubical", 3): dict(sizes=[32, 64, 128], landscape_max=64, cycles_max=64),
+                            landscape_max=50_000),
+        ("cubical", 2): dict(sizes=[128, 512, 2048], landscape_max=512),
+        ("cubical", 3): dict(sizes=[32, 64, 128], landscape_max=64),
     },
     "full": {
         ("points", 2): dict(sizes=[10_000, 25_000, 50_000, 100_000, 250_000, 500_000, 1_000_000],
-                            landscape_max=100_000, cycles_max=100_000),
+                            landscape_max=100_000),
         ("points", 3): dict(sizes=[5_000, 10_000, 25_000, 50_000, 100_000, 250_000],
-                            landscape_max=25_000, cycles_max=25_000),
+                            landscape_max=25_000),
         ("cubical", 2): dict(sizes=[128, 256, 512, 1024, 1448, 2048],
-                             landscape_max=512, cycles_max=512),
+                             landscape_max=512),
         ("cubical", 3): dict(sizes=[24, 32, 48, 64, 96, 128],
-                             landscape_max=64, cycles_max=48),
+                             landscape_max=64),
     },
 }
 FUNCTIONAL = "boundary_measure"  # boundary length in 2D, boundary area in 3D
@@ -121,13 +116,7 @@ def _instrumented_class(base: type, recorder: _Recorder) -> type:
         Benchmark-only subclass, retaining the normal constructor path.
     """
     methods = {}
-    for name, stage in {
-        "_compute_forest": "forest_build",
-        "_reduce_forest": "reduction",
-        "_compute_loop_activity": "activity",
-        "_compute_barcode_diff": "barcode",
-        "_add_interior_to_barcode": "interior",
-    }.items():
+    for name, stage in {"compute_barcode": "barcode"}.items():
         original = getattr(base, name)
 
         def wrapped(self, *args, _original=original, _stage=stage, **kwargs):
@@ -148,6 +137,7 @@ def _worker(spec_path: Path, checkpoint_path: Path) -> int:
         sys.path.insert(0, str(ROOT / "src"))
         import numpy as np
         import persforest
+        import persforest._forest.arrays as arrays_module
         import persforest.forest as forest_module
         from persforest import PersistenceForest
         from persforest.measurements.basic import signed_chain_volume
@@ -175,33 +165,40 @@ def _worker(spec_path: Path, checkpoint_path: Path) -> int:
         def measured_prepare(*args, **kwargs):
             return recorder.call("filtration", original_prepare, *args, **kwargs)
 
+        # The compiled engine: sweep, reduction and bar extraction.
+        original_engine = arrays_module.build_forest_arrays
+
+        def measured_engine(*args, **kwargs):
+            return recorder.call("forest_build", original_engine, *args, **kwargs)
+
         measured = _instrumented_class(PersistenceForest, recorder)
         factory = measured.from_points if kind == "points" else measured.from_cubical_grid
         recorder.checkpoint("constructor")
         overhead_before = recorder.overhead_s
-        with patch.object(forest_module, prepare_name, measured_prepare):
+        with patch.object(forest_module, prepare_name, measured_prepare), \
+             patch.object(arrays_module, "build_forest_arrays", measured_engine):
             start = time.perf_counter()
             forest = factory(data, reduce=True, compute_barcode=True, print_info=False,
-                             filtration_tol=spec["filtration_tol"], **MODES[spec["mode"]])
+                             filtration_tol=spec["filtration_tol"])
             constructor_s = time.perf_counter() - start
         constructor_s -= recorder.overhead_s - overhead_before
         del data
         filtration_s = result["time_filtration_s"]
-        barcode_s = result.get("time_barcode_s", 0.0) + result.get("time_interior_s", 0.0)
+        barcode_s = result.get("time_barcode_s", 0.0)
         result.update(
             time_to_barcode_s=constructor_s,
             # Primary metric: forest sweep, reduction and barcode extraction,
             # excluding filtration preparation shared with other software.
             time_persforest_s=constructor_s - filtration_s,
+            # The compiled engine and the forest's setup around it.
             time_forest_s=constructor_s - filtration_s - barcode_s,
-            time_barcode_with_interior_s=barcode_s,
             peak_rss_to_barcode_bytes=_peak_bytes(),
-            n_events=len(forest.filtration), n_nodes=len(forest.nodes),
+            n_events=len(forest._cells.event_cells), n_nodes=len(forest._forest.node_value),
             n_bars=len(forest.barcode),
         )
         recorder.checkpoint("barcode_complete")
         # Endpoint summaries are outside timed regions; no representative
-        # materialization (especially important for storage="diffs").
+        # is reconstructed.
         endpoints = np.array(sorted((bar.birth, bar.death) for bar in forest.barcode))
         result["barcode_endpoints_sha256"] = hashlib.sha256(endpoints.tobytes()).hexdigest()
         del endpoints
@@ -307,11 +304,10 @@ def build_cases(config: dict) -> list[dict]:
     -------
     list of dict
         Deterministic cases with stable seeds, IDs and all scientific settings.
-        Every mode and landscape setting of a repeat receives the same input.
+        Every repeat of an input family and size has its own seed.
     """
     from sampling import GRID_SAMPLERS, POINT_SAMPLERS
     cases = []
-    order_rng = random.Random(config["base_seed"])
     for kind in config["kinds"]:
         samplers = POINT_SAMPLERS if kind == "points" else GRID_SAMPLERS
         for dim in config["dimensions"]:
@@ -325,22 +321,16 @@ def build_cases(config: dict) -> list[dict]:
                         seed = int(_digest([config["base_seed"], kind, dim, size,
                                             sampler, repeat])[:8], 16)
                         landscape = size <= schedule["landscape_max"]
-                        modes = [mode for mode in config["modes"]
-                                 if mode == "diffs" or size <= schedule["cycles_max"]]
-                        block = []
-                        for mode in modes:
-                            case = dict(kind=kind, dim=dim, size=size,
-                                        n_input=size if kind == "points" else size ** dim,
-                                        sampler=sampler, repeat=repeat, seed=seed, mode=mode,
-                                        landscape=landscape,
-                                        functional=FUNCTIONAL if landscape else "none",
-                                        max_k=config["max_k"], grid_points=config["grid_points"],
-                                        signed=config["signed"], filtration_tol=1e-12,
-                                        reduce=True, schema_version=SCHEMA_VERSION)
-                            case["case_id"] = _digest(case)[:20]
-                            block.append(case)
-                        order_rng.shuffle(block)
-                        cases.extend(block)
+                        case = dict(kind=kind, dim=dim, size=size,
+                                    n_input=size if kind == "points" else size ** dim,
+                                    sampler=sampler, repeat=repeat, seed=seed,
+                                    landscape=landscape,
+                                    functional=FUNCTIONAL if landscape else "none",
+                                    max_k=config["max_k"], grid_points=config["grid_points"],
+                                    signed=config["signed"], filtration_tol=1e-12,
+                                    reduce=True, schema_version=SCHEMA_VERSION)
+                        case["case_id"] = _digest(case)[:20]
+                        cases.append(case)
     return cases
 
 
@@ -415,7 +405,7 @@ def _export_csv(path: Path, rows: list[dict]) -> None:
 
 def _limit_group(row: dict) -> tuple:
     """Cases sharing a group stop growing after a memory or time limit."""
-    return (row["kind"], row["dim"], row["sampler"], row["mode"], row["landscape"])
+    return (row["kind"], row["dim"], row["sampler"], row["landscape"])
 
 
 def _positive_int(value: str) -> int:
@@ -446,8 +436,6 @@ def main() -> None:
     parser.add_argument("--samplers", nargs="+",
                         choices=sorted({"uniform", "noisy_sphere", "single_hole", "holes"}),
                         help="Restrict input families (default: all of each kind)")
-    parser.add_argument("--modes", nargs="+", choices=MODES, default=list(MODES),
-                        help="cycles runs only up to the schedule's cycles cap")
     for kind in KINDS:
         unit = "point counts" if kind == "points" else "grid side lengths"
         for dim in (2, 3):
@@ -466,7 +454,7 @@ def main() -> None:
         parser.error("--grid-points must be at least 2")
     if args.retry_failed and not args.resume:
         parser.error("--retry-failed requires --resume")
-    for name in ("kinds", "dimensions", "samplers", "modes"):
+    for name in ("kinds", "dimensions", "samplers"):
         if getattr(args, name) and len(getattr(args, name)) != len(set(getattr(args, name))):
             parser.error(f"--{name} must not contain duplicates")
     config = {key: value for key, value in vars(args).items()
@@ -523,7 +511,7 @@ def main() -> None:
             result = dict(spec, status="skipped_after_limit")
         else:
             print(f"[{index}/{len(cases)}] {spec['kind']} {spec['dim']}D {spec['sampler']} "
-                  f"size={spec['size']} {spec['mode']} {spec['functional']}", flush=True)
+                  f"size={spec['size']} {spec['functional']}", flush=True)
             result = _supervise(spec, workers, config)
             if result["status"] in ("memory_limit", "timeout"):
                 blocked[key] = spec["size"]
