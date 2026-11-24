@@ -1,11 +1,13 @@
 // Python bindings of the construction engine (nanobind). Only this file knows about Python.
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
+#include <nanobind/stl/vector.h>
 
 #include <cstdint>
 #include <utility>
 #include <vector>
 
+#include "cubical.hpp"
 #include "engine.hpp"
 
 namespace nb = nanobind;
@@ -68,6 +70,17 @@ nb::dict build_forest(InArray<std::int64_t> event_cells, InArray<double> event_v
     return out;
 }
 
+OutArray<std::int64_t> cubical_event_order(std::vector<std::int64_t> top_shape, InArray<std::int64_t> cell_rank,
+                                           std::int64_t n_ranks) {
+    std::vector<std::int64_t> order;
+    {
+        nb::gil_scoped_release release;
+        order = persforest::cubical_event_order(top_shape, cell_rank.data(),
+                                                static_cast<std::int64_t>(cell_rank.shape(0)), n_ranks);
+    }
+    return to_numpy(std::move(order));
+}
+
 }  // namespace
 
 NB_MODULE(_engine, m) {
@@ -77,4 +90,6 @@ NB_MODULE(_engine, m) {
           nb::arg("n_cells"), nb::arg("top_facets"), nb::arg("top_orientation"), nb::arg("reduce"),
           nb::arg("filtration_tol"),
           "Run the reverse sweep, optional reduction and elder-rule bar extraction; return flat arrays.");
+    m.def("cubical_event_order", &cubical_event_order, nb::arg("top_shape"), nb::arg("cell_rank"), nb::arg("n_ranks"),
+          "Cell IDs of a cubical grid sorted by (rank, dimension, doubled coordinates in row-major order).");
 }

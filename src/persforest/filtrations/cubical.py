@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
+from persforest import _engine
+
 CUBICAL_FILTRATION_TYPES = ("top_cells", "vertices")
 
 Cell = tuple[int, ...]
@@ -146,12 +148,12 @@ def _neighbor_extreme(array: NDArray, axis: int, reduce, pad_value: float | None
     return reduce(lower, upper)
 
 
-def _cell_values(grid: NDArray, filtration_type: str) -> list[tuple[NDArray, tuple[int, ...]]]:
+def _cell_values(grid: NDArray, filtration_type: str, above_all=np.inf) -> list[tuple[NDArray, tuple[int, ...]]]:
     """Return ``(values, parities)`` blocks for the top cells and each facet family.
 
     ``parities[a]`` is 1 if cells in the block extend along axis ``a``; entry
     ``index`` of ``values`` belongs to the cell with doubled coordinates
-    ``2 * index + parities``.
+    ``2 * index + parities``. ``above_all`` exceeds every entry of ``grid``.
     """
     d = grid.ndim
     blocks = []
@@ -160,7 +162,7 @@ def _cell_values(grid: NDArray, filtration_type: str) -> list[tuple[NDArray, tup
         for axis in range(d):
             # Facets normal to ``axis`` take the minimum of their incident top
             # cells; facets on the domain boundary have a single neighbor.
-            facet_values = _neighbor_extreme(grid, axis, np.minimum, np.inf)
+            facet_values = _neighbor_extreme(grid, axis, np.minimum, above_all)
             blocks.append((facet_values, tuple(0 if a == axis else 1 for a in range(d))))
     else:
         # Lower-star: a cell takes the maximum of its vertices.
@@ -224,25 +226,23 @@ def prepare_cubical_filtration(values, filtration_type: str = "top_cells") -> tu
     shapes = [block_values.shape for block_values, _ in blocks]
     parities = [parities for _, parities in blocks]
     offsets = np.concatenate(([0], np.cumsum([block_values.size for block_values, _ in blocks]))).tolist()
-    # Doubled coordinates span 2 * (top shape) + 1 along every axis.
-    doubled_shape = tuple(2 * n + 1 for n in shapes[0])
-    row_major, cell_values, dimensions = [], [], []
-    for block_values, block_parities in blocks:
-        index = np.indices(block_values.shape).reshape(d, -1)
-        coordinates = 2 * index + np.array(block_parities)[:, None]
-        row_major.append(np.ravel_multi_index(coordinates, doubled_shape))
-        cell_values.append(block_values.reshape(-1))
-        dimensions.append(np.full(block_values.size, sum(block_parities), dtype=np.int8))
-    row_major = np.concatenate(row_major)
-    cell_values = np.concatenate(cell_values)
-    order = np.lexsort((row_major, np.concatenate(dimensions), cell_values))
-    del row_major
+    # Every cell takes the minimum or maximum of some grid entries, so ranks
+    # among the distinct grid values order the cells as their values do. The
+    # engine then sorts by (rank, dimension, doubled coordinates in row-major
+    # order) in linear time instead of comparison-sorting all cells.
+    levels, rank = np.unique(grid, return_inverse=True)
+    rank_blocks = _cell_values(rank.reshape(grid.shape), filtration_type, above_all=len(levels))
+    del rank
+    cell_rank = np.concatenate([block_rank.reshape(-1) for block_rank, _ in rank_blocks]).astype(np.int64, copy=False)
+    del rank_blocks
+    order = _engine.cubical_event_order(list(shapes[0]), cell_rank, len(levels))
+    del cell_rank
     cells = CubicalFiltration(
         top_dimension=d,
         n_top=int(offsets[1]),
         n_cells=int(offsets[-1]),
-        event_cells=order.astype(np.int64, copy=False),
-        event_values=cell_values[order],
+        event_cells=order,
+        event_values=np.concatenate([block_values.reshape(-1) for block_values, _ in blocks])[order],
         top_facets=_top_facets(shapes[0], offsets),
         facet_incidence=tuple(sign for axis in range(d) for sign in ((1, -1) if axis % 2 == 0 else (-1, 1))),
         block_offsets=tuple(offsets),

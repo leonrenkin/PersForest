@@ -39,6 +39,8 @@ optional dependencies blocked.
 - The compiled engine against `reference_engine.py`, a frozen copy of the former
   pure-Python engine, on random cubical, alpha, Delaunay–Čech and fixture
   filtrations (`test_compiled_engine.py`). Do not change the reference's logic.
+- The engine's linear-time cubical event order against a lexicographic sort of
+  all cells, with ties (`test_cubical_event_order.py`).
 - Measurements, measurement profiles and landscapes, checked against
   independent analytic computations.
 - Plot data, animations, MP4/HTML export, droplet segmentation, and the
