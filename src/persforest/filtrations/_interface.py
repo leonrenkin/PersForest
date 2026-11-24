@@ -47,6 +47,10 @@ class CellFiltration(Protocol):
         """
         ...
 
+    def top_orientations(self) -> Any:
+        """Return ``orientation`` of every top cell as an int8 array of length ``n_top``."""
+        ...
+
     def cell_keys(self, cell_ids: Iterable[int]) -> list[Hashable]:
         """Return the public keys of ``cell_ids``, in the given order."""
         ...

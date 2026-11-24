@@ -13,7 +13,7 @@ from persforest.filtrations.delaunay import prepare_point_filtration
 from persforest.filtrations.simplicial import SimplicialFiltration, simplicial_boundary, simplicial_events
 
 ENGINE = Path(__file__).resolve().parents[2] / 'src' / 'persforest' / '_forest'
-ALLOWED_ENGINE_IMPORTS = ('persforest._forest', 'persforest.barcode', 'persforest.chains',
+ALLOWED_ENGINE_IMPORTS = ('persforest._forest', 'persforest._engine', 'persforest.barcode', 'persforest.chains',
                           'persforest.filtrations._interface')
 SIMPLICIAL = SimpleNamespace(boundary=simplicial_boundary)
 CUBICAL = SimpleNamespace(boundary=cubical_boundary)
@@ -111,10 +111,13 @@ class EngineIsolationTests(unittest.TestCase):
                     continue
                 for module in modules:
                     with self.subTest(file=path.name, module=module):
-                        if module.startswith('persforest'):
+                        if module == 'persforest':
+                            self.assertEqual([alias.name for alias in node.names], ['_engine'])
+                        elif module.startswith('persforest'):
                             self.assertTrue(module.startswith(ALLOWED_ENGINE_IMPORTS), module)
                         else:
-                            self.assertNotIn(module.split('.')[0], {'gudhi', 'numpy', 'matplotlib', 'plotly'})
+                            # NumPy is allowed: the engine's arrays are NumPy arrays.
+                            self.assertNotIn(module.split('.')[0], {'gudhi', 'matplotlib', 'plotly'})
 
 
 class CubicalAdapterTests(unittest.TestCase):

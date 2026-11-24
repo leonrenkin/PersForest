@@ -99,7 +99,11 @@ class SegmentImageTests(unittest.TestCase):
     def tiled(self, image, parameters, tile_size, tile_margin):
         """``segment_image`` forced into tiles at 1x, with the warnings it gave."""
         from unittest import mock
+        import gc
         from dropseg import whole_image
+        # Garbage of earlier tests (e.g. unrendered Matplotlib animations) warns
+        # when collected; collect it now so that only segment_image's warnings are recorded.
+        gc.collect()
         with mock.patch.object(whole_image, "LARGE_IMAGE", 1), warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             segmentation = dropseg.segment_image(image, parameters, tile_size=tile_size, tile_margin=tile_margin)

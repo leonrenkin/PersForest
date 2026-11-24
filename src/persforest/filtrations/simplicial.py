@@ -98,6 +98,10 @@ class SimplicialFiltration:
     def orientation(self, top_id: int) -> int:
         return simplex_orientation(simplex=self.simplices[top_id], point_cloud=self.point_cloud)
 
+    def top_orientations(self) -> NDArray[np.int8]:
+        return np.fromiter((self.orientation(top_id) for top_id in range(self.n_top)),
+                           dtype=np.int8, count=self.n_top)
+
     def cell_keys(self, cell_ids) -> list[Simplex]:
         simplices = self.simplices
         return [simplices[cell_id] for cell_id in cell_ids]

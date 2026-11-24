@@ -15,10 +15,3 @@ find_package(nanobind CONFIG REQUIRED)
 nanobind_add_module(_engine NB_STATIC cpp/bindings.cpp cpp/engine.cpp)
 
 install(TARGETS _engine LIBRARY DESTINATION persforest)
-
-# Editable installs: also place the module next to the Python sources, so that
-# importing persforest straight from src/ (as the test runner does) finds it.
-if(SKBUILD_STATE STREQUAL "editable")
-  add_custom_command(TARGET _engine POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:_engine> ${CMAKE_CURRENT_SOURCE_DIR}/src/persforest/)
-endif()

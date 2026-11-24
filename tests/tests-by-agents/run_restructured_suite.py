@@ -20,6 +20,32 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def origin_ok(name: str, file: str, expected: Path) -> bool:
+    """Whether a persforest module was loaded from the selected package.
+
+    An editable install loads the compiled engine from its own installation
+    rather than from the sources. It is accepted only if persforest is an
+    editable install of this checkout and the file belongs to that install.
+    """
+    path = Path(file).resolve()
+    if path.is_relative_to(expected):
+        return True
+    if name != 'persforest._engine':
+        return False
+    from importlib import metadata
+    from urllib.parse import unquote, urlparse
+    try:
+        distribution = metadata.distribution('persforest')
+        info = json.loads(distribution.read_text('direct_url.json') or '{}')
+    except metadata.PackageNotFoundError:
+        return False
+    if not info.get('dir_info', {}).get('editable'):
+        return False
+    if Path(unquote(urlparse(info['url']).path)).resolve() != ROOT:
+        return False
+    return any(Path(distribution.locate_file(entry)).resolve() == path for entry in distribution.files or ())
+
+
 def main() -> None:
     """Select an implementation, assert its origin, and run unittest discovery."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -54,11 +80,30 @@ expected = Path({str(expected)!r})
 if {args.implementation != 'installed'!r}:
     sys.path.insert(0, str(expected.parent))
 import persforest
+def origin_ok(name, file, expected):
+    path = Path(file).resolve()
+    if path.is_relative_to(expected):
+        return True
+    if name != "persforest._engine":
+        return False
+    import json
+    from importlib import metadata
+    from urllib.parse import unquote, urlparse
+    try:
+        distribution = metadata.distribution("persforest")
+        info = json.loads(distribution.read_text("direct_url.json") or "{{}}")
+    except metadata.PackageNotFoundError:
+        return False
+    if not info.get("dir_info", {{}}).get("editable"):
+        return False
+    if Path(unquote(urlparse(info["url"]).path)).resolve() != Path({str(ROOT)!r}):
+        return False
+    return any(Path(distribution.locate_file(entry)).resolve() == path for entry in distribution.files or ())
 def check_imports():
     bad = [(name, module.__file__) for name, module in list(sys.modules.items())
            if (name == "persforest" or name.startswith("persforest."))
            and getattr(module, "__file__", None)
-           and not Path(module.__file__).resolve().is_relative_to(expected)]
+           and not origin_ok(name, module.__file__, expected)]
     if bad:
         print("WRONG PACKAGE ORIGIN:", bad, file=sys.stderr, flush=True)
         os._exit(97)
@@ -83,7 +128,7 @@ atexit.register(check_imports)
                if (name == 'persforest' or name.startswith('persforest.'))
                and getattr(module, '__file__', None)}
     for name, path in modules.items():
-        assert Path(path).is_relative_to(expected), (name, path)
+        assert origin_ok(name, path, expected), (name, path)
     summary = dict(implementation=args.implementation, package=str(expected),
                    tests=result.testsRun, failures=[test.id() for test, _ in result.failures],
                    errors=[test.id() for test, _ in result.errors],

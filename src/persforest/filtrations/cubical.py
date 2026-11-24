@@ -83,6 +83,9 @@ class CubicalFiltration:
     def orientation(self, top_id: int) -> int:
         return 1
 
+    def top_orientations(self) -> NDArray[np.int8]:
+        return np.ones(self.n_top, dtype=np.int8)
+
     def cell_keys(self, cell_ids) -> list[Cell]:
         if isinstance(cell_ids, (list, tuple)) and len(cell_ids) <= 64:
             # Short lookups (replay steps) are faster without NumPy overhead.
