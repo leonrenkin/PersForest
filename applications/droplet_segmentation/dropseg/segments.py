@@ -195,7 +195,7 @@ def open_mask(mask: NDArray[np.bool_], radius: float) -> NDArray[np.bool_]:
     points = boundary_vertices(mask)
     if len(points) < 4:
         return mask
-    forest = PersistenceForest.from_points(points, storage="cycles")
+    forest = PersistenceForest.from_points(points)
     opened = np.zeros_like(mask)
     for bar in forest.active_bars_at(radius):
         hole = outline_mask(forest.cycle_for_bar_at(bar, radius), points, mask.shape)

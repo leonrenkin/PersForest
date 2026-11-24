@@ -88,26 +88,32 @@ class ManualCase:
 
 
 def forest_snapshot(forest: PersistenceForest) -> tuple:
-    """Represent rooted trees without depending on generated node IDs."""
-    def node_snapshot(node_id):
-        node = forest.nodes[node_id]
-        cycle = None if node.cycle is None else tuple(sorted(node.cycle.signed_simplices))
-        children = tuple(sorted((node_snapshot(child) for child in node.children), key=repr))
-        return node.filt_val, cycle, children
+    """Represent rooted trees, rebuilt from the bars, without depending on generated IDs.
 
-    return tuple(sorted((node_snapshot(node.id) for node in forest.nodes.values()
-                         if node.parent is None), key=repr))
+    A bar contributes one node per critical value, carrying the representative
+    active just below that value; a bar that splits off another hangs below
+    the parent's node at its birth. Each tree's root, at the birth of its
+    longest bar, carries the cycle of its only child.
+    """
+    def cycle_below(bar, index):
+        start = bar.birth if index == 0 else bar.critical_values[index - 1]
+        return tuple(sorted(forest.cycle_for_bar_at(bar, start).signed_simplices))
 
+    def node_snapshot(bar, index):
+        value = bar.critical_values[index]
+        children = [node_snapshot(child, 0) for child in forest.child_bars(bar) if child.birth == value]
+        if index + 1 < len(bar.critical_values):
+            children.append(node_snapshot(bar, index + 1))
+        return value, cycle_below(bar, index), tuple(sorted(children, key=repr))
 
-def without_cycles(nodes: tuple) -> tuple:
-    """Keep only tree values and branching for diff-only nodes."""
-    return tuple((value, None, without_cycles(children)) for value, _, children in nodes)
+    trunks = [bar for bar in forest.barcode if forest.parent_bar(bar) is None]
+    return tuple(sorted(((bar.birth, cycle_below(bar, 0), (node_snapshot(bar, 0),)) for bar in trunks),
+                        key=repr))
 
 
 def bar_signature(bar, forest: PersistenceForest) -> tuple:
     """Identify a bar by its endpoints and complete signed progression."""
-    reps = (reversed(list(forest.iter_bar_cycle_reps(bar)))
-            if forest.storage == "diffs" else bar.cycle_reps)
+    reps = reversed(list(forest.iter_bar_cycle_reps(bar)))
     return (bar.birth, bar.death, tuple(
         (rep.active_start, rep.active_end, frozenset(rep.signed_simplices))
         for rep in reps
@@ -118,8 +124,7 @@ def check_manual_case(test: unittest.TestCase, case: ManualCase, options: dict) 
     """Compare one manual filtration and construction mode with expectations."""
     values = make_filtration_values(case.edge_values, case.triangle_values)
     forest = PersistenceForest(point_cloud, filtration=order_filtration(values), **options)
-    expected_forest = without_cycles(case.forest) if forest.storage == "diffs" else case.forest
-    test.assertEqual(forest_snapshot(forest), expected_forest)
+    test.assertEqual(forest_snapshot(forest), case.forest)
 
     expected_signatures = [(
         bar.birth, bar.death,
@@ -271,20 +276,10 @@ manual_case_4 = ManualCase(
 )
 
 CASES: tuple[ManualCase, ...] = (manual_case_1, manual_case_2, manual_case_3, manual_case_4)
-MODES = (
-    ("cycles", {"storage": "cycles"}),
-    ("diffs", {"storage": "diffs"}),
-)
 
 
 class ManualPipelineTests(unittest.TestCase):
     def test_manual_cases(self):
         for case in CASES:
-            expected_interiors = None
-            for mode, options in MODES:
-                with self.subTest(case=case.name, mode=mode):
-                    interiors = check_manual_case(self, case, options)
-                    if mode == "cycles":
-                        expected_interiors = interiors
-                    else:
-                        self.assertEqual(interiors, expected_interiors)
+            with self.subTest(case=case.name):
+                check_manual_case(self, case, {})

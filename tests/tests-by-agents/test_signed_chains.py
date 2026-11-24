@@ -5,9 +5,6 @@ import numpy as np
 from persforest.chains import SignedChain, merge_at_simplex
 from persforest.filtrations.simplicial import SimplicialFiltration, simplicial_boundary
 from persforest.geometry.simplicial import simplex_orientation, sign_of_determinant
-from persforest._forest.representatives import update_chain_with_diff
-from persforest._forest.compute_barcode import are_dict_keys_sorted
-from persforest._forest.reduction import merge_owned_sets
 from fixtures_small_filtrations import chain, fan
 from oracle_chains import coefficients, boundary, canonical
 
@@ -60,14 +57,6 @@ class SignedChainTests(unittest.TestCase):
         self.assertIn(((0, 1), 1), a.signed_simplices)
         self.assertIn(((0, 1), -1), b.signed_simplices)
 
-    def test_diff_update_adds_signed_boundaries_and_removes_only_requested_terms(self):
-        cells = SimplicialFiltration.from_events(np.zeros((5, 2)), [])
-        initial = set(chain('+34'))
-        result = update_chain_with_diff(cells, initial, set(chain('+012 -013')), set(chain('+01 -01')))
-        self.assertIs(result, initial)
-        self.assertEqual(result, chain('+34 -02 +12 +03 -13'))
-        self.assertIs(update_chain_with_diff(cells, result, None, None), result)
-
     def test_segments_simplices_coordinates_and_dimensions(self):
         points = fan().points
         value = SignedChain(set(chain('+01 -02 +03 -03')))
@@ -88,10 +77,3 @@ class SignedChainTests(unittest.TestCase):
         self.assertEqual(empty.unsigned().signed_simplices, set())
         self.assertEqual(empty.only_double_simplices().signed_simplices, set())
         self.assertEqual(boundary(coefficients(empty.signed_simplices)), {})
-        self.assertTrue(are_dict_keys_sorted({}))
-        self.assertTrue(are_dict_keys_sorted({1: 0, 3: 0}))
-        self.assertFalse(are_dict_keys_sorted({3: 0, 1: 0}))
-        self.assertIsNone(merge_owned_sets(None, None))
-        self.assertEqual(merge_owned_sets({1}, None), {1})
-        self.assertEqual(merge_owned_sets(None, {2}), {2})
-        self.assertEqual(merge_owned_sets({1}, {2}), {1, 2})

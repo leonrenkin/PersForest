@@ -1,13 +1,12 @@
-"""Construction resources: reduction on flat regions and the paused cyclic collector."""
+"""Construction resources: flat filtration regions and the paused cyclic collector."""
 import gc
-import tracemalloc
 import unittest
 from unittest.mock import patch
 
 import numpy as np
 
 from persforest import PersistenceForest
-from persforest._forest.reduction import merge_owned_sets
+from persforest.barcode import PFBar
 from fixtures_small_filtrations import active_reps
 
 
@@ -47,26 +46,15 @@ class FlatRegionReductionTests(unittest.TestCase):
             with self.subTest(time=time):
                 self.assertEqual(active_signature(reduced, time), active_signature(unreduced, time))
 
-    def test_reduction_memory_stays_small_on_flat_hole(self):
-        # Building a new diff-set union per collapse kept every intermediate set
-        # alive: this 30 x 30 flat hole peaked at about 150 MiB of traced
-        # allocations, growing quadratically with the area.
-        forest = PersistenceForest.from_cubical_grid(flat_hole(30), reduce=False, compute_barcode=False)
-        tracemalloc.start()
-        try:
-            forest._reduce_forest()
-            _, peak = tracemalloc.get_traced_memory()
-        finally:
-            tracemalloc.stop()
-        self.assertLess(peak, 10 * 2**20)
-        self.assertEqual(len(forest.nodes), 2)
-
-    def test_merge_owned_sets_reuses_the_larger_set(self):
-        larger = {1, 2, 3}
-        self.assertIs(merge_owned_sets({4}, larger), larger)
-        self.assertEqual(larger, {1, 2, 3, 4})
-        kept = {1, 2}
-        self.assertIs(merge_owned_sets(kept, {3}), kept)
+    def test_large_flat_hole(self):
+        # Reducing a 252 x 252 flat hole ran out of memory while the reduction
+        # copied growing diff sets; it is one bar with the square as boundary.
+        forest = PersistenceForest.from_cubical_grid(flat_hole(252))
+        [bar] = forest.barcode
+        self.assertEqual((bar.birth, bar.death), (0.0, 1.0))
+        chain = forest.cycle_for_bar_at(bar, 0.5)
+        self.assertEqual(len(chain.signed_simplices), 4 * 252)
+        self.assertEqual(len(chain.interior), 252 * 252)
 
 
 class CyclicCollectorTests(unittest.TestCase):
@@ -74,46 +62,43 @@ class CyclicCollectorTests(unittest.TestCase):
         self.addCleanup(gc.enable if gc.isenabled() else gc.disable)
         gc.enable()
 
-    def recorder(self, method):
-        """Patch a PersistenceForest method to record whether the collector runs."""
-        original = getattr(PersistenceForest, method)
+    def recorder(self):
+        """Patch bar creation to record whether the collector runs."""
+        original = PFBar._from_forest.__func__
         states = []
 
-        def recording(forest, *args, **kwargs):
+        def recording(cls, *args, **kwargs):
             states.append(gc.isenabled())
-            return original(forest, *args, **kwargs)
+            return original(cls, *args, **kwargs)
 
-        return states, patch.object(PersistenceForest, method, recording)
+        return states, patch.object(PFBar, '_from_forest', classmethod(recording))
 
-    def test_build_runs_with_collector_paused_and_restores_it(self):
+    def test_bars_are_created_with_collector_paused_and_it_is_restored(self):
         factories = {
             'cubical': lambda: PersistenceForest.from_cubical_grid(nested_plateaus()),
             'alpha': lambda: PersistenceForest.from_points(np.random.default_rng(0).random((20, 2))),
         }
         for name, factory in factories.items():
             with self.subTest(factory=name):
-                sweep_states, sweep_patch = self.recorder('_compute_forest')
-                barcode_states, barcode_patch = self.recorder('_compute_barcode_diff')
-                with sweep_patch, barcode_patch:
+                states, bar_patch = self.recorder()
+                with bar_patch:
                     factory()
-                self.assertEqual(sweep_states, [False])
-                self.assertEqual(barcode_states, [False])
+                self.assertTrue(states)
+                self.assertFalse(any(states))
                 self.assertTrue(gc.isenabled())
 
     def test_delayed_barcode_runs_with_collector_paused(self):
         forest = PersistenceForest.from_cubical_grid(nested_plateaus(), compute_barcode=False)
         self.assertTrue(gc.isenabled())
-        states, barcode_patch = self.recorder('_compute_barcode_diff')
-        with barcode_patch:
+        states, bar_patch = self.recorder()
+        with bar_patch:
             forest.compute_barcode()
-        self.assertEqual(states, [False])
+        self.assertTrue(states)
+        self.assertFalse(any(states))
         self.assertTrue(gc.isenabled())
 
-    def test_failed_build_restores_collector(self):
-        def fail(forest, *args, **kwargs):
-            raise RuntimeError('injected failure')
-
-        with patch.object(PersistenceForest, '_reduce_forest', fail):
+    def test_failed_bar_creation_restores_collector(self):
+        with patch.object(PFBar, '_from_forest', side_effect=RuntimeError('injected failure')):
             with self.assertRaisesRegex(RuntimeError, 'injected failure'):
                 PersistenceForest.from_cubical_grid(nested_plateaus())
         self.assertTrue(gc.isenabled())

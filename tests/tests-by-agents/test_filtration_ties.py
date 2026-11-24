@@ -1,13 +1,7 @@
 """T1–T10: exact ties, elder choices, and explicit reduction tolerances."""
-import copy
-import io
-from contextlib import redirect_stdout
 from itertools import permutations
 import unittest
 import numpy as np
-from persforest import PersistenceForest
-from persforest._forest.graph_model import PFNode
-from persforest.chains import SignedChain
 from persforest.measurements.basic import signed_chain_area, constant_one_functional
 from persforest.landscapes.kernels import landscape_kernel
 from persforest.landscapes.profiles import compute_measurement_profiles
@@ -39,6 +33,12 @@ def active_signature(forest, time):
 
 
 class FiltrationTieTests(unittest.TestCase):
+    def assert_separated_beyond_tolerance(self, forest):
+        """In a reduced forest, a bar's birth and critical values differ by more than the tolerance."""
+        for bar in forest.barcode:
+            values = (bar.birth,) + bar.critical_values
+            self.assertTrue(all(b > a + forest.filtration_tol for a, b in zip(values, values[1:])), values)
+
     def test_t1_to_t10_barcode_and_observable_reduction_equivalence(self):
         for name, fixture, expected in variants():
             reference = build(fixture, reduce=False, filtration_tol=0)
@@ -51,7 +51,7 @@ class FiltrationTieTests(unittest.TestCase):
                             self.assertEqual(active_signature(forest, time), active_signature(reference, time))
                         if options['reduce']:
                             self.assertTrue(all(b.death > b.birth for b in forest.barcode))
-                            self.assertTrue(all(n.parent is not None or n.children for n in forest.nodes.values()))
+                            self.assert_separated_beyond_tolerance(forest)
 
     def test_tied_split_has_no_observable_transient_chain(self):
         cases = dict((name, fixture) for name, fixture, _ in variants())
@@ -133,9 +133,9 @@ class FiltrationTieTests(unittest.TestCase):
             values = []
             for sign in (-1, 1):
                 fixture = split().changed({(0, 1, 2): 7, (0, 1, 3): 7 + sign * epsilon})
-                forest = build(fixture, filtration_tol=0, storage="cycles")
+                forest = build(fixture, filtration_tol=0)
                 bar = next(b for b in forest.barcode if b.birth == 1)
-                rep = bar.cycle_reps[-1]
+                rep = next(iter(forest.iter_bar_cycle_reps(bar)))
                 self.assertEqual(rep.signed_simplices,
                                  chain('-01 +03 -13') if sign == 1 else chain('+01 -02 +12'))
                 values.append(landscape_kernel(compute_measurement_profiles(forest, signed_chain_area, "test", signed=True), bar)(3))
@@ -143,58 +143,24 @@ class FiltrationTieTests(unittest.TestCase):
 
 
 class ReductionToleranceTests(unittest.TestCase):
-    def two_node_forest(self, gap, tol):
-        forest = object.__new__(PersistenceForest)
-        forest.filtration_tol = tol
-        forest.nodes = {1: PFNode(1, 1 + gap, SignedChain(set()), set(), 2),
-                        2: PFNode(2, 1, SignedChain(set()), {1})}
-        forest.roots = {2}
-        return forest
-
-    def test_binary_tolerance_boundary_and_zero_tolerance(self):
+    def test_small_bar_removed_only_inside_tolerance(self):
         tau = 2. ** -20
         for tol in (0, tau):
             for gap in (0, tau / 2, tau, 2 * tau):
                 with self.subTest(tol=tol, gap=gap):
-                    forest = self.two_node_forest(gap, tol)
-                    with redirect_stdout(io.StringIO()):
-                        forest._reduce_forest()
-                    self.assertEqual(len(forest.nodes), 0 if gap <= tol else 2)
-                    self.assertEqual(forest.roots, set() if gap <= tol else {2})
+                    fixture = triangle().changed({(0, 1, 2): 2 + gap})
+                    forest = build(fixture, filtration_tol=tol)
+                    self.assertEqual(positive_bars(forest), [] if gap <= tol else [(2, 2 + gap)])
 
-    def test_small_bar_removed_only_inside_tolerance(self):
-        tau = 2. ** -20
-        for gap in (0, tau / 2, tau, 2 * tau):
-            fixture = triangle().changed({(0, 1, 2): 2 + gap})
-            forest = build(fixture, filtration_tol=tau)
-            self.assertEqual(positive_bars(forest), [] if gap <= tau else [(2, 2 + gap)])
+    def test_reduced_tie_forests_are_separated_beyond_tolerance(self):
+        for name, fixture, _ in variants():
+            with self.subTest(case=name):
+                FiltrationTieTests.assert_separated_beyond_tolerance(self, build(fixture))
 
-    def test_reduction_idempotent_and_ancestry_consistent_for_ties(self):
-        for _, fixture, _ in variants():
-            forest = build(fixture, storage="cycles")
-            before = copy.deepcopy(forest.nodes)
-            with redirect_stdout(io.StringIO()):
-                forest._reduce_forest()
-            self.assertEqual(forest.nodes, before)
-            for node in forest.nodes.values():
-                visited = set()
-                current = node
-                while current.parent is not None:
-                    self.assertNotIn(current.id, visited)
-                    visited.add(current.id)
-                    parent = forest.nodes[current.parent]
-                    self.assertIn(current.id, parent.children)
-                    self.assertGreater(current.filt_val, parent.filt_val + forest.filtration_tol)
-                    current = parent
-                self.assertIn(current.id, forest.roots)
-
-    def test_invalid_tolerance_and_parent_order_rejected(self):
+    def test_invalid_tolerance_rejected(self):
         for tol in (-1, float('nan'), float('inf')):
             with self.subTest(tol=tol), self.assertRaisesRegex(ValueError, 'filtration_tol'):
                 build(triangle(), filtration_tol=tol)
-        forest = self.two_node_forest(-.5, 0)
-        with self.assertRaisesRegex(ValueError, 'parent-child'):
-            forest._reduce_forest()
 
     def test_d11_collapsed_near_tie_has_no_gap_in_stored_representative_activity(self):
         """Reduction changes node heights but leaves stored interval metadata stale."""
@@ -210,8 +176,7 @@ class ReductionToleranceTests(unittest.TestCase):
     def test_near_tie_diff_reconstruction_covers_whole_reduced_bar(self):
         tau = 2. ** -20
         for gap in (tau / 2, tau, 2 * tau):
-            forest = build(fan().changed({(1, 3): 2 + gap}), filtration_tol=tau,
-                           storage="diffs")
+            forest = build(fan().changed({(1, 3): 2 + gap}), filtration_tol=tau)
             for bar in forest.barcode:
                 actual = reps(forest, bar)
                 self.assertEqual(actual[0].active_start, bar.birth)

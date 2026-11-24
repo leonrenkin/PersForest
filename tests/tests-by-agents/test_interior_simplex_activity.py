@@ -32,51 +32,48 @@ def split_forest(dim=2, shared_value=3.0, deaths=(5.0, 7.0), **options):
 
 def normalized(activity):
     """Compare ownership across forests without relying on object identity."""
-    return {simplex: sorted((bar._node_progression, bar.birth, bar.death, start, end)
+    return {simplex: sorted((bar.critical_values, bar.birth, bar.death, start, end)
                             for bar, start, end in intervals)
             for simplex, intervals in activity.items()}
 
 
 def stored_activity(forest):
-    """Reference the previous cumulative-interior implementation."""
+    """Interior activity read off the reconstructed representatives."""
     activity = defaultdict(list)
     for bar in forest.barcode:
-        first_rep = bar.cycle_reps[0]
+        reps = list(reversed(list(forest.iter_bar_cycle_reps(bar))))
+        first_rep = reps[0]
         for simplex, _orientation in first_rep.interior:
             simplex_key = tuple(sorted(simplex))
-            active_end = max(rep.active_end for rep in bar.cycle_reps
+            active_end = max(rep.active_end for rep in reps
                              if any(tuple(sorted(s)) == simplex_key for s, _ in rep.interior))
             activity[simplex_key].append((bar, first_rep.active_start, active_end))
     return dict(activity)
 
 
 class InteriorSimplexActivityTests(unittest.TestCase):
-    def test_seeded_alpha_forests_match_stored_interiors(self):
+    def test_seeded_alpha_forests_match_representative_interiors(self):
         for dim in (2, 3):
             for seed in (0, 7):
                 points = np.random.default_rng(seed).normal(size=(24, dim))
                 for reduce in (False, True):
                     with self.subTest(dim=dim, seed=seed, reduce=reduce):
-                        stored = PersistenceForest(points, reduce=reduce,
-                                                   storage="cycles")
-                        expected = normalized(stored_activity(stored))
-                        self.assertEqual(normalized(stored.interior_simplex_activity()), expected)
-                        forest = PersistenceForest(points, reduce=reduce, storage="diffs")
-                        self.assertEqual(normalized(forest.interior_simplex_activity()), expected)
+                        forest = PersistenceForest(points, reduce=reduce)
+                        self.assertEqual(normalized(forest.interior_simplex_activity()),
+                                         normalized(stored_activity(forest)))
 
-    def test_explicit_merge_ownership_in_all_diff_modes(self):
+    def test_explicit_merge_ownership(self):
         for dim in (2, 3):
-            for options in ({"storage": "cycles"}, {"storage": "diffs"}):
-                with self.subTest(dim=dim, options=options):
-                    forest = split_forest(dim, **options)
-                    actual = {simplex: sorted((bar.birth, bar.death, start, end)
-                                              for bar, start, end in intervals)
-                              for simplex, intervals in forest.interior_simplex_activity().items()}
-                    shared = tuple(range(dim))
-                    self.assertEqual(actual, {
-                        shared + (dim,): [(1, 7, 1, 3), (3, 5, 3, 5)],
-                        shared + (dim + 1,): [(1, 7, 1, 7)],
-                    })
+            with self.subTest(dim=dim):
+                forest = split_forest(dim)
+                actual = {simplex: sorted((bar.birth, bar.death, start, end)
+                                          for bar, start, end in intervals)
+                          for simplex, intervals in forest.interior_simplex_activity().items()}
+                shared = tuple(range(dim))
+                self.assertEqual(actual, {
+                    shared + (dim,): [(1, 7, 1, 3), (3, 5, 3, 5)],
+                    shared + (dim + 1,): [(1, 7, 1, 7)],
+                })
 
     def test_matches_stored_interiors_at_exact_ties(self):
         for dim in (2, 3):
@@ -84,29 +81,25 @@ class InteriorSimplexActivityTests(unittest.TestCase):
                 for shared, deaths in ((3, (5, 7)), (1, (5, 7)), (3, (3, 7)),
                                        (3, (7, 7)), (7, (7, 7)), (1, (1, 1))):
                     with self.subTest(dim=dim, reduce=reduce, shared=shared, deaths=deaths):
-                        options = dict(dim=dim, shared_value=shared, deaths=deaths, reduce=reduce)
-                        stored = split_forest(**options, storage="cycles")
-                        expected = normalized(stored_activity(stored))
-                        for storage in ("cycles", "diffs"):
-                            forest = split_forest(**options, storage=storage)
-                            self.assertEqual(normalized(forest.interior_simplex_activity()), expected)
+                        forest = split_forest(dim=dim, shared_value=shared, deaths=deaths, reduce=reduce)
+                        self.assertEqual(normalized(forest.interior_simplex_activity()),
+                                         normalized(stored_activity(forest)))
 
     def test_near_tie_uses_reduced_node_endpoints(self):
         tolerance = 2.0 ** -20
         for gap in (tolerance / 2, tolerance, 2 * tolerance):
-            for storage in ("cycles", "diffs"):
-                with self.subTest(gap=gap, storage=storage):
-                    forest = split_forest(shared_value=3, deaths=(3 + gap, 7),
-                                          filtration_tol=tolerance, storage=storage)
-                    intervals = sorted((bar.birth, bar.death, start, end)
-                                       for bar, start, end in forest.interior_simplex_activity()[(0, 1, 2)])
-                    expected = [(1, 7, 1, 3)]
-                    if gap > tolerance:
-                        expected.append((3, 3 + gap, 3, 3 + gap))
-                    self.assertEqual(intervals, expected)
+            with self.subTest(gap=gap):
+                forest = split_forest(shared_value=3, deaths=(3 + gap, 7),
+                                      filtration_tol=tolerance)
+                intervals = sorted((bar.birth, bar.death, start, end)
+                                   for bar, start, end in forest.interior_simplex_activity()[(0, 1, 2)])
+                expected = [(1, 7, 1, 3)]
+                if gap > tolerance:
+                    expected.append((3, 3 + gap, 3, 3 + gap))
+                self.assertEqual(intervals, expected)
 
     def test_intervals_match_half_open_representative_membership(self):
-        forest = split_forest(storage="diffs")
+        forest = split_forest()
         activity = forest.interior_simplex_activity()
         for bar in forest.barcode:
             reps = list(forest.iter_bar_cycle_reps(bar))
@@ -120,35 +113,21 @@ class InteriorSimplexActivityTests(unittest.TestCase):
                 self.assertEqual(actual, expected)
 
     def test_delayed_and_empty_barcodes(self):
-        forest = split_forest(storage="cycles", compute_barcode=False)
+        forest = split_forest(compute_barcode=False)
         with self.assertRaisesRegex(RuntimeError, "compute_barcode"):
             forest.interior_simplex_activity()
         forest.compute_barcode()
         self.assertEqual(normalized(forest.interior_simplex_activity()),
-                         normalized(split_forest(storage="cycles").interior_simplex_activity()))
-        empty = PersistenceForest(np.empty((0, 2)), storage="cycles")
+                         normalized(split_forest().interior_simplex_activity()))
+        empty = PersistenceForest(np.empty((0, 2)))
         self.assertEqual(empty.interior_simplex_activity(), {})
-        self.assertEqual(split_forest(shared_value=1, deaths=(1, 1),
-                                      storage="cycles").interior_simplex_activity(), {})
-
-    def test_unavailable_node_diffs_are_rejected(self):
-        forest = split_forest(storage="cycles")
-        bar = next(iter(forest.barcode))
-        forest.nodes[bar._node_progression[-1]]._simplex_diff_available = False
-        with self.assertRaisesRegex(ValueError, "diffs are unavailable"):
-            forest.interior_simplex_activity()
+        self.assertEqual(split_forest(shared_value=1, deaths=(1, 1)).interior_simplex_activity(), {})
 
     def test_query_is_repeatable_without_representative_reconstruction(self):
-        forest = split_forest(storage="diffs")
-        before = {node_id: (None if node._interior_diff is None else node._interior_diff.copy(),
-                            None if node._barcode_interior_diff is None else node._barcode_interior_diff.copy())
-                  for node_id, node in forest.nodes.items()}
+        forest = split_forest()
         with patch.object(forest, "iter_bar_cycle_reps", side_effect=AssertionError("Reconstructed cycles")):
             first = forest.interior_simplex_activity()
             self.assertEqual(first, forest.interior_simplex_activity())
-        for node_id, node in forest.nodes.items():
-            self.assertEqual((node._interior_diff, node._barcode_interior_diff), before[node_id])
-        self.assertTrue(all(rep is None for bar in forest.barcode for rep in bar.cycle_reps))
 
 
 if __name__ == "__main__":

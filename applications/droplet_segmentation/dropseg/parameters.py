@@ -119,11 +119,8 @@ class Parameters:
         """Whether all intensity parameters are set (none is left to infer)."""
         return not self.unset
 
-    def settings(self, storage: str = "cycles") -> Settings:
+    def settings(self) -> Settings:
         """The settings of the steps, in pixels of the upsampled grid.
-
-        ``storage="diffs"`` reconstructs representatives instead of storing
-        them, for large grids; the segments are the same.
 
         Raises
         ------
@@ -135,7 +132,6 @@ class Parameters:
                              "dropseg.infer_parameters(image, parameters)")
         factor = self.upsample
         return Settings(
-            storage=storage,
             min_bar_length=self.min_bar_length,
             split_level=self.split_level,
             min_level=self.min_level,

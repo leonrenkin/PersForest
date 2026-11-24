@@ -49,23 +49,18 @@ class CubicalBarcodeTests(unittest.TestCase):
                 with self.subTest(filtration_type=filtration_type, dim=dim, check="nonempty"):
                     self.assertGreater(total, 0)
 
-    def test_representatives_are_bounded_cycles_and_storages_agree(self):
+    def test_representatives_are_bounded_cycles(self):
         for filtration_type in ("top_cells", "vertices"):
             for dim in (1, 2, 3):
                 for index, values in enumerate(grids(dim, filtration_type)):
                     with self.subTest(filtration_type=filtration_type, dim=dim, grid=index):
-                        records = {}
-                        for storage in ("diffs", "cycles"):
-                            forest = PersistenceForest.from_cubical_grid(
-                                values, filtration_type=filtration_type, storage=storage)
-                            for bar in forest.barcode:
-                                for rep in reps(forest, bar):
-                                    support = coefficients(rep.signed_simplices)
-                                    self.assertEqual(linear_boundary(forest._cells, support), {})
-                                    self.assertEqual(
-                                        linear_boundary(forest._cells, coefficients(rep.interior)), support)
-                            records[storage] = snapshot(forest)
-                        self.assertEqual(records["diffs"], records["cycles"])
+                        forest = PersistenceForest.from_cubical_grid(values, filtration_type=filtration_type)
+                        for bar in forest.barcode:
+                            for rep in reps(forest, bar):
+                                support = coefficients(rep.signed_simplices)
+                                self.assertEqual(linear_boundary(forest._cells, support), {})
+                                self.assertEqual(
+                                    linear_boundary(forest._cells, coefficients(rep.interior)), support)
 
 
 class CubicalConventionTests(unittest.TestCase):
@@ -108,8 +103,8 @@ class CubicalConventionTests(unittest.TestCase):
 
     def test_transposition_reverses_orientation_and_maps_cells(self):
         values = np.random.default_rng(8).random((6, 7))
-        forest = PersistenceForest.from_cubical_grid(values, storage="cycles")
-        transposed = PersistenceForest.from_cubical_grid(values.T, storage="cycles")
+        forest = PersistenceForest.from_cubical_grid(values)
+        transposed = PersistenceForest.from_cubical_grid(values.T)
         self.assertEqual(bars(forest), bars(transposed))
         swap = lambda cell: (cell[1], cell[0])
         expected = sorted((b.birth, b.death, tuple(sorted((swap(c), -v) for c, v in
@@ -128,7 +123,6 @@ class CubicalInputTests(unittest.TestCase):
         self.assertIsNone(forest.simplex_tree)
         self.assertEqual(forest.dim, 2)
         self.assertEqual((forest.filtration_type, forest.filtration_units), ("top_cells", "grid values"))
-        self.assertEqual(forest.storage, "diffs")
         np.testing.assert_array_equal(forest.grid_values, values)
         self.assertFalse(forest.grid_values.flags.writeable)
         values[0, 0] = 99
@@ -158,7 +152,6 @@ class CubicalInputTests(unittest.TestCase):
             (dict(values=np.zeros((2, 2)), spacing=0), "positive"),
             (dict(values=np.zeros((2, 2)), spacing=(1, 2, 3)), "one value per axis"),
             (dict(values=np.zeros((2, 2)), origin=(0, np.nan)), "finite"),
-            (dict(values=np.zeros((2, 2)), storage="stored"), "storage must be"),
         ]
         for kwargs, message in cases:
             with self.subTest(kwargs=kwargs), self.assertRaisesRegex(ValueError, message):

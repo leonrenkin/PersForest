@@ -724,8 +724,9 @@ def animate_filtration_pair(
         t_start = float(t_min)
 
     if t_max is None:
-        max1 = max(node.filt_val for node in forest1.nodes.values())
-        max2 = max(node.filt_val for node in forest2.nodes.values())
+        # The largest forest node value is the latest death (every leaf is a death).
+        max1 = max((bar.death for bar in forest1.barcode), default=float(forest1.filtration[-1][1]))
+        max2 = max((bar.death for bar in forest2.barcode), default=float(forest2.filtration[-1][1]))
         t_end: float = float(max(max1, max2))
     else:
         t_end = float(t_max)

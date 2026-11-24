@@ -30,11 +30,15 @@ optional dependencies blocked.
 - Public API, package imports, and installation without plotting extras.
 - Simplicial and cubical filtrations, signed chains, cycle progressions,
   interiors, filtration ties, and root normalization.
-- Construction resources: reduction memory on flat filtration regions and the
-  cyclic garbage collector being paused during a build and restored afterwards.
-- Both storage modes (`"diffs"`, `"cycles"`) and golden snapshots of small
-  fixtures (`data/engine_golden.json`). Regenerate the snapshots with
-  `python tests/tests-by-agents/engine_golden.py` only after an intended change.
+- Construction resources: flat filtration regions and the cyclic garbage
+  collector being paused while bars are created and restored afterwards.
+- Golden snapshots of small fixtures (`data/engine_golden.json`): bars, their
+  forest structure, every representative with its interior, and interior
+  activity. Regenerate them with `python tests/tests-by-agents/engine_golden.py`
+  only after an intended change.
+- The compiled engine against `reference_engine.py`, a frozen copy of the former
+  pure-Python engine, on random cubical, alpha, Delaunay–Čech and fixture
+  filtrations (`test_compiled_engine.py`). Do not change the reference's logic.
 - Measurements, measurement profiles and landscapes, checked against
   independent analytic computations.
 - Plot data, animations, MP4/HTML export, droplet segmentation, and the

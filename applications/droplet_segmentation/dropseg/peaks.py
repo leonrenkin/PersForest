@@ -23,11 +23,11 @@ def long_bars(forest: PersistenceForest, min_lifespan: float = 0.0) -> list[PFBa
     """Bars with ``lifespan >= min_lifespan``, longest first.
 
     ``forest.barcode`` is a set; ties, common in 8-bit images with saturated
-    peaks, are broken by the forest's node ids, so that the order and hence
-    the labels are the same in every run.
+    peaks, are broken by the bars' deterministic ``index``, so that the order
+    and hence the labels are the same in every run.
     """
     bars = [bar for bar in forest.barcode if bar.lifespan() >= min_lifespan]
-    return sorted(bars, key=lambda bar: (-bar.lifespan(), bar.birth, bar.death, bar._node_progression[0]))
+    return sorted(bars, key=lambda bar: (-bar.lifespan(), bar.birth, bar.death, bar.index))
 
 
 @dataclass(frozen=True)
@@ -62,23 +62,15 @@ class Branches:
 def branch_structure(forest: PersistenceForest, bars: list[PFBar]) -> Branches:
     """Find which of ``bars`` split off which.
 
-    A bar is born at the parent of the first node of its progression. The bar
-    whose progression contains that node is the one it splits off; if that
-    bar is not among ``bars``, the search continues with the bar it split off
-    in turn.
+    A bar splits off ``forest.parent_bar(bar)`` at its birth; if that bar is
+    not among ``bars``, the search continues with the bar it split off in turn.
     """
-    owner = {node_id: bar for bar in forest.barcode for node_id in bar._node_progression}
-
-    def split_off(bar):
-        first = forest.nodes[bar._node_progression[0]]
-        return owner.get(first.parent)
-
     selected = set(bars)
     parent = {}
     for bar in bars:
-        elder = split_off(bar)
+        elder = forest.parent_bar(bar)
         while elder is not None and elder not in selected:
-            elder = split_off(elder)
+            elder = forest.parent_bar(elder)
         parent[bar] = elder
     children = {bar: sorted((child for child in bars if parent[child] is bar), key=lambda child: child.birth)
                 for bar in bars}

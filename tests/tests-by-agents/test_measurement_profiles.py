@@ -1,5 +1,4 @@
 """P1–P5/W1–W4: half-open profiles, row identity, caching and signedness."""
-from copy import deepcopy
 from unittest.mock import Mock
 import unittest
 import numpy as np
@@ -49,16 +48,17 @@ class MeasurementProfileTests(unittest.TestCase):
         self.assertEqual(empty.evaluate_on_grid(np.array([0., 1.])).shape, (0, 2))
 
     def test_spy_is_called_once_per_representative_without_mutation(self):
-        forest = build(fan(), storage="cycles")
-        snapshots = [deepcopy(bar.cycle_reps) for bar in forest.barcode]
+        forest = build(fan())
+        bars = list(forest.barcode)
+        snapshots = [reps(forest, bar) for bar in bars]
         spy = Mock(side_effect=signed_chain_edge_length)
         profiles = compute_measurement_profiles(forest, spy, 'length', signed=True)
-        self.assertEqual(spy.call_count, sum(len(b.cycle_reps) for b in forest.barcode))
+        self.assertEqual(spy.call_count, sum(len(b.critical_values) for b in bars))
         self.assertTrue(all(call.args[1] is forest.point_cloud for call in spy.call_args_list))
-        self.assertEqual(snapshots, [b.cycle_reps for b in forest.barcode])
-        for bar in forest.barcode:
+        self.assertEqual(snapshots, [reps(forest, bar) for bar in bars])
+        for bar, bar_reps in zip(bars, snapshots):
             np.testing.assert_allclose(profiles[bar].vals,
-                [signed_chain_edge_length(r, forest.point_cloud) for r in bar.cycle_reps])
+                [signed_chain_edge_length(r, forest.point_cloud) for r in bar_reps])
 
     def test_zero_and_numpy_scalar_measurements(self):
         forest = profile_forest([(1, 3, [(1, 2, 4), (2, 3, 7)])])
@@ -99,7 +99,7 @@ class MeasurementProfileTests(unittest.TestCase):
             StepFunctionData(np.array([0., 1.]), np.array([1.]), np.array([1., 2.]), 0, (0, 2))
 
     def test_diff_only_profile_order_matches_literal_intervals(self):
-        forest = build(fan(), storage="diffs")
+        forest = build(fan())
         profiles = compute_measurement_profiles(forest, signed_chain_area, 'area', signed=True)
         bar = next(b for b in forest.barcode if b.birth == 1)
         np.testing.assert_array_equal(profiles[bar].starts, [1, 2, 3, 4])

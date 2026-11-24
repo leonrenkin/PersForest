@@ -15,7 +15,7 @@ class PublicAPITests(unittest.TestCase):
         self.assertIsInstance(PersistenceForest([[0, 0], [1, 0], [0, 1]]), PersistenceForest)
 
     def test_half_open_bar_and_cycle_queries_at_all_endpoint_sides(self):
-        forest = build(split(), storage="cycles")
+        forest = build(split())
         for event in (1., 3., 5., 7.):
             for time in (np.nextafter(event, -np.inf), event, np.nextafter(event, np.inf)):
                 with self.subTest(time=time):
@@ -31,18 +31,12 @@ class PublicAPITests(unittest.TestCase):
                     self.assertEqual(len(forest.active_bars_at(time)), len(expected))
                     for bar in forest.barcode:
                         if bar.birth <= time < bar.death:
-                            rep = bar.cycle_at_filtration_value(time)
+                            rep = forest.cycle_for_bar_at(bar, time)
                             self.assertLessEqual(rep.active_start, time)
                             self.assertGreater(rep.active_end, time)
                         else:
                             with self.assertRaises(ValueError):
-                                bar.cycle_at_filtration_value(time)
-
-
-    def test_d2_active_nodes_include_birth_and_exclude_death(self):
-        forest = build(split())
-        self.assertEqual([len(forest.active_nodes_at(t)) for t in (1, 3, 5, 7)], [1, 2, 1, 0])
-
+                                forest.cycle_for_bar_at(bar, time)
 
     def test_d2_active_cycles_include_birth_and_exclude_death(self):
         forest = build(split())
@@ -75,38 +69,40 @@ class PublicAPITests(unittest.TestCase):
         with self.assertRaises(ValueError):
             forest.max_bar()
 
-    def test_leaf_paths_and_roots_are_reciprocal(self):
+    def test_bar_level_forest_structure(self):
         forest = build(fan())
-        self.assertEqual(len(forest.roots), 1)
-        root = forest.nodes[next(iter(forest.roots))]
-        leaves = forest.leaves_below_node(root)
-        self.assertEqual(len(leaves), 3)
-        for leaf_id in leaves:
-            leaf = forest.nodes[leaf_id]
-            self.assertIs(forest.get_root(leaf), root)
-            path = forest.leaf_to_node_path(leaf, root)
-            self.assertEqual(path[0], leaf_id)
-            self.assertEqual(path[-1], root.id)
-            self.assertEqual(forest.node_to_leaf_path(leaf, root), path[::-1])
-            self.assertEqual(len(path), len(set(path)))
-            for child, parent in zip(path, path[1:]):
-                self.assertEqual(forest.nodes[child].parent, parent)
-                self.assertIn(child, forest.nodes[parent].children)
-        a, b = [forest.nodes[i] for i in sorted(leaves)[:2]]
-        with self.assertRaises(ValueError):
-            forest.leaf_to_node_path(a, b)
+        bars = {(bar.birth, bar.death): bar for bar in forest.barcode}
+        trunk, first, second = bars[1, 7], bars[3, 5], bars[4, 6]
+        self.assertIsNone(forest.parent_bar(trunk))
+        self.assertIs(forest.parent_bar(first), trunk)
+        self.assertIs(forest.parent_bar(second), trunk)
+        self.assertEqual(forest.child_bars(trunk), [first, second])
+        self.assertEqual(forest.child_bars(first), [])
+        self.assertEqual({bar.tree_id for bar in forest.barcode}, {trunk.tree_id})
+        # The trunk's representative changes where branches split off it, and at its death.
+        self.assertEqual(trunk.critical_values, (2.0, 3.0, 4.0, 7.0))
+        self.assertEqual(first.critical_values, (5.0,))
+        self.assertEqual(sorted(bar.index for bar in forest.barcode), [0, 1, 2])
+        for bar in forest.barcode:
+            reps = list(reversed(list(forest.iter_bar_cycle_reps(bar))))
+            self.assertEqual(tuple(rep.active_end for rep in reps), bar.critical_values)
+            self.assertEqual(reps[0].active_start, bar.birth)
+
+    def test_bar_queries_reject_foreign_bars(self):
+        forest = build(fan())
+        foreign = next(iter(build(fan()).barcode))
+        for query in (forest.parent_bar, forest.child_bars, lambda bar: forest.cycle_for_bar_at(bar, bar.birth)):
+            with self.assertRaisesRegex(ValueError, 'not in barcode'):
+                query(foreign)
 
     def test_delayed_barcode_matches_eager_and_repeats_are_rejected(self):
-        for storage in ('diffs', 'cycles'):
-            forest = build(fan(), storage=storage, compute_barcode=False)
-            self.assertEqual(forest.barcode, set())
+        forest = build(fan(), compute_barcode=False)
+        self.assertEqual(forest.barcode, set())
+        forest.compute_barcode()
+        self.assertEqual(positive_bars(forest), [(1, 7), (3, 5), (4, 6)])
+        self.assertEqual(positive_bars(forest), positive_bars(build(fan())))
+        with self.assertRaisesRegex(RuntimeError, 'already been called'):
             forest.compute_barcode()
-            self.assertEqual(positive_bars(forest), [(1, 7), (3, 5), (4, 6)])
-            self.assertEqual(positive_bars(forest), positive_bars(build(fan(), storage=storage)))
-            with self.assertRaisesRegex(RuntimeError, 'already been called'):
-                forest.compute_barcode()
-            with self.assertRaisesRegex(RuntimeError, 'already been called'):
-                forest._compute_barcode_diff()
 
     def test_d9_empty_computed_barcode_still_rejects_repeat(self):
         forest = PersistenceForest(np.empty((0, 2)))
@@ -130,26 +126,17 @@ class PublicAPITests(unittest.TestCase):
         self.assertEqual(empty.compute_measurement_landscapes(
             constant_one_functional, 'one').bar_kernels, {})
 
-    def test_storage_default_and_diff_bar_access_error(self):
-        self.assertEqual(build(triangle()).storage, 'diffs')
-        forest_with_interior = build(triangle(), storage="cycles")
-        self.assertTrue(all(rep.interior_available for bar in forest_with_interior.barcode
-                            for rep in bar.cycle_reps))
-        forest = build(fan(), storage="diffs")
+    def test_removed_options_and_representative_interiors(self):
+        forest = build(fan())
         bar = forest.max_bar()
-        self.assertEqual(bar.cycle_reps, [None] * len(bar.cycle_reps))
-        with self.assertRaisesRegex(ValueError, 'storage="diffs"'):
-            bar.cycle_at_filtration_value(bar.birth)
         self.assertIsInstance(forest.cycle_for_bar_at(bar, bar.birth), SignedChain)
-        for removed in ('keep_simplex_diff', 'compute_interior', 'diff_only_mode'):
+        self.assertTrue(all(rep.interior_available for rep in forest.iter_bar_cycle_reps(bar)))
+        for removed in ('storage', 'keep_simplex_diff', 'compute_interior', 'diff_only_mode'):
             with self.subTest(removed=removed), self.assertRaises(TypeError):
                 build(triangle(), **{removed: True})
 
-    def test_infinite_pfbar_finite_time_queries(self):
-        rep = SignedChain(set(chain('+01 -02 +12')), 1, np.inf)
-        bar = PFBar(1, np.inf, (1,), [rep])
+    def test_hand_made_pfbar(self):
+        bar = PFBar(1, np.inf, (2.0, np.inf), tree_id=3)
         self.assertEqual(bar.lifespan(), np.inf)
-        self.assertIs(bar.cycle_at_filtration_value(1), rep)
-        self.assertIs(bar.cycle_at_filtration_value(100), rep)
-        with self.assertRaises(ValueError):
-            bar.cycle_at_filtration_value(np.inf)
+        self.assertEqual(bar.critical_values, (2.0, np.inf))
+        self.assertEqual((bar.tree_id, bar.index), (3, None))

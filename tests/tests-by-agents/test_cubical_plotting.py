@@ -49,20 +49,18 @@ class CubicalFiltrationPlotTests(unittest.TestCase):
         plt.close("all")
 
     def test_cycle_follows_the_center_pixel_at_physical_coordinates(self):
-        for storage in ("diffs", "cycles"):
-            with self.subTest(storage=storage):
-                forest = PersistenceForest.from_cubical_grid(
-                    centered((3, 3)), spacing=(2.0, 3.0), origin=(10.0, 20.0), storage=storage)
-                ax = forest.plot_at_filtration(2, show=False)
-                [collection] = line_collections(ax)
-                points = np.concatenate(collection.get_segments())
-                # Pixel (1, 1) spans [12, 14] along axis 0 and [23, 26] along axis 1.
-                np.testing.assert_allclose(points.min(axis=0), [12, 23])
-                np.testing.assert_allclose(points.max(axis=0), [14, 26])
-                self.assertEqual(len(collection.get_segments()), 4)
+        forest = PersistenceForest.from_cubical_grid(
+            centered((3, 3)), spacing=(2.0, 3.0), origin=(10.0, 20.0))
+        ax = forest.plot_at_filtration(2, show=False)
+        [collection] = line_collections(ax)
+        points = np.concatenate(collection.get_segments())
+        # Pixel (1, 1) spans [12, 14] along axis 0 and [23, 26] along axis 1.
+        np.testing.assert_allclose(points.min(axis=0), [12, 23])
+        np.testing.assert_allclose(points.max(axis=0), [14, 26])
+        self.assertEqual(len(collection.get_segments()), 4)
 
     def test_signed_orientation_is_the_boundary_of_the_interior(self):
-        forest = PersistenceForest.from_cubical_grid(centered((3, 3)), spacing=(2.0, 3.0), storage="cycles")
+        forest = PersistenceForest.from_cubical_grid(centered((3, 3)), spacing=(2.0, 3.0))
         [bar] = forest.barcode
         [(_, interior_sign)] = forest.cycle_for_bar_at(bar, 2).interior
         for image_orientation, reflection in ((False, 1), (True, -1)):
@@ -182,7 +180,7 @@ class Cubical3DPlotTests(unittest.TestCase):
         plt.close("all")
 
     def test_complex_surface_and_cycle_faces(self):
-        forest = PersistenceForest.from_cubical_grid(centered((3, 3, 3)), spacing=(1.0, 2.0, 3.0), storage="cycles")
+        forest = PersistenceForest.from_cubical_grid(centered((3, 3, 3)), spacing=(1.0, 2.0, 3.0))
         ax = forest.plot_at_filtration(2, show=False, signed=True)
         complex_surface, cycle = poly_collections(ax)
         # The 26 present voxels expose their 54 outer faces and the 6 cavity faces.
@@ -222,16 +220,15 @@ class CubicalInteriorActivityPlotTests(unittest.TestCase):
         plt.close("all")
 
     def test_only_the_enclosed_pixel_is_colored(self):
-        for storage in ("diffs", "cycles"):
-            for overlap in ("longest", "layer"):
-                with self.subTest(storage=storage, overlap=overlap):
-                    forest = PersistenceForest.from_cubical_grid(centered((3, 3)), storage=storage)
-                    ax = forest.plot_interior_simplex_activity(show=False, overlap=overlap)
-                    [image] = ax.get_images()
-                    alpha = image.get_array()[..., 3]
-                    expected = np.zeros((3, 3), dtype=bool)
-                    expected[1, 1] = True
-                    np.testing.assert_array_equal(alpha > 0, expected)
+        for overlap in ("longest", "layer"):
+            with self.subTest(overlap=overlap):
+                forest = PersistenceForest.from_cubical_grid(centered((3, 3)))
+                ax = forest.plot_interior_simplex_activity(show=False, overlap=overlap)
+                [image] = ax.get_images()
+                alpha = image.get_array()[..., 3]
+                expected = np.zeros((3, 3), dtype=bool)
+                expected[1, 1] = True
+                np.testing.assert_array_equal(alpha > 0, expected)
 
     def test_show_complex_adds_the_sublevel_pixels_beneath(self):
         forest = PersistenceForest.from_cubical_grid(centered((3, 3)))
@@ -349,7 +346,7 @@ class CubicalAnimationTests(unittest.TestCase):
                 animation._func(2)
 
     def test_measurement_and_pair_animations(self):
-        forest = PersistenceForest.from_cubical_grid(centered((5, 5)), storage="cycles")
+        forest = PersistenceForest.from_cubical_grid(centered((5, 5)))
         animation, fig = forest.animate_barcode_measurement(cubical_chain_volume, frames=3)
         self.draw(animation)
         self.assertEqual(fig.axes[0].get_title(), "Cubical filtration")

@@ -45,13 +45,12 @@ class OrientationNumericsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'simplex .*non-finite'):
                 simplex_orientation([0, 1, 2], points)
 
-    def test_custom_filtration_rejects_bad_top_simplex_in_each_storage_mode(self):
+    def test_custom_filtration_rejects_bad_top_simplex(self):
         filtration = [(simplex, float(size)) for size in (1, 2, 3)
                       for simplex in combinations(range(3), size)]
         for height in (0., 1e-14):
             points = np.array([[0., 0], [1, 0], [2, height]])
-            for options in ({}, {'storage': 'cycles'},
-                            {'storage': 'diffs'}):
+            for options in ({}, {'reduce': False}, {'compute_barcode': False}):
                 with self.subTest(height=height, options=options), warnings.catch_warnings():
                     warnings.simplefilter('ignore', UserWarning)
                     with self.assertRaisesRegex(ValueError, r'simplex \(0, 1, 2\)'):

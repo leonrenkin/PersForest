@@ -16,7 +16,7 @@ image += 0.02 * rng.random(image.shape)
 # Values on pixels (GUDHI's top-cell convention); 0.05 length units per pixel.
 forest = PersistenceForest.from_cubical_grid(image, spacing=0.05)
 print(f"{len(forest.barcode)} bars from {image.size} pixels "
-      f"({forest.filtration_type}, storage={forest.storage!r}).")
+      f"({forest.filtration_type}).")
 
 for bar in forest.longest_bars(2):
     # Representative at birth: the closed ring, its length and enclosed area.

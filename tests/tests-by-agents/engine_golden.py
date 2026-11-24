@@ -82,36 +82,20 @@ def _signed(terms):
     return sorted([list(simplex), int(sign)] for simplex, sign in terms)
 
 
-def bar_structure(forest) -> dict:
-    """Map each bar to ``(critical_values, parent_bar)``, independent of node IDs.
-
-    ``critical_values`` are the ascending values at which the bar's
-    representative changes, ending at its death; ``parent_bar`` is the bar it
-    splits off at its birth, or None.
-    """
-    owner = {node_id: bar for bar in forest.barcode for node_id in bar._node_progression}
-    structure = {}
-    for bar in forest.barcode:
-        values = tuple(forest.nodes[node_id].filt_val for node_id in bar._node_progression)
-        structure[bar] = (values, owner.get(forest.nodes[bar._node_progression[0]].parent))
-    return structure
-
-
 def snapshot(forest) -> dict:
     """Return a JSON-compatible record of bars, forest structure and representatives.
 
     The record does not depend on node IDs or iteration order. A parent bar is
     identified by its own birth, death and critical values.
     """
-    structure = bar_structure(forest)
     bars = []
     for bar in forest.barcode:
-        values, parent = structure[bar]
         cycle_reps = [[r.active_start, r.active_end, _signed(r.signed_simplices),
                        _signed(r.interior) if r.interior_available else None]
                       for r in reps(forest, bar)]
-        parent_key = None if parent is None else [parent.birth, parent.death, list(structure[parent][0])]
-        bars.append([bar.birth, bar.death, list(values), parent_key, cycle_reps])
+        parent = forest.parent_bar(bar)
+        parent_key = None if parent is None else [parent.birth, parent.death, list(parent.critical_values)]
+        bars.append([bar.birth, bar.death, list(bar.critical_values), parent_key, cycle_reps])
     bars.sort(key=lambda item: json.dumps(item))
     record = {'bars': bars}
     activity = forest.interior_simplex_activity()

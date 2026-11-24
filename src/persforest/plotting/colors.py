@@ -325,10 +325,10 @@ def _sid(ob) -> int:
     """
     Return the integer color-set id for a bar-like object.
 
-    PersistenceForest bars use ``root_id`` to group related bars into color
+    PersistenceForest bars use ``tree_id`` to group related bars into color
     families.
     """
-    return int(getattr(ob, "root_id"))
+    return int(getattr(ob, "tree_id"))
 
 def _stable_sid_key(sid: Any) -> Any:
     """
@@ -357,7 +357,7 @@ def build_scheme_from_bars(
     Parameters
     ----------
     bars : iterable
-        Objects exposing ``root_id`` to define their color set.
+        Objects exposing ``tree_id`` to define their color set.
     seed : int | None, optional
         Seed for reproducible base selection.
     order_within_set : {"light_to_dark","dark_to_light"}, optional
@@ -408,13 +408,13 @@ def color_map_for_bars(
     """
     Build a color map for barcode bars.
 
-    Bars with the same ``root_id`` receive related color variants. This is the
+    Bars with the same ``tree_id`` receive related color variants. This is the
     color-family map used by ``PersistenceForest._build_color_map_forest``.
 
     Parameters
     ----------
     bars : iterable
-        Bar-like objects exposing ``root_id`` and usable as dictionary keys
+        Bar-like objects exposing ``tree_id`` and usable as dictionary keys
         unless ``by_id=True``.
     seed : int | None, optional
         Seed for reproducible scheme generation.

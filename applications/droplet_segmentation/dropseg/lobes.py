@@ -109,12 +109,12 @@ def split_selection(selection: Selection, geometry, waist_ratio: float) -> Split
     outline = outer_loop(selection.cycle, geometry)
     radius = math.sqrt(abs(polygon_area(outline, signed=True)) / math.pi)
     points = np.unique(outline, axis=0)
-    forest = PersistenceForest.from_points(points, storage="cycles")
+    forest = PersistenceForest.from_points(points)
     inside = Path(outline)
     candidates = [bar for bar in long_bars(forest) if bar.death >= STAIRCASE_LOBE_RADIUS
                   and bar.birth <= waist_ratio * bar.death]
     lobe_bars = [bar for bar in candidates
-                 if inside.contains_point(outer_loop(bar.cycle_reps[-1], points).mean(axis=0))]
+                 if inside.contains_point(outer_loop(next(iter(forest.iter_bar_cycle_reps(bar))), points).mean(axis=0))]
     branches = branch_structure(forest, lobe_bars)
     lobes = []
     if len(lobe_bars) > 1:

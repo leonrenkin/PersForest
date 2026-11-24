@@ -47,10 +47,6 @@ class Settings:
 
     Attributes
     ----------
-    storage : {"cycles", "diffs"}
-        Storage of the forest; "diffs" reconstructs representatives instead
-        of storing them, which needs less memory for large grids. The
-        segments are the same.
     min_bar_length : float
         Step 1, and the minimal rise of a lobe in step 4.
     split_level : float
@@ -72,7 +68,6 @@ class Settings:
         Step 7, grid pixels.
     """
 
-    storage: str = "cycles"
     min_bar_length: float = 0.2
     split_level: float = 0.3
     min_level: float = 0.1
@@ -146,13 +141,9 @@ class Result:
     timings: dict[str, float] = field(default_factory=dict)
 
 
-def peak(bar: PFBar, forest: PersistenceForest | None = None) -> tuple[int, int]:
-    """Pixel of a cubical bar's peak: the last pixel to enter lies in its last representative.
-
-    ``forest`` is needed when the representatives are not stored (``storage="diffs"``).
-    """
-    stored = bar.cycle_reps[-1] if bar.cycle_reps else None
-    last = stored if stored is not None else next(iter(forest.iter_bar_cycle_reps(bar)))
+def peak(bar: PFBar, forest: PersistenceForest) -> tuple[int, int]:
+    """Pixel of a cubical bar's peak: the last pixel to enter lies in its last representative."""
+    last = next(iter(forest.iter_bar_cycle_reps(bar)))
     (row, column), _ = next(iter(last.interior))
     return row // 2, column // 2
 
@@ -234,7 +225,7 @@ def segment(image: NDArray[np.float64], settings: Settings = Settings()) -> Resu
     """Segment the bright droplets of ``image``, all steps on its own grid."""
     timings = {}
     clock = time.perf_counter()
-    forest = PersistenceForest.from_cubical_grid(image, storage=settings.storage)
+    forest = PersistenceForest.from_cubical_grid(image)
     bars = find_peaks(forest, settings)
     branches, outlined, late = split_forest(forest, bars, settings)
     timings["forest"] = time.perf_counter() - clock

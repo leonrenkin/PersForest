@@ -25,13 +25,12 @@ class CubicalMeasurementTests(unittest.TestCase):
     def test_boundary_and_interior_measures_with_anisotropic_spacing(self):
         for shape, spacing, boundary, interior in (((3, 3), (2.0, 3.0), 2 * 2 + 2 * 3, 6.0),
                                                    ((3, 3, 3), (1.0, 2.0, 3.0), 2 * 6 + 2 * 3 + 2 * 2, 6.0)):
-            for storage in ("diffs", "cycles"):
-                with self.subTest(shape=shape, storage=storage):
-                    forest = PersistenceForest.from_cubical_grid(centered(shape), spacing=spacing, storage=storage)
-                    [bar] = forest.barcode
-                    [rep] = reps(forest, bar)
-                    self.assertAlmostEqual(cubical_chain_volume(rep, forest.geometry), boundary)
-                    self.assertAlmostEqual(cubical_chain_interior_volume(rep, forest.geometry), interior)
+            with self.subTest(shape=shape):
+                forest = PersistenceForest.from_cubical_grid(centered(shape), spacing=spacing)
+                [bar] = forest.barcode
+                [rep] = reps(forest, bar)
+                self.assertAlmostEqual(cubical_chain_volume(rep, forest.geometry), boundary)
+                self.assertAlmostEqual(cubical_chain_interior_volume(rep, forest.geometry), interior)
 
     def test_opposite_orientations_count_separately_unless_cancelled(self):
         forest = PersistenceForest.from_cubical_grid(centered((3, 3)))

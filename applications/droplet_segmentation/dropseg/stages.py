@@ -86,8 +86,7 @@ class Stages:
 
     def forest(self, parameters: Parameters) -> PersistenceForest:
         key = (parameters.upsample, parameters.kernel_width)
-        return self._cached("forest", key, lambda: PersistenceForest.from_cubical_grid(
-            self.image(parameters), storage=self.settings(parameters).storage))
+        return self._cached("forest", key, lambda: PersistenceForest.from_cubical_grid(self.image(parameters)))
 
     def peaks(self, parameters: Parameters) -> list:
         """Step 1: the candidate bars."""

@@ -71,9 +71,20 @@ class ForestArrays:
         return np.concatenate((before[0], after[0])), np.concatenate((before[1], after[1]))
 
 
+@dataclass(slots=True)
+class TreeNode:
+    """Node of the forest's tree view used for plotting: ID, value, parent ID (or None), child IDs."""
+
+    id: int
+    filt_val: float
+    parent: int | None
+    children: set[int]
+
+
 def build_forest_arrays(cells: CellFiltration, *, reduce: bool, filtration_tol: float) -> ForestArrays:
     """Run the compiled engine on a cell filtration."""
-    top_facets = np.ascontiguousarray(cells.top_facets, dtype=np.int64).reshape(cells.n_top, -1)
+    top_facets = np.ascontiguousarray(cells.top_facets, dtype=np.int64).reshape(
+        cells.n_top, len(cells.facet_incidence))
     result = _engine.build_forest(
         event_cells=np.ascontiguousarray(cells.event_cells, dtype=np.int64),
         event_values=np.ascontiguousarray(cells.event_values, dtype=np.float64),

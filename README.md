@@ -121,15 +121,15 @@ point cloud or volume.
   [Tutorial 07](examples/tutorials/07_plotting_cubical_grids.ipynb) shows the
   grid plots.
 
-## Representatives and storage
+## Representatives and forest structure
 
-`storage="diffs"` (default) stores only the changes between consecutive
-representatives and reconstructs them on demand. It is faster and uses less
-memory. `storage="cycles"` stores every representative, which pays off when
-querying many single filtration values or rendering long animations.
-
-Get representatives with `forest.iter_bar_cycle_reps(bar)` or
-`forest.cycle_for_bar_at(bar, value)`. `forest.interior_simplex_activity()`
+The forest stores, for each node, only the cells its representative adds or
+removes; representatives are rebuilt on demand from these changes. Get them
+with `forest.iter_bar_cycle_reps(bar)` or `forest.cycle_for_bar_at(bar, value)`.
+A bar's representative changes at `bar.critical_values`; `forest.parent_bar(bar)`
+is the bar it splits off at its birth (None at the root of its tree) and
+`forest.child_bars(bar)` the bars that split off it; `bar.tree_id` names its
+tree. `forest.interior_simplex_activity()`
 returns when each top-dimensional cell lies inside a representative; plot it
 with `forest.plot_interior_simplex_activity()`.
 

@@ -154,7 +154,7 @@ def _plot_persistence_forest_generic(
         if not roles <= {"roots", "branches", "leaves"}:
             raise ValueError("Unknown node role")
 
-    original = forest.nodes
+    original, bar_nodes = forest._tree_view()
     values = {i: float(n.filt_val) for i, n in original.items()}
     if any(not np.isfinite(v) for v in values.values()):
         raise ValueError("Forest node filtration values must be finite")
@@ -205,7 +205,7 @@ def _plot_persistence_forest_generic(
         raise ValueError("min_bar_length requires a computed barcode")
     owners = {}
     for bar in bars:
-        for i in bar._node_progression:
+        for i in bar_nodes.get(bar, ()):
             if i in original and original[i].parent is not None:
                 if i in owners and owners[i] is not bar:
                     raise ValueError("Barcode paths assign multiple owners to an edge")

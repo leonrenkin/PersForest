@@ -121,7 +121,7 @@ def segment_image(image: NDArray[np.float64], parameters: Parameters = Parameter
         segmentation = Segmentation(image, result.labels, 1, result.groups, result=result)
         n_broken = len(result.broken)
     else:
-        labels, tile_results = segment_tiled(image, parameters.settings("diffs"), upsampler(parameters), factor,
+        labels, tile_results = segment_tiled(image, parameters.settings(), upsampler(parameters), factor,
                                              tile_size, tile_margin, workers)
         segmentation = Segmentation(upsampler(parameters)(image), labels, factor,
                                     assemble_groups(tile_results, image.shape, factor), tiles=tile_results)

@@ -8,17 +8,17 @@ import gudhi
 import numpy as np
 from persforest import PersistenceForest
 from persforest.measurements.basic import signed_chain_area, signed_chain_edge_length, signed_chain_interior_volume
-from fixtures_small_filtrations import positive_bars, active_reps
+from fixtures_small_filtrations import positive_bars, active_reps, reps
 from oracle_chains import coefficients, boundary, homology_data, rank, sample_times
 
 
 class AlphaIntegrationTests(unittest.TestCase):
     def test_a1_equilateral_triangle_radius_units_and_geometry(self):
         points = np.array([[0, 0], [2, 0], [1, math.sqrt(3)]])
-        forest = PersistenceForest(points, storage="cycles")
+        forest = PersistenceForest(points)
         np.testing.assert_allclose(positive_bars(forest), [(1, 2 / math.sqrt(3))], rtol=1e-12, atol=1e-12)
         [bar] = forest.barcode
-        [rep] = bar.cycle_reps
+        [rep] = reps(forest, bar)
         self.assertEqual(rep.signed_simplices, {((0, 1), 1), ((0, 2), -1), ((1, 2), 1)})
         self.assertAlmostEqual(signed_chain_area(rep, points), math.sqrt(3))
         self.assertAlmostEqual(signed_chain_edge_length(rep, points), 6)
@@ -28,15 +28,15 @@ class AlphaIntegrationTests(unittest.TestCase):
     def test_a2_right_triangle_has_no_positive_h1_interval(self):
         forest = PersistenceForest([[0, 0], [1, 0], [0, 1]])
         self.assertEqual(positive_bars(forest), [])
-        self.assertEqual(forest.nodes, {})
+        self.assertEqual(forest.barcode, set())
 
     def test_a3_square_tie_preserves_square_boundary_not_diagonal(self):
         points = np.array([[0, 0], [1, 0], [1, 1], [0, 1]])
         for permutation in ([0, 1, 2, 3], [2, 0, 3, 1], [3, 2, 1, 0]):
-            forest = PersistenceForest(points[permutation], storage="cycles")
+            forest = PersistenceForest(points[permutation])
             np.testing.assert_allclose(positive_bars(forest), [(.5, 1 / math.sqrt(2))], rtol=1e-12, atol=1e-12)
             [bar] = forest.barcode
-            for rep in bar.cycle_reps:
+            for rep in reps(forest, bar):
                 support = {tuple(sorted(permutation[i] for i in s)) for s, _ in rep.signed_simplices}
                 self.assertEqual(support, {(0, 1), (1, 2), (2, 3), (0, 3)})
                 self.assertAlmostEqual(signed_chain_area(rep, forest.point_cloud), 1)
@@ -44,10 +44,10 @@ class AlphaIntegrationTests(unittest.TestCase):
     def test_a4_regular_tetrahedron_radius_barcode_and_volume(self):
         points = np.array([[0, 0, 0], [1, 0, 0], [.5, math.sqrt(3) / 2, 0],
                            [.5, math.sqrt(3) / 6, math.sqrt(2 / 3)]])
-        forest = PersistenceForest(points, storage="cycles")
+        forest = PersistenceForest(points)
         np.testing.assert_allclose(positive_bars(forest), [(1 / math.sqrt(3), math.sqrt(3 / 8))], rtol=1e-12, atol=1e-12)
         [bar] = forest.barcode
-        [rep] = bar.cycle_reps
+        [rep] = reps(forest, bar)
         self.assertEqual(len(rep.signed_simplices), 4)
         self.assertEqual(boundary(coefficients(rep.signed_simplices)), {})
         self.assertAlmostEqual(signed_chain_interior_volume(rep, points), math.sqrt(2) / 12)
@@ -55,7 +55,7 @@ class AlphaIntegrationTests(unittest.TestCase):
     def test_a5_seeded_barcode_matches_gudhi_over_two_fields(self):
         for count, dim in [(12, 2), (10, 3)]:
             points = np.random.default_rng(17).random((count, dim))
-            forest = PersistenceForest(points, storage="cycles")
+            forest = PersistenceForest(points)
             for field in (2, 3):
                 # Keep the owner alive while its iterators or persistence data are used.
                 alpha = gudhi.AlphaComplex(points=points)

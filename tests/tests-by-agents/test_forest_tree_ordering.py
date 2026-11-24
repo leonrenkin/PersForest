@@ -6,7 +6,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from persforest._forest.graph_model import PFNode
+from persforest._forest.arrays import TreeNode
 from persforest.plotting.forest import _plot_persistence_forest_generic
 
 
@@ -16,12 +16,14 @@ def _forest_with_distinct_tree_endpoints():
     specs = [(0, 0.0, None), (1, 10.0, 0),
              (2, 2.0, None), (3, 7.0, 2),
              (4, 1.0, None), (5, 4.0, 4)]
-    nodes = {i: PFNode(i, value, None, set(), parent)
+    nodes = {i: TreeNode(i, value, parent, set())
              for i, value, parent in specs}
     for node in nodes.values():
         if node.parent is not None:
             nodes[node.parent].children.add(node.id)
-    return SimpleNamespace(nodes=nodes, barcode=[])
+    forest = SimpleNamespace(nodes=nodes, barcode=[])
+    forest._tree_view = lambda: (forest.nodes, {})
+    return forest
 
 
 class ForestTreeOrderingTests(unittest.TestCase):

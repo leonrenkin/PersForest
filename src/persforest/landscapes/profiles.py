@@ -29,7 +29,7 @@ class ProfileBar:
     bar_id: int
     birth: float
     death: float
-    root_id: int | None = None
+    tree_id: int | None = None
 
     def __post_init__(self) -> None:
         if (isinstance(self.bar_id, (bool, np.bool_))
@@ -222,7 +222,7 @@ def _build_step_function_data(
     starts, ends, vals = np.asarray(records, dtype=float).reshape(-1, 3).T
     return StepFunctionData(
         starts, ends, vals, baseline, (float(bar.birth), float(bar.death)),
-        metadata={"bar_birth": bar.birth, "bar_death": bar.death, "root_id": getattr(bar, "root_id", None)},
+        metadata={"bar_birth": bar.birth, "bar_death": bar.death, "tree_id": getattr(bar, "tree_id", None)},
     )
 
 
@@ -315,10 +315,11 @@ def compute_measurement_profiles(
     for i, bar in enumerate(source_bars):
         ProfileBar(i, float(bar.birth), float(bar.death))
     if isinstance(forest.barcode, (set, frozenset)):
-        source_bars.sort(key=lambda bar: (bar.birth, bar.death, tuple(getattr(bar, "_node_progression", ()))))
-    source_manifest = tuple((float(bar.birth), float(bar.death), tuple(getattr(bar, "_node_progression", ()))) for bar in source_bars)
+        source_bars.sort(key=lambda bar: (bar.birth, bar.death, tuple(getattr(bar, "critical_values", ()))))
+    source_manifest = tuple((float(bar.birth), float(bar.death), tuple(getattr(bar, "critical_values", ())))
+                            for bar in source_bars)
     selected = [bar for bar in source_bars if bar.death - bar.birth >= min_bar_length]
-    bars = tuple(ProfileBar(i, float(bar.birth), float(bar.death), getattr(bar, "root_id", None)) for i, bar in enumerate(selected))
+    bars = tuple(ProfileBar(i, float(bar.birth), float(bar.death), getattr(bar, "tree_id", None)) for i, bar in enumerate(selected))
     additive_weights = _additive_weights(forest, cycle_func) if selected else None
     steps = {i: _build_step_function_data(forest, bar, cycle_func, baseline, signed=signed,
                                           additive_weights=additive_weights)

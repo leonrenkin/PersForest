@@ -1,5 +1,4 @@
 """V1–V5/V7: test plotted scientific data, not backend-dependent pixels."""
-from copy import deepcopy
 from types import SimpleNamespace
 import unittest
 import numpy as np
@@ -13,7 +12,7 @@ from persforest.plotting.landscapes import plot_barcode_measurement_generic, plo
 from persforest.plotting._scene import _activity_rows_for_plotting
 from persforest.plotting.animation._timing import _compute_frame_times
 from persforest.plotting.colors import build_color_scheme
-from fixtures_small_filtrations import triangle, split, fan, build
+from fixtures_small_filtrations import triangle, split, fan, build, reps
 
 
 class PlottingContractTests(unittest.TestCase):
@@ -31,7 +30,8 @@ class PlottingContractTests(unittest.TestCase):
 
     def test_filtration_cycle_artists_observe_birth_split_and_death(self):
         forest = build(split())
-        before = deepcopy([b.cycle_reps for b in forest.barcode])
+        bars = list(forest.barcode)
+        before = [reps(forest, b) for b in bars]
         for time, counts in [(0, []), (1, [4]), (3, [3, 3]), (5, [3]), (7, [])]:
             ax = forest.plot_at_filtration(time, show=False, show_complex=False,
                                            style_2d={'show_orientation_arrows': False})
@@ -40,7 +40,7 @@ class PlottingContractTests(unittest.TestCase):
             for collection in cycles:
                 self.assertTrue(np.isfinite(collection.get_segments()).all())
             plt.close(ax.figure)
-        self.assertEqual(before, [b.cycle_reps for b in forest.barcode])
+        self.assertEqual(before, [reps(forest, b) for b in bars])
 
     def test_signed_plot_preserves_doubled_edge(self):
         forest = build(fan())
@@ -93,7 +93,7 @@ class PlottingContractTests(unittest.TestCase):
         np.testing.assert_allclose(ax.lines[1].get_ydata(), 2 * ax.lines[0].get_ydata())
 
     def test_interior_activity_rows_faces_and_real_artists(self):
-        forest = build(split(), storage="cycles")
+        forest = build(split())
         rows = _activity_rows_for_plotting(forest, 'layer', 0)
         self.assertEqual(sorted((s, b.birth, length) for s, b, length in rows),
                          [((0, 1, 2), 1, 2), ((0, 1, 2), 3, 2), ((0, 1, 3), 1, 6)])

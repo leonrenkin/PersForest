@@ -37,20 +37,16 @@ class InteriorVolumeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "full-dimensional"):
             signed_chain_interior_volume(chain, np.eye(3))
 
-    def test_measurement_profiles_match_in_both_modes(self):
+    def test_measurement_profiles_match_representatives(self):
         points = np.random.default_rng(42).random((30, 3))
-        full = PersistenceForest(points, storage="cycles")
-        diff = PersistenceForest(points, storage="diffs")
-        results = []
-        for forest in (full, diff):
-            bf = compute_measurement_profiles(forest, signed_chain_interior_volume, "volume", signed=True)
-            results.append({bar._node_progression: bf[bar] for bar in forest.barcode})
-        self.assertEqual(results[0].keys(), results[1].keys())
-        for key, expected in results[0].items():
-            actual = results[1][key]
-            np.testing.assert_array_equal(actual.starts, expected.starts)
-            np.testing.assert_array_equal(actual.ends, expected.ends)
-            np.testing.assert_allclose(actual.vals, expected.vals)
+        forest = PersistenceForest(points)
+        profiles = compute_measurement_profiles(forest, signed_chain_interior_volume, "volume", signed=True)
+        for bar in forest.barcode:
+            ascending = list(reversed(list(forest.iter_bar_cycle_reps(bar))))
+            np.testing.assert_array_equal(profiles[bar].starts, [r.active_start for r in ascending])
+            np.testing.assert_array_equal(profiles[bar].ends, [r.active_end for r in ascending])
+            np.testing.assert_allclose(profiles[bar].vals,
+                                       [signed_chain_interior_volume(r, points) for r in ascending])
 
 
 if __name__ == '__main__':

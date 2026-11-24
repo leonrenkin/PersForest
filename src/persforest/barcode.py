@@ -1,108 +1,87 @@
-"""barcode: mechanically extracted reference implementation."""
+"""barcode: the bars of a persistence forest."""
 
-from persforest.chains import SignedChain
-from typing import Optional
+from collections.abc import Sequence
+from typing import Any
+
 
 class PFBar:
-    """ 
-    Persistence bar together with a progression of cycle representatives.
+    """
+    A bar of a persistence forest: a codimension-one class from birth to death.
 
-    For an ambient ``dim``-dimensional point cloud, these bars represent
-    codimension-one homology classes. Each cycle representative has
-    ``active_start`` and ``active_end`` attributes giving the interval on which
-    this representative is active.
-    The cycle reps are a strictly decreasing chain w.r.t. inclusion.
+    The representative of the class changes at ``critical_values``; between
+    consecutive critical values it is constant. Representatives are obtained
+    from the forest (``cycle_for_bar_at``, ``iter_bar_cycle_reps``), and so is
+    the forest structure (``parent_bar``, ``child_bars``). Bars compare and
+    hash by identity.
+
+    Attributes
+    ----------
+    birth, death : float
+        Filtration values at which the class is born and dies.
+    tree_id : int or None
+        Index of the tree of the forest that contains the bar; bars of one tree
+        are connected through ``parent_bar``.
+    index : int or None
+        Position in the forest's deterministic bar order.
     """
 
-    def __init__(self, 
-                 birth: float, 
-                 death: float, 
-                 _node_progression: tuple[int,...], 
-                 cycle_reps: list[SignedChain], 
-                 is_max_tree_bar: Optional[bool]=None, 
-                 root_id: Optional[int]=None):
+    __slots__ = ("birth", "death", "tree_id", "_critical_values", "_arrays", "_index")
+
+    def __init__(self, birth: float, death: float, critical_values: Sequence[float] = (),
+                 tree_id: int | None = None):
         """
-        Initialize a persistence bar together with its representative cycles.
+        Initialize a bar.
 
         Parameters
         ----------
-        birth : float
-            Filtration value where the class is born.
-        death : float
-            Filtration value where the class dies.
-        _node_progression : tuple[int, ...]
-            Node ids (from leaves to root) describing where the representative changes.
-        cycle_reps : list[SignedChain]
-            Cycle representatives active on consecutive subintervals.
-        is_max_tree_bar : bool | None
-            True if this bar is the longest in its tree, False if truncated by
-            another bar, None if unknown.
-        root_id : int | None
-            Id of the tree root that contains this bar.
+        birth, death : float
+            Filtration values at which the class is born and dies.
+        critical_values : sequence of float
+            Values at which the representative changes, ascending, ending at
+            ``death``.
+        tree_id : int, optional
+            Index of the tree that contains the bar.
         """
         self.birth = birth
         self.death = death
-        self._node_progression = _node_progression #nodes saved as node_ids
-        self.cycle_reps = cycle_reps
-        self.is_max_tree_bar = is_max_tree_bar
-        self.root_id = root_id
+        self.tree_id = tree_id
+        self._critical_values: tuple[float, ...] | None = tuple(critical_values)
+        self._arrays: Any = None
+        self._index: int | None = None
 
+    @classmethod
+    def _from_forest(cls, arrays: Any, index: int, birth: float, death: float, tree_id: int) -> "PFBar":
+        """Bar ``index`` of a forest's engine arrays; critical values are read on first use."""
+        bar = cls(birth, death, (), tree_id)
+        bar._critical_values = None
+        bar._arrays = arrays
+        bar._index = index
+        return bar
 
-    def cycle_at_filtration_value(self, filt_val)->SignedChain:
+    @property
+    def critical_values(self) -> tuple[float, ...]:
+        """Values at which the representative changes, ascending, ending at ``death``.
+
+        The representative active on ``[birth, critical_values[0])`` changes at
+        each critical value; the last one is the death.
         """
-        Return the active representative cycle at a given filtration value.
+        if self._critical_values is None:
+            self._critical_values = tuple(self._arrays.critical_values(self._index).tolist())
+        return self._critical_values
 
-        Parameters
-        ----------
-        filt_val : float
-            Filtration value inside ``[birth, death)`` of the bar.
+    @property
+    def index(self) -> int | None:
+        """Position of the bar in its forest's deterministic bar order.
 
-        Returns
-        -------
-        SignedChain
-            Cycle representative active at ``filt_val``.
-
-        Raises
-        ------
-        ValueError
-            If ``filt_val`` lies outside the lifespan, no representative is
-            active, or representatives were not stored (``storage="diffs"``).
+        The order is the same for the same input and options, so it breaks
+        ties between otherwise equal bars reproducibly. None for bars not
+        created by a forest.
         """
+        return self._index
 
-        if filt_val < self.birth:
-            raise ValueError(f"Filtration value {filt_val} is too small and not in lifespan of the bar")
-        if filt_val >= self.death:
-            raise ValueError(f"Filtration value {filt_val} is too large and not in lifespan of the bar")
-        if not self.cycle_reps or any(cycle is None for cycle in self.cycle_reps):
-            raise ValueError(
-                "This bar has no stored cycle representative (possibly because "
-                'PersistenceForest was built with storage="diffs"). '
-                "Use forest.cycle_for_bar_at(bar, filt_val) instead."
-            )
-
-        if len(self._node_progression)==1:
-            return self.cycle_reps[0]
-
-        first = 0
-        last = len(self.cycle_reps)-1
-        best = None
-
-        while first<=last:
-            midpoint = (first+last) // 2
-
-            if self.cycle_reps[midpoint].active_start <= filt_val:
-                best = self.cycle_reps[midpoint]
-                first = midpoint+1
-            else:
-                last = midpoint-1
-
-        if best == None:
-            raise ValueError(f"Binary search in barcode returned {None}, check if bar is empty list")
-        elif best.active_start>filt_val or best.active_end<= filt_val:
-            raise ValueError("Output of binary search incorrect, loop not active at filtration value. Check correctness of loop_at_filtration method.")
-        
-        return best
-    
-    def lifespan(self):
-        """Returns lifespan of bar"""
+    def lifespan(self) -> float:
+        """Return ``death - birth``."""
         return self.death - self.birth
+
+    def __repr__(self) -> str:
+        return f"PFBar(birth={self.birth!r}, death={self.death!r})"

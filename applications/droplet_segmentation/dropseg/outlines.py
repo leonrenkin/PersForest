@@ -74,12 +74,9 @@ class Selection:
 def representatives(forest: PersistenceForest, bar: PFBar, start: float):
     """Representatives of ``bar`` active after ``start``, by increasing filtration value.
 
-    With ``storage="cycles"`` these are the stored representatives. With
-    ``storage="diffs"`` they are reconstructed from the bar's death downward,
-    which stops at ``start``, and returned in increasing order.
+    They are reconstructed from the bar's death downward, which stops at
+    ``start``, and returned in increasing order.
     """
-    if forest.storage == "cycles":
-        return bar.cycle_reps
     window = []
     for cycle in forest.iter_bar_cycle_reps(bar):
         if cycle.active_end <= start:

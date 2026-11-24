@@ -1,4 +1,4 @@
-"""Compiled engine: forest arrays agree with the golden snapshots and the Python engine."""
+"""Compiled engine: forests agree with the frozen Python reference engine."""
 from collections import defaultdict
 import json
 import unittest
@@ -7,68 +7,18 @@ import warnings
 import numpy as np
 
 from persforest import PersistenceForest
-from persforest._forest.arrays import build_forest_arrays, chain_ids
-from engine_golden import CASES, GOLDEN_PATH, MODES, _signed, digest, snapshot
+from persforest._forest.arrays import build_forest_arrays
+from engine_golden import snapshot
 from fixtures_small_filtrations import annulus, build, disconnected, fan, split, tetrahedra, triangle
+from reference_engine import ReferenceForest
 
 
-def keyed(cells, ids, signs):
-    return set(zip(cells.cell_keys(ids.tolist()), signs.tolist()))
-
-
-def arrays_snapshot(arrays, cells) -> dict:
-    """The golden-snapshot record, computed from the engine arrays alone."""
-    def bar_key(bar):
-        return [float(arrays.bar_birth[bar]), float(arrays.bar_death[bar]),
-                arrays.critical_values(bar).tolist()]
-
-    bars = []
-    activity = defaultdict(list)
-    for bar in range(arrays.n_bars):
-        reps = []
-        for node in arrays.progression(bar).tolist():
-            facets, facet_signs, tops, orientations = chain_ids(cells, *arrays.subtree_entries(node))
-            start, end = arrays.active_interval(node)
-            reps.append([start, end, _signed(keyed(cells, facets, facet_signs)),
-                         _signed(keyed(cells, tops, orientations))])
-        parent = int(arrays.bar_parent[bar])
-        bars.append(bar_key(bar) + [None if parent < 0 else bar_key(parent), reps])
-        # A top cell's interior activity ends at the first node, walking down
-        # from the death, whose subtree contains it.
-        seen = {}
-        previous = None
-        for node in reversed(arrays.progression(bar).tolist()):
-            cells_, signs_ = (arrays.subtree_entries(node) if previous is None
-                              else arrays.step_entries(previous, node))
-            for top in cells_[cells_ < cells.n_top].tolist():
-                seen.setdefault(top, float(arrays.node_value[node]))
-            previous = node
-        birth, death = float(arrays.bar_birth[bar]), float(arrays.bar_death[bar])
-        for top, end in seen.items():
-            activity[cells.cell_keys([top])[0]].append([birth, death, birth, end])
-    bars.sort(key=lambda item: json.dumps(item))
-    return {'bars': bars,
-            'interior_activity': sorted([list(key), sorted(rows)] for key, rows in activity.items())}
-
-
-def tree_partition(groups) -> list:
-    return sorted(sorted(json.dumps(item) for item in group) for group in groups)
-
-
-def python_trees(forest):
+def tree_partition(forest) -> list:
+    """Bars grouped by tree, as sorted JSON keys (independent of tree numbering)."""
     trees = defaultdict(list)
     for bar in forest.barcode:
-        values = [forest.nodes[n].filt_val for n in bar._node_progression]
-        trees[bar.root_id].append([bar.birth, bar.death, values])
-    return trees.values()
-
-
-def compiled_trees(arrays):
-    trees = defaultdict(list)
-    for bar in range(arrays.n_bars):
-        trees[int(arrays.bar_tree[bar])].append(
-            [float(arrays.bar_birth[bar]), float(arrays.bar_death[bar]), arrays.critical_values(bar).tolist()])
-    return trees.values()
+        trees[bar.tree_id].append(json.dumps([bar.birth, bar.death, list(bar.critical_values)]))
+    return sorted(sorted(group) for group in trees.values())
 
 
 def random_inputs():
@@ -93,20 +43,7 @@ def random_inputs():
 
 
 class CompiledEngineTests(unittest.TestCase):
-    def test_arrays_reproduce_golden_snapshots(self):
-        expected = json.loads(GOLDEN_PATH.read_text())
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore', UserWarning)
-            for name, make in CASES.items():
-                for mode, options in MODES.items():
-                    with self.subTest(case=name, mode=mode):
-                        forest = make(**options)
-                        arrays = build_forest_arrays(forest._cells, reduce=options['reduce'],
-                                                     filtration_tol=forest.filtration_tol)
-                        self.assertEqual(digest(arrays_snapshot(arrays, forest._cells)),
-                                         expected[f'{name}/{mode}']['digest'])
-
-    def test_arrays_match_python_engine_on_random_inputs(self):
+    def test_forests_match_reference_engine_on_random_inputs(self):
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', UserWarning)
             for name, make in random_inputs():
@@ -114,10 +51,9 @@ class CompiledEngineTests(unittest.TestCase):
                     for tol in (0.0, 1e-12):
                         with self.subTest(case=name, reduce=reduce, tol=tol):
                             forest = make(reduce=reduce, filtration_tol=tol)
-                            arrays = build_forest_arrays(forest._cells, reduce=reduce, filtration_tol=tol)
-                            self.assertEqual(arrays_snapshot(arrays, forest._cells), snapshot(forest))
-                            self.assertEqual(tree_partition(compiled_trees(arrays)),
-                                             tree_partition(python_trees(forest)))
+                            reference = ReferenceForest(forest._cells, reduce=reduce, filtration_tol=tol)
+                            self.assertEqual(snapshot(forest), snapshot(reference))
+                            self.assertEqual(tree_partition(forest), tree_partition(reference))
 
     def test_subtrees_are_contiguous_post_order_ranges(self):
         values = np.random.default_rng(3).random((15, 15))

@@ -9,7 +9,7 @@ import numpy as np
 from matplotlib.colors import to_rgba
 
 from persforest.barcode import PFBar
-from persforest._forest.graph_model import PFNode
+from persforest._forest.arrays import TreeNode
 from persforest.plotting.forest import _plot_persistence_forest_generic
 
 
@@ -19,16 +19,16 @@ class HorizontalForestPlotTests(unittest.TestCase):
 
     def test_horizontal_filtration_geometry_and_bar_colors(self):
         nodes = {
-            0: PFNode(0, 0, None, {1, 2}, None),
-            1: PFNode(1, 2, None, {3}, 0),
-            2: PFNode(2, 3, None, set(), 0),
-            3: PFNode(3, 5, None, set(), 1),
+            0: TreeNode(0, 0, None, {1, 2}),
+            1: TreeNode(1, 2, 0, {3}),
+            2: TreeNode(2, 3, 0, set()),
+            3: TreeNode(3, 5, 1, set()),
         }
-        bars = [PFBar(0, 5, (1, 3), [], True, 0),
-                PFBar(0, 3, (2,), [], False, 0)]
+        bars = [PFBar(0, 5, (2, 5), 0), PFBar(0, 3, (3,), 0)]
+        bar_nodes = {bars[0]: (1, 3), bars[1]: (2,)}
         palette = {bars[0]: "red", bars[1]: "blue"}
         forest = SimpleNamespace(
-            nodes=nodes, barcode=bars, _get_color_map=lambda _: palette
+            _tree_view=lambda: (nodes, bar_nodes), barcode=bars, _get_color_map=lambda _: palette
         )
         ax, layout = _plot_persistence_forest_generic(
             forest, orientation="horizontal", coloring="bars", nodes="all",

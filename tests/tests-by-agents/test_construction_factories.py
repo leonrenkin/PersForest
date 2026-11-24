@@ -10,8 +10,6 @@ from engine_golden import snapshot
 from fixtures_small_filtrations import reps, triangle
 from oracle_chains import boundary, coefficients
 
-STORAGES = ("diffs", "cycles")
-
 
 def gudhi_bars(simplex_tree, dimension, min_length=1e-9):
     simplex_tree.compute_persistence()
@@ -32,31 +30,28 @@ def custom_entries():
 class FactoryEquivalenceTests(unittest.TestCase):
     def test_from_points_matches_the_shorthand(self):
         points = np.random.default_rng(3).random((40, 2))
-        for storage in STORAGES:
-            for reduce in (False, True):
-                with self.subTest(storage=storage, reduce=reduce):
-                    shorthand = PersistenceForest(points, storage=storage, reduce=reduce)
-                    factory = PersistenceForest.from_points(points, storage=storage, reduce=reduce)
-                    self.assertEqual(snapshot(factory), snapshot(shorthand))
-                    self.assertEqual((factory.filtration_type, factory.filtration_units), ("alpha", "radius"))
-                    self.assertEqual(shorthand.filtration_type, "alpha")
-                    self.assertIsNotNone(factory.simplex_tree)
+        for reduce in (False, True):
+            with self.subTest(reduce=reduce):
+                shorthand = PersistenceForest(points, reduce=reduce)
+                factory = PersistenceForest.from_points(points, reduce=reduce)
+                self.assertEqual(snapshot(factory), snapshot(shorthand))
+                self.assertEqual((factory.filtration_type, factory.filtration_units), ("alpha", "radius"))
+                self.assertEqual(shorthand.filtration_type, "alpha")
+                self.assertIsNotNone(factory.simplex_tree)
 
     def test_from_simplicial_filtration_matches_the_shorthand_and_warns_at_the_caller(self):
         points, entries = custom_entries()
-        for storage in STORAGES:
-            with self.subTest(storage=storage):
-                with warnings.catch_warnings(record=True) as caught:
-                    warnings.simplefilter("always")
-                    factory = PersistenceForest.from_simplicial_filtration(points, entries, storage=storage)
-                    shorthand = PersistenceForest(points, filtration=entries, storage=storage)
-                self.assertEqual(snapshot(factory), snapshot(shorthand))
-                self.assertEqual(len(caught), 2)
-                self.assertTrue(all(w.filename == __file__ for w in caught))
-                self.assertIn("meaningless", str(caught[0].message))
-                self.assertEqual((factory.filtration_type, factory.filtration_units),
-                                 ("custom_simplicial", "custom"))
-                self.assertIsNone(factory.simplex_tree)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            factory = PersistenceForest.from_simplicial_filtration(points, entries)
+            shorthand = PersistenceForest(points, filtration=entries)
+        self.assertEqual(snapshot(factory), snapshot(shorthand))
+        self.assertEqual(len(caught), 2)
+        self.assertTrue(all(w.filename == __file__ for w in caught))
+        self.assertIn("meaningless", str(caught[0].message))
+        self.assertEqual((factory.filtration_type, factory.filtration_units),
+                         ("custom_simplicial", "custom"))
+        self.assertIsNone(factory.simplex_tree)
 
     def test_options_are_keyword_only_and_validated_before_input(self):
         points = np.random.default_rng(0).random((10, 2))
@@ -64,8 +59,8 @@ class FactoryEquivalenceTests(unittest.TestCase):
             PersistenceForest.from_points(points, "alpha")
         with self.assertRaisesRegex(ValueError, "filtration_type must be one of"):
             PersistenceForest.from_points(points, filtration_type="rips")
-        with self.assertRaisesRegex(ValueError, "storage must be"):
-            PersistenceForest.from_points(np.full((3, 2), np.nan), storage="stored")
+        with self.assertRaises(TypeError):
+            PersistenceForest.from_points(points, storage="diffs")
         with self.assertRaisesRegex(ValueError, "filtration_tol"):
             PersistenceForest.from_simplicial_filtration(points, [], filtration_tol=-1)
 
@@ -87,27 +82,21 @@ class DelaunayCechTests(unittest.TestCase):
                                                       ("delaunay_cech", gudhi.DelaunayCechComplex)):
                     tree = complex_type(points=points).create_simplex_tree(output_squared_values=False)
                     expected = gudhi_bars(tree, dim - 1)
-                    for storage in STORAGES:
-                        with self.subTest(dim=dim, seed=seed, filtration_type=filtration_type, storage=storage):
-                            forest = PersistenceForest.from_points(
-                                points, filtration_type=filtration_type, storage=storage)
-                            self.assertTrue(expected)
-                            self.assertEqual(forest_bars(forest), expected)
-                            self.assertEqual(forest.filtration_units, "radius")
+                    with self.subTest(dim=dim, seed=seed, filtration_type=filtration_type):
+                        forest = PersistenceForest.from_points(points, filtration_type=filtration_type)
+                        self.assertTrue(expected)
+                        self.assertEqual(forest_bars(forest), expected)
+                        self.assertEqual(forest.filtration_units, "radius")
 
-    def test_representatives_are_bounded_cycles_and_storages_agree(self):
+    def test_representatives_are_bounded_cycles(self):
         for dim, n in ((2, 50), (3, 30)):
             points = np.random.default_rng(11).random((n, dim))
-            records = {}
-            for storage in STORAGES:
-                forest = PersistenceForest.from_points(points, filtration_type="delaunay_cech", storage=storage)
-                for bar in forest.barcode:
-                    for rep in reps(forest, bar):
-                        support = coefficients(rep.signed_simplices)
-                        self.assertEqual(boundary(support), {})
-                        self.assertEqual(boundary(coefficients(rep.interior)), support)
-                records[storage] = snapshot(forest)
-            self.assertEqual(records["diffs"], records["cycles"])
+            forest = PersistenceForest.from_points(points, filtration_type="delaunay_cech")
+            for bar in forest.barcode:
+                for rep in reps(forest, bar):
+                    support = coefficients(rep.signed_simplices)
+                    self.assertEqual(boundary(support), {})
+                    self.assertEqual(boundary(coefficients(rep.interior)), support)
 
     def test_delaunay_cech_values_never_exceed_alpha_values(self):
         # Sanity check on the input values: the minimal enclosing ball is no

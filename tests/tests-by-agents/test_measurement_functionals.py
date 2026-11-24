@@ -128,8 +128,8 @@ class SignedMeasurementTests(unittest.TestCase):
         self.assertEqual(signed_chain_circularity(rep, points), 0)
 
     def test_f3_signed_curvature_difference_is_two_pi(self):
-        forest = build(fan(), storage="cycles")
-        rep = next(r for b in forest.barcode for r in b.cycle_reps if r.active_start == 2)
+        forest = build(fan())
+        rep = next(r for b in forest.barcode for r in forest.iter_bar_cycle_reps(b) if r.active_start == 2)
         self.assertAlmostEqual(signed_chain_excess_curvature(rep, forest.point_cloud), 2 * math.pi)
         self.assertAlmostEqual(signed_chain_excess_curvature_normalized(rep, forest.point_cloud), 1)
         self.assertAlmostEqual(signed_chain_excess_curvature_diff_to_unsigned(rep, forest.point_cloud), 2 * math.pi)

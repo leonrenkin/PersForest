@@ -13,7 +13,7 @@ class ProgressionInvariantTests(unittest.TestCase):
     def test_all_fixture_representatives_are_a_basis_modulo_boundaries(self):
         for factory in (triangle, split, fan, disconnected, tetrahedra, annulus):
             fixture = factory()
-            forest = build(fixture, storage="cycles")
+            forest = build(fixture)
             for time in sample_times(fixture.values):
                 with self.subTest(fixture=factory.__name__, time=time):
                     active = active_reps(forest, time)
@@ -34,7 +34,7 @@ class ProgressionInvariantTests(unittest.TestCase):
     def test_own_progression_coefficient_is_one_not_homology_equality(self):
         for factory in (split, fan, tetrahedra):
             fixture = factory()
-            forest = build(fixture, storage="cycles")
+            forest = build(fixture)
             for bar in forest.barcode:
                 representatives = reps(forest, bar)
                 for i, earlier in enumerate(representatives):
@@ -50,17 +50,18 @@ class ProgressionInvariantTests(unittest.TestCase):
                         self.assertTrue(later.interior.issubset(earlier.interior))
         # F2: before the split the class is A+B; B alone is not its image.
         fixture = split()
-        forest = build(fixture, storage="cycles")
+        forest = build(fixture)
         bar = next(b for b in forest.barcode if b.birth == 1)
-        difference = coefficients(list(bar.cycle_reps[0].signed_simplices)
-                                  + [(s, -v) for s, v in bar.cycle_reps[1].signed_simplices])
+        first, second = reps(forest, bar)[:2]
+        difference = coefficients(list(first.signed_simplices)
+                                  + [(s, -v) for s, v in second.signed_simplices])
         rows, boundaries, _ = homology_data(fixture.values, 2, 4)
         self.assertGreater(rank(boundaries + [difference], rows), rank(boundaries, rows))
 
     def test_tiny_exhaustive_weight_optimality(self):
         for factory in (split, fan):
             fixture = factory()
-            forest = build(fixture, storage="cycles")
+            forest = build(fixture)
             top = sorted(s for s in fixture.values if len(s) == 3)
             for weights in (dict.fromkeys(top, 1), {s: 2 * i + 1 for i, s in enumerate(top)}):
                 for time in sample_times(fixture.values):
@@ -82,14 +83,13 @@ class ProgressionInvariantTests(unittest.TestCase):
                 inverse = {old: new for new, old in enumerate(permutation)}
                 relabeled = Fixture(fixture.points[permutation],
                     {tuple(sorted(inverse[i] for i in s)): value for s, value in fixture.values.items()}, [])
-                for storage in ("cycles", "diffs"):
-                    forest = build(relabeled, storage=storage)
-                    for bar in forest.barcode:
-                        expected = next(e for e in fixture.expected if e[:2] == (bar.birth, bar.death))
-                        for rep, literal in zip(reps(forest, bar), expected[2]):
-                            mapped = set()
-                            for simplex, sign in rep.signed_simplices:
-                                old, parity = canonical(tuple(permutation[i] for i in simplex))
-                                mapped.add((old, sign * parity))
-                            self.assertEqual(mapped, literal.simplices)
-                            self.assertEqual((rep.active_start, rep.active_end), (literal.start, literal.end))
+                forest = build(relabeled)
+                for bar in forest.barcode:
+                    expected = next(e for e in fixture.expected if e[:2] == (bar.birth, bar.death))
+                    for rep, literal in zip(reps(forest, bar), expected[2]):
+                        mapped = set()
+                        for simplex, sign in rep.signed_simplices:
+                            old, parity = canonical(tuple(permutation[i] for i in simplex))
+                            mapped.add((old, sign * parity))
+                        self.assertEqual(mapped, literal.simplices)
+                        self.assertEqual((rep.active_start, rep.active_end), (literal.start, literal.end))

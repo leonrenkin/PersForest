@@ -121,7 +121,7 @@ class RawLoopTests(unittest.TestCase):
         self.assertEqual(loops_length(loops), cubical_chain_volume(chain, geometry))
 
     def test_vertex_chain_has_simplicial_orientation_and_matches_forest_reps(self):
-        forest = PersistenceForest.from_cubical_grid(np.where(pad(disk(4)), 1.0, 0.0), storage="cycles")
+        forest = PersistenceForest.from_cubical_grid(np.where(pad(disk(4)), 1.0, 0.0))
         bar = max(forest.barcode, key=lambda b: b.death - b.birth)
         rep = forest.cycle_for_bar_at(bar, bar.birth)
         vertex_chain, points = cubical_chain_to_vertex_chain(rep, forest.geometry)
@@ -239,7 +239,7 @@ class SmoothedLoopTests(unittest.TestCase):
 
     def test_tendrils_are_dropped_and_vertices_filtrations_work(self):
         forest = PersistenceForest.from_cubical_grid(
-            np.random.default_rng(1).random((25, 25)), filtration_type="vertices", storage="cycles")
+            np.random.default_rng(1).random((25, 25)), filtration_type="vertices")
         with_tendrils = 0
         builds = (midpoint_loops, taut_loops, averaged_loops, lambda c, g: smoothed_loops(c, g, 1.0))
         for bar in forest.barcode:
@@ -372,7 +372,7 @@ class LoopFunctionalTests(unittest.TestCase):
             self.assertEqual(any("taut or smoothed" in str(w.message) for w in caught), warns)
 
     def test_simplicial_wrappers_measure_polygon_loops(self):
-        forest = PersistenceForest.from_points(np.random.default_rng(4).random((80, 2)), storage="cycles")
+        forest = PersistenceForest.from_points(np.random.default_rng(4).random((80, 2)))
         points = forest.geometry
         for bar in forest.barcode:
             rep = forest.cycle_for_bar_at(bar, bar.birth)
@@ -433,7 +433,7 @@ class OnLoopsTests(unittest.TestCase):
 class CubicalTopologyTests(unittest.TestCase):
     def test_counterparts_match_simplicial_functionals_on_the_vertex_chain(self):
         forest = PersistenceForest.from_cubical_grid(
-            np.random.default_rng(5).random((20, 20)), filtration_type="vertices", storage="cycles")
+            np.random.default_rng(5).random((20, 20)), filtration_type="vertices")
         pairs = [(name, getattr(cubical_measurements, "cubical_chain_" + name.removeprefix("signed_chain_")))
                  for name in ("signed_chain_connected_components", "signed_chain_excess_connected_components",
                               "signed_chain_connected_components_only_signed_simplices",
@@ -484,7 +484,7 @@ class LoopPlottingTests(unittest.TestCase):
             self.assertEqual(ax.yaxis_inverted(), image_orientation)
 
     def test_loops_overlay_forest_plots(self):
-        forest = PersistenceForest.from_cubical_grid(np.where(pad(disk(4)), 1.0, 0.0), storage="cycles")
+        forest = PersistenceForest.from_cubical_grid(np.where(pad(disk(4)), 1.0, 0.0))
         bar = max(forest.barcode, key=lambda b: b.death - b.birth)
         rep = forest.cycle_for_bar_at(bar, bar.birth)
         ax = forest.plot_at_filtration(bar.birth, show=False, show_cycles=False)

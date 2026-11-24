@@ -60,19 +60,6 @@ class SnapshotReplayTests(unittest.TestCase):
         first.interior.clear()
         self.assertEqual(_key(forest.cycle_for_bar_at(bar, time)), reference)
 
-    def test_snapshot_matches_stored_cycles_storage(self):
-        points = np.random.default_rng(5).uniform(0, 1, (150, 2))
-        diffs = PersistenceForest(points, storage="diffs")
-        cycles = PersistenceForest(points, storage="cycles")
-        stored = {bar._node_progression: bar for bar in cycles.barcode}
-        for bar in diffs.barcode:
-            other = stored[bar._node_progression]
-            for time in {bar.birth, (bar.birth + bar.death) / 2}:
-                if bar.birth <= time < bar.death:
-                    self.assertEqual(
-                        frozenset(diffs.cycle_for_bar_at(bar, time).signed_simplices),
-                        frozenset(cycles.cycle_for_bar_at(other, time).signed_simplices))
-
 
 if __name__ == "__main__":
     unittest.main()

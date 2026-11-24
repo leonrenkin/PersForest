@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 from numpy.typing import NDArray
-from persforest._forest.graph_model import PFNode
 from persforest.barcode import PFBar
 from persforest.chains import SignedChain
 from persforest.filtrations._validation import validate_point_cloud
@@ -38,8 +37,6 @@ if TYPE_CHECKING:
     from persforest.landscapes.profiles import CycleValueFunc, MeasurementProfiles
     from persforest.landscapes.family import MeasurementLandscapeFamily
 
-Storage = Literal["diffs", "cycles"]
-
 _POINT_CLOUD_ONLY = "only appl(y/ies) to point clouds; a cubical grid has no vertices to draw."
 _CUBICAL_ONLY = "only applies to forests built with from_cubical_grid."
 
@@ -66,15 +63,13 @@ def _cyclic_gc_paused():
             gc.enable()
 
 
-def _validated_options(reduce, compute_barcode, print_info, storage, filtration_tol) -> dict:
+def _validated_options(reduce, compute_barcode, print_info, filtration_tol) -> dict:
     """Validate the shared forest options before any input preparation."""
-    if storage not in ("diffs", "cycles"):
-        raise ValueError(f'storage must be "diffs" or "cycles", not {storage!r}')
     filtration_tol = float(filtration_tol)
     if filtration_tol < 0 or not math.isfinite(filtration_tol):
         raise ValueError("filtration_tol must be a finite non-negative number")
     return dict(reduce=reduce, compute_barcode=compute_barcode, print_info=print_info,
-                storage=storage, filtration_tol=filtration_tol)
+                filtration_tol=filtration_tol)
 
 
 class PersistenceForest:
@@ -100,7 +95,6 @@ class PersistenceForest:
                  reduce: bool = True,
                  compute_barcode: bool = True,
                  print_info: bool = False,
-                 storage: Storage = "diffs",
                  filtration_tol: float = 1e-12,
                  filtration: Iterable[tuple[Sequence[int], float]] | None = None,
                  ):
@@ -119,13 +113,6 @@ class PersistenceForest:
             If True, compute and store the barcode after building the forest.
         print_info : bool
             If True, print timing information during construction.
-        storage : {"diffs", "cycles"}
-            How cycle representatives are stored. ``"diffs"`` (default) stores
-            per-node cell additions and removals and reconstructs
-            representatives with their interiors on demand; it is faster to
-            build and uses less memory. ``"cycles"`` additionally stores every
-            representative with its interior, which makes point-in-time
-            queries and animations faster at the cost of memory.
         filtration_tol : float
             Absolute numerical resolution for parent-child reduction. 
             Differences at or below this tolerance are ignored and short bars may disappear.
@@ -133,7 +120,7 @@ class PersistenceForest:
             Ordered simplex-filtration pairs; see ``from_simplicial_filtration``.
             If None, construct the alpha filtration from ``point_cloud``.
         """
-        options = _validated_options(reduce, compute_barcode, print_info, storage, filtration_tol)
+        options = _validated_options(reduce, compute_barcode, print_info, filtration_tol)
         points = validate_point_cloud(point_cloud)
         if filtration is None:
             self._prepare_point_input(points, "alpha", print_info)
@@ -149,7 +136,6 @@ class PersistenceForest:
                     reduce: bool = True,
                     compute_barcode: bool = True,
                     print_info: bool = False,
-                    storage: Storage = "diffs",
                     filtration_tol: float = 1e-12,
                     ) -> "PersistenceForest":
         """
@@ -163,14 +149,14 @@ class PersistenceForest:
             ``"alpha"`` (default) enters each Delaunay simplex at the radius of
             its smallest empty circumscribing ball; ``"delaunay_cech"`` at the
             radius of its minimal enclosing ball. Both use radius units.
-        reduce, compute_barcode, print_info, storage, filtration_tol
+        reduce, compute_barcode, print_info, filtration_tol
             See ``PersistenceForest``.
 
         Returns
         -------
         PersistenceForest
         """
-        options = _validated_options(reduce, compute_barcode, print_info, storage, filtration_tol)
+        options = _validated_options(reduce, compute_barcode, print_info, filtration_tol)
         forest = object.__new__(cls)
         forest._prepare_point_input(validate_point_cloud(points), filtration_type, print_info)
         forest._build(**options)
@@ -184,7 +170,6 @@ class PersistenceForest:
                                    reduce: bool = True,
                                    compute_barcode: bool = True,
                                    print_info: bool = False,
-                                   storage: Storage = "diffs",
                                    filtration_tol: float = 1e-12,
                                    ) -> "PersistenceForest":
         """
@@ -201,14 +186,14 @@ class PersistenceForest:
             dimension are rejected. Geometric embeddedness and contractibility
             of the terminal complex are required by the algorithm but are not
             verified; if they fail, results are meaningless, and a warning says so.
-        reduce, compute_barcode, print_info, storage, filtration_tol
+        reduce, compute_barcode, print_info, filtration_tol
             See ``PersistenceForest``.
 
         Returns
         -------
         PersistenceForest
         """
-        options = _validated_options(reduce, compute_barcode, print_info, storage, filtration_tol)
+        options = _validated_options(reduce, compute_barcode, print_info, filtration_tol)
         forest = object.__new__(cls)
         forest._prepare_simplicial_input(validate_point_cloud(points), filtration, print_info)
         forest._build(**options)
@@ -224,7 +209,6 @@ class PersistenceForest:
                           reduce: bool = True,
                           compute_barcode: bool = True,
                           print_info: bool = False,
-                          storage: Storage = "diffs",
                           filtration_tol: float = 1e-12,
                           ) -> "PersistenceForest":
         """
@@ -250,7 +234,7 @@ class PersistenceForest:
         origin : float or sequence of float, optional
             Position of the first pixel corner (``"top_cells"``) or first
             vertex (``"vertices"``); defaults to 0.
-        reduce, compute_barcode, print_info, storage, filtration_tol
+        reduce, compute_barcode, print_info, filtration_tol
             See ``PersistenceForest``.
 
         Returns
@@ -260,7 +244,7 @@ class PersistenceForest:
             physical grid in ``geometry`` and a read-only copy of the values in
             ``grid_values``.
         """
-        options = _validated_options(reduce, compute_barcode, print_info, storage, filtration_tol)
+        options = _validated_options(reduce, compute_barcode, print_info, filtration_tol)
         forest = object.__new__(cls)
         start = time.perf_counter()
         grid, forest._cells = prepare_cubical_filtration(values, filtration_type)
@@ -345,194 +329,39 @@ class PersistenceForest:
         self.filtration_units = "custom"
 
     def _build(self, *, reduce: bool, compute_barcode: bool, print_info: bool,
-               storage: Storage, filtration_tol: float) -> None:
-        """Run the sweep, reduction and barcode extraction on ``self._cells``."""
+               filtration_tol: float) -> None:
+        """Run the compiled engine on ``self._cells``; optionally create the bars."""
+        from persforest._forest.arrays import build_forest_arrays
         self.filtration_tol = filtration_tol
-        self.storage = storage
+        self.reduced = reduce
         if print_info:
             print(f'dimension = {self.dim}')
 
-        self._node_id = itertools.count(1)         #used to assign unique id to each node in the forest
-        self._cycle_id = itertools.count(1)
-        self.nodes: Dict[int, PFNode] = {}
-        self.cycles: Dict[int, SignedChain] = {}
-
-        self._active_node_ids: set[int] = set()               #used for bookkeeping of active nodes in forest computation algorithm
-        self.roots: set[int]  = set()                 #List of roots of trees in the forest
-
-        self.levels: list[float] = []               #Critical filtration values, might give duplicates in current implementation
-
         self.barcode: set[PFBar] = set()
+        self._bars: list[PFBar] = []
+        self._child_bars: list[list[PFBar]] | None = None
         self._barcode_computed = False
         self._barcode_diffs_ready = False
 
         self.landscape_families: Dict[str, Any] = {}
         self.measurement_profiles: Dict[str, Any] = {}
 
-        with _cyclic_gc_paused():
-            self._compute_forest(print_info = print_info)
+        start = time.perf_counter()
+        self._forest = build_forest_arrays(self._cells, reduce=reduce, filtration_tol=filtration_tol)
+        if print_info:
+            print(f"Forest computed in {time.perf_counter() - start} sec "
+                  f"({len(self._forest.node_value)} nodes, {self._forest.n_bars} bars)")
 
-            self.reduced = reduce
+        if compute_barcode:
+            self.compute_barcode(print_info=print_info)
 
-            if reduce:
-                self._reduce_forest(print_info = print_info)
+    # ----- barcode and forest structure ----------
 
-            # Compute where each stored cycle is active.
-            if self.storage == "cycles":
-                self._compute_loop_activity()
+    def compute_barcode(self, print_info: bool = False):
+        """Create the bars of the forest (``forest.barcode``).
 
-            if compute_barcode:
-                self.compute_barcode(print_info=print_info)
-
-    # ----- compute the forest ----------
-
-    def _compute_forest(self, print_info: bool = False):
-        """ 
-        Compute the persistence forest from the prepared cell filtration.
-
-        Parameters
-        ----------
-        print_info : bool
-            If True, print timing information.
-        """
-        from persforest._forest.build import _compute_forest
-        return _compute_forest(self, print_info)
-
-
-    # ----- methods to work with the forest
-
-    def active_nodes_at(self, filt_val: float) -> List[PFNode]:
-        """
-        Return nodes active at a given filtration value.
-
-        A non-root node is active at ``r`` if ``node.filt_val > r`` and its
-        parent has filtration value ``<= r``.
-
-        Parameters
-        ----------
-        filt_val : float
-            Filtration value to query.
-
-        Returns
-        -------
-        list[PFNode]
-            Active nodes sorted by decreasing node filtration value and then id.
-        """
-        from persforest._forest.queries import active_nodes_at
-        return active_nodes_at(self, filt_val)
-
-    def active_cycles_at(self, filt_val: float) -> List[SignedChain]:
-        """Return active cycle representatives at ``filt_val``."""
-        from persforest._forest.queries import active_cycles_at
-        return active_cycles_at(self, filt_val)
-
-    def leaves_below_node(self, node: PFNode) -> set[int]:
-        """Return ids of all descendant leaves below ``node``."""
-        from persforest._forest.queries import leaves_below_node
-        return leaves_below_node(self, node)
-
-    def leaf_to_node_path(self, leaf: PFNode, node: PFNode) -> List[int]:
-        """Return node ids on the path from ``leaf`` up to ancestor ``node``."""
-        from persforest._forest.queries import leaf_to_node_path
-        return leaf_to_node_path(self, leaf, node)
-
-    def node_to_leaf_path(self, leaf: PFNode, node: PFNode) -> List[int]:
-        """Return node ids on the path from ancestor ``node`` down to ``leaf``."""
-        from persforest._forest.queries import node_to_leaf_path
-        return node_to_leaf_path(self, leaf, node)
-
-    def get_root(self, node: PFNode) -> PFNode:
-        """Return the highest ancestor of ``node`` with no parent."""
-        from persforest._forest.queries import get_root
-        return get_root(self, node)
-
-
-    # ----- reduce forest (collapses trivial edges which happen at the same filtration value) -------------
-
-    def _collapse_parent_child(self, parent: PFNode, child: PFNode):
-        """
-        Collapse a parent-child pair into the parent node.
-
-        Intended for pairs whose filtration values agree up to
-        ``self.filtration_tol``. The parent node is kept; the child is removed
-        and its children are re-parented to ``parent``.
-        """
-        from persforest._forest.reduction import _collapse_parent_child
-        return _collapse_parent_child(self, parent, child)
-
-    def _reduce_forest(self, print_info: bool = False):
-        """
-        Reduce the forest by collapsing every parent-child pair whose
-        filtration values differ by at most ``self.filtration_tol``.
-
-        Collapse rule for an edge (parent p, child c) with
-        p.filt_val <= c.filt_val <= p.filt_val + self.filtration_tol:
-        - Keep the *parent* node p (its cycle stays as-is).
-        - Remove the child node c from the forest.
-        - The parent of the resulting (collapsed) node remains p.parent (i.e., the
-            parent of the original parent), if any.
-        - Children of the resulting node are the union of p.children and c.children,
-            minus the removed child c itself.
-        - For every grandchild g in c.children, set g.parent = p.id.
-        Repeats until no collapsible edges remain.
-
-        Finally, normalize roots so that branches born simultaneously belong
-        to separate trees, each with its child's cycle as root representative.
-
-        Parameters
-        ----------
-        print_info : bool
-            If True, print timing information and node counts.
-        """
-        from persforest._forest.reduction import _reduce_forest
-        return _reduce_forest(self, print_info)
-
-    def _normalize_roots(self) -> None:
-        """Give each surviving root one child and that child's representative.
-
-        Notes
-        -----
-        Called after edge collapse and before activity/barcode computation.
-        A branching root represents a split at birth, so each child receives
-        a separate root at the original birth value. The smallest child ID
-        retains the existing root; other children receive fresh root IDs.
-        Non-root node order is preserved for barcode tie-breaking.
-
-        Root diffs are empty because a root represents exactly its child,
-        including with ``storage="diffs"``, where both stored cycles are ``None``.
-        Existing unary roots are normalized too, since collapse can change
-        their child. Repeating this operation leaves the forest unchanged.
-        """
-        from persforest._forest.reduction import _normalize_roots
-        return _normalize_roots(self)
-
-    # ------ Add active period of each cycle ----------
-
-    def _node_activity(self, node):
-        """Return ``(active_start, active_end)`` for a node's cycle."""
-        from persforest._forest.queries import _node_activity
-        return _node_activity(self, node)
-
-    def _compute_loop_activity(self):
-        """Annotate each non-root node cycle with its active interval."""
-        from persforest._forest.representatives import _compute_loop_activity
-        return _compute_loop_activity(self)
-
-    # ----- Compute barcode sequence ---------
-
-    def _compute_barcode_diff(self, print_info: bool = False) -> None:
-        """Build bars and accumulate barcode diffs.
-
-        Parameters
-        ----------
-        print_info : bool
-            If True, print timing information.
-        """
-        from persforest._forest.compute_barcode import compute_barcode_diff
-        return compute_barcode_diff(self, print_info)
-
-    def compute_barcode(self,  print_info: bool = False):
-        """Compute bars; with ``storage="cycles"``, also attach interiors.
+        Construction already determines the bars; this only creates the
+        ``PFBar`` objects, so that ``compute_barcode=False`` defers that work.
 
         Parameters
         ----------
@@ -544,31 +373,117 @@ class PersistenceForest:
         RuntimeError
             If the barcode has already been computed.
         """
+        if self._barcode_computed:
+            raise RuntimeError("Barcode computation has already been called for this forest")
+        start = time.perf_counter()
+        arrays = self._forest
         with _cyclic_gc_paused():
-            self._compute_barcode_diff(print_info=print_info)
-            if self.storage == "cycles":
-                self._add_interior_to_barcode(print_info=print_info)
+            bars = [PFBar._from_forest(arrays, index, birth, death, tree)
+                    for index, (birth, death, tree) in enumerate(zip(
+                        arrays.bar_birth.tolist(), arrays.bar_death.tolist(), arrays.bar_tree.tolist()))]
+        self._bars = bars
+        self.barcode = set(bars)
+        self._barcode_diffs_ready = True
+        self._barcode_computed = True
+        if print_info:
+            print(f"Barcode computation completed in {time.perf_counter() - start} sec")
+
+    def _require_own_bar(self, bar: PFBar) -> int:
+        """Return the index of ``bar`` in this forest's arrays."""
+        from persforest.landscapes._validation import require_computed_barcode
+        require_computed_barcode(self)
+        if bar not in self.barcode:
+            raise ValueError("Bar is not in barcode of forest")
+        return bar._index
+
+    def parent_bar(self, bar: PFBar) -> PFBar | None:
+        """Return the bar that ``bar`` splits off at its birth, or None.
+
+        A bar born at the root of its tree splits off no bar: it is the
+        longest-lived bar of that tree (elder rule).
+
+        Parameters
+        ----------
+        bar : PFBar
+            Bar belonging to this forest.
+
+        Returns
+        -------
+        PFBar or None
+            The parent bar, which is alive at ``bar.birth``.
+        """
+        parent = int(self._forest.bar_parent[self._require_own_bar(bar)])
+        return None if parent < 0 else self._bars[parent]
+
+    def child_bars(self, bar: PFBar) -> list[PFBar]:
+        """Return the bars that split off ``bar``, by increasing birth.
+
+        Parameters
+        ----------
+        bar : PFBar
+            Bar belonging to this forest.
+
+        Returns
+        -------
+        list[PFBar]
+            Bars whose ``parent_bar`` is ``bar``; ties in birth keep the
+            engine's extraction order.
+        """
+        index = self._require_own_bar(bar)
+        if self._child_bars is None:
+            children: list[list[PFBar]] = [[] for _ in self._bars]
+            parents = self._forest.bar_parent
+            for child in np.argsort(self._forest.bar_birth, kind="stable").tolist():
+                if parents[child] >= 0:
+                    children[parents[child]].append(self._bars[child])
+            self._child_bars = children
+        return list(self._child_bars[index])
+
+    def _tree_view(self) -> tuple[dict, dict]:
+        """Node tree and bar paths for plotting.
+
+        Returns ``(nodes, bar_nodes)``: ``nodes`` maps a node ID to a
+        ``TreeNode`` (value, parent, children), ``bar_nodes`` maps each bar to
+        the IDs of its nodes, ascending in value. Node IDs are internal and only
+        consistent within one call.
+        """
+        from persforest._forest.arrays import TreeNode
+        arrays = self._forest
+        values = arrays.node_value.tolist()
+        parents = arrays.node_parent.tolist()
+        children: list[list[int]] = [[] for _ in values]
+        for node, parent in enumerate(parents):
+            if parent >= 0:
+                children[parent].append(node)
+        nodes = {node: TreeNode(node, values[node], None if parents[node] < 0 else parents[node],
+                                set(children[node])) for node in range(len(values))}
+        bar_nodes = {bar: tuple(arrays.progression(bar._index).tolist()) for bar in self._bars}
+        return nodes, bar_nodes
+
+    def active_cycles_at(self, filt_val: float) -> List[SignedChain]:
+        """Return the representatives of all bars active at ``filt_val``."""
+        if not self._barcode_computed:
+            raise RuntimeError("Call compute_barcode() before querying cycles")
+        return [self.cycle_for_bar_at(bar, filt_val) for bar in self.active_bars_at(filt_val)]
+
+    # ----- representatives ----------
 
     def iter_bar_cycle_reps(self, bar: PFBar) -> Iterator[SignedChain]:
-        """Yield iterator of representatives of a bar in descending filtration order.
+        """Yield the representatives of a bar in descending filtration order.
 
-        ``storage="cycles"`` yields stored representatives; ``storage="diffs"``
-        reconstructs boundaries and interiors with independent cell sets.
+        Each yielded chain is independent and carries its interior and its
+        half-open activity interval ``[active_start, active_end)``.
 
         Raises
         ------
         ValueError
-            On iteration, if the bar is foreign or required diffs are missing.
+            If the bar does not belong to this forest.
         """
         from persforest._forest.representatives import iter_bar_cycle_reps
         return iter_bar_cycle_reps(self, bar)
 
     def cycle_for_bar_at(self, bar: PFBar, filt_val: float) -> SignedChain:
         """Return a bar's representative active at a filtration value.
-
-        Stored representatives are used with ``storage="cycles"``. With
-        ``storage="diffs"``, replay the bar's simplex diffs from death toward birth and return the
-        first representative active on ``[active_start, active_end)``.
 
         Parameters
         ----------
@@ -580,42 +495,10 @@ class PersistenceForest:
         Returns
         -------
         SignedChain
-            Representative active at ``filt_val``.
+            Representative active at ``filt_val``, with its interior.
         """
         from persforest._forest.representatives import cycle_for_bar_at
         return cycle_for_bar_at(self, bar, filt_val)
-
-    # ----- Interior computation and activity ------
-
-    def _add_interior_to_bar(self, bar: PFBar):
-        """
-        Adds an ``interior`` set containing accumulated full-dimensional simplices to each SignedChain in bar, 
-        and sets ``interior_available=True``.
-
-        Raises
-        ------
-        ValueError
-            If any node in the progression does not have simplex diffs.
-        """
-        from persforest._forest.representatives import _add_interior_to_bar
-        return _add_interior_to_bar(self, bar)
-
-    def _add_interior_to_barcode(self,print_info: bool =False):
-        """
-        Replace barcode cycle representatives by diff-reconstructed chains.
-
-        Parameters
-        ----------
-        print_info : bool
-            If True, print timing information.
-
-        Notes
-        -----
-        Requires ``storage="cycles"``. The reconstructed representatives carry accumulated interior simplex
-        data used by ``interior_simplex_activity``.
-        """
-        from persforest._forest.representatives import _add_interior_to_barcode
-        return _add_interior_to_barcode(self, print_info)
 
     def interior_simplex_activity(self) -> dict[tuple[int, ...], list[tuple[PFBar, float, float]]]:
         """

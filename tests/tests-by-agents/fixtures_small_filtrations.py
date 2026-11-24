@@ -8,7 +8,6 @@ from unittest.mock import patch
 import gudhi
 import numpy as np
 
-from persforest.barcode import PFBar
 from persforest.chains import SignedChain
 
 MODULE = importlib.import_module('persforest.forest')
@@ -169,8 +168,18 @@ def active_reps(forest, time: float) -> list[SignedChain]:
 
 def mode_options():
     for reduced in (False, True):
-        for storage in ('diffs', 'cycles'):
-            yield f'{storage}/reduce={reduced}', {'reduce': reduced, 'storage': storage}
+        yield f'reduce={reduced}', {'reduce': reduced}
+
+
+class FakeBar:
+    """Bar of a hand-made profile forest, holding its representatives."""
+
+    def __init__(self, birth, death, cycle_reps):
+        self.birth, self.death, self.cycle_reps = birth, death, cycle_reps
+        self.critical_values = tuple(rep.active_end for rep in cycle_reps)
+
+    def lifespan(self):
+        return self.death - self.birth
 
 
 def profile_forest(specs):
@@ -178,7 +187,7 @@ def profile_forest(specs):
     bars = []
     for index, (birth, death, records) in enumerate(specs):
         cycles = [SimpleNamespace(active_start=s, active_end=e, value=v) for s, e, v in records]
-        bars.append(PFBar(birth, death, tuple(range(len(cycles))), cycles))
+        bars.append(FakeBar(birth, death, cycles))
     return SimpleNamespace(barcode=bars, point_cloud=np.zeros((0, 2)),
                            iter_bar_cycle_reps=lambda bar: iter(reversed(bar.cycle_reps)),
                            measurement_profiles={}, landscape_families={},

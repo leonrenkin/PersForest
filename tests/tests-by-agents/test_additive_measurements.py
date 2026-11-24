@@ -29,12 +29,12 @@ def _forests():
     yield "alpha3", PersistenceForest.from_points(rng.uniform(0, 1, (150, 3)))
     yield "cech2", PersistenceForest.from_points(rng.uniform(0, 1, (200, 2)),
                                                  filtration_type="delaunay_cech")
-    yield "alpha2-cycles", PersistenceForest.from_points(rng.uniform(0, 1, (200, 2)), storage="cycles")
+    yield "alpha2-small", PersistenceForest.from_points(rng.uniform(0, 1, (200, 2)))
     yield "cubical2", PersistenceForest.from_cubical_grid(rng.uniform(0, 1, (20, 20)), spacing=(0.5, 1.5))
     yield "cubical2-vertices", PersistenceForest.from_cubical_grid(
         rng.uniform(0, 1, (15, 15)), filtration_type="vertices")
     yield "cubical3", PersistenceForest.from_cubical_grid(rng.uniform(0, 1, (6, 6, 6)))
-    yield "cubical3-cycles", PersistenceForest.from_cubical_grid(rng.uniform(0, 1, (5, 5, 5)), storage="cycles")
+    yield "cubical3-small", PersistenceForest.from_cubical_grid(rng.uniform(0, 1, (5, 5, 5)))
     for fixture in (split, fan, annulus, disconnected):
         for name, options in mode_options():
             yield f"{fixture.__name__}-{name}", build(fixture(), **options)
