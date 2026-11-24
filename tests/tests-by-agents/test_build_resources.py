@@ -64,14 +64,14 @@ class CyclicCollectorTests(unittest.TestCase):
 
     def recorder(self):
         """Patch bar creation to record whether the collector runs."""
-        original = PFBar._from_forest.__func__
+        original = PFBar._all_from_forest.__func__
         states = []
 
         def recording(cls, *args, **kwargs):
             states.append(gc.isenabled())
             return original(cls, *args, **kwargs)
 
-        return states, patch.object(PFBar, '_from_forest', classmethod(recording))
+        return states, patch.object(PFBar, '_all_from_forest', classmethod(recording))
 
     def test_bars_are_created_with_collector_paused_and_it_is_restored(self):
         factories = {
@@ -98,7 +98,7 @@ class CyclicCollectorTests(unittest.TestCase):
         self.assertTrue(gc.isenabled())
 
     def test_failed_bar_creation_restores_collector(self):
-        with patch.object(PFBar, '_from_forest', side_effect=RuntimeError('injected failure')):
+        with patch.object(PFBar, '_all_from_forest', side_effect=RuntimeError('injected failure')):
             with self.assertRaisesRegex(RuntimeError, 'injected failure'):
                 PersistenceForest.from_cubical_grid(nested_plateaus())
         self.assertTrue(gc.isenabled())

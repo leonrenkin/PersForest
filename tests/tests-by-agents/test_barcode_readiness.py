@@ -45,7 +45,7 @@ class BarcodeReadinessTests(unittest.TestCase):
 
     def test_failed_bar_creation_does_not_publish_readiness(self):
         forest = split_forest(compute_barcode=False)
-        with patch.object(PFBar, "_from_forest", side_effect=RuntimeError("interrupted")):
+        with patch.object(PFBar, "_all_from_forest", side_effect=RuntimeError("interrupted")):
             with self.assertRaisesRegex(RuntimeError, "interrupted"):
                 forest.compute_barcode()
         self.assertFalse(forest._barcode_computed)

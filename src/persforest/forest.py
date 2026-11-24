@@ -376,11 +376,8 @@ class PersistenceForest:
         if self._barcode_computed:
             raise RuntimeError("Barcode computation has already been called for this forest")
         start = time.perf_counter()
-        arrays = self._forest
         with _cyclic_gc_paused():
-            bars = [PFBar._from_forest(arrays, index, birth, death, tree)
-                    for index, (birth, death, tree) in enumerate(zip(
-                        arrays.bar_birth.tolist(), arrays.bar_death.tolist(), arrays.bar_tree.tolist()))]
+            bars = PFBar._all_from_forest(self._forest)
         self._bars = bars
         self.barcode = set(bars)
         self._barcode_diffs_ready = True

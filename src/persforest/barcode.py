@@ -50,13 +50,24 @@ class PFBar:
         self._index: int | None = None
 
     @classmethod
-    def _from_forest(cls, arrays: Any, index: int, birth: float, death: float, tree_id: int) -> "PFBar":
-        """Bar ``index`` of a forest's engine arrays; critical values are read on first use."""
-        bar = cls(birth, death, (), tree_id)
-        bar._critical_values = None
-        bar._arrays = arrays
-        bar._index = index
-        return bar
+    def _all_from_forest(cls, arrays: Any) -> list["PFBar"]:
+        """All bars of a forest's engine arrays, in bar order; critical values are read on first use."""
+        # One bar per class of the forest: setting the slots directly instead
+        # of calling __init__ halves the creation time.
+        new = cls.__new__
+        bars: list[PFBar] = []
+        append = bars.append
+        for index, (birth, death, tree_id) in enumerate(zip(
+                arrays.bar_birth.tolist(), arrays.bar_death.tolist(), arrays.bar_tree.tolist())):
+            bar = new(cls)
+            bar.birth = birth
+            bar.death = death
+            bar.tree_id = tree_id
+            bar._critical_values = None
+            bar._arrays = arrays
+            bar._index = index
+            append(bar)
+        return bars
 
     @property
     def critical_values(self) -> tuple[float, ...]:
