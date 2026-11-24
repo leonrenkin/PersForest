@@ -75,10 +75,12 @@ class FactoryEquivalenceTests(unittest.TestCase):
 
 class DelaunayCechTests(unittest.TestCase):
     def test_bars_match_gudhi_persistence_for_both_point_filtrations(self):
-        # Alpha in 2D and 3D comes from persforest's builder, compared with GUDHI's
-        # exact values; Delaunay–Čech comes from GUDHI with its default precision.
+        # Both come from persforest's builders in 2D and 3D, compared with GUDHI's
+        # exact mode. GUDHI's exact Delaunay–Čech radii are themselves inexact (up
+        # to 1e-10 relative seen); test_alpha_builder checks ours in rational arithmetic.
         reference = {"alpha": (lambda points: gudhi.AlphaComplex(points=points, precision="exact"), 1e-13),
-                     "delaunay_cech": (lambda points: gudhi.DelaunayCechComplex(points=points), 0.0)}
+                     "delaunay_cech": (lambda points: gudhi.DelaunayCechComplex(points=points, precision="exact"),
+                                       1e-9)}
         for dim, n in ((2, 60), (3, 40)):
             for seed in (0, 1):
                 points = np.random.default_rng(seed).random((n, dim))

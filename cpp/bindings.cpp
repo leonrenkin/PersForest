@@ -137,12 +137,14 @@ OutArray<std::int64_t> simplicial_top_facets(InMatrix<std::int64_t> tops, InMatr
     return to_numpy(std::move(top_facets));
 }
 
-nb::dict alpha_filtration(InMatrix<double> points) {
+// Run a compiled Delaunay filtration without the GIL; return its arrays.
+template <persforest::DelaunayFiltration (*Build)(const double*, std::int64_t, int)>
+nb::dict delaunay_filtration(InMatrix<double> points) {
     const auto dim = static_cast<int>(points.shape(1));
-    persforest::AlphaFiltration filtration;
+    persforest::DelaunayFiltration filtration;
     {
         nb::gil_scoped_release release;
-        filtration = persforest::alpha_filtration(points.data(), static_cast<std::int64_t>(points.shape(0)), dim);
+        filtration = Build(points.data(), static_cast<std::int64_t>(points.shape(0)), dim);
     }
     const auto width = static_cast<std::size_t>(dim) + 1;
     nb::dict out;
@@ -154,7 +156,7 @@ nb::dict alpha_filtration(InMatrix<double> points) {
     out["event_cells"] = to_numpy(std::move(filtration.event_cells));
     out["event_values"] = to_numpy(std::move(filtration.event_values));
     out["n_exact_radii"] = filtration.n_exact_radii;
-    out["n_exact_gabriel_tests"] = filtration.n_exact_gabriel_tests;
+    out["n_exact_ball_tests"] = filtration.n_exact_ball_tests;
     return out;
 }
 
@@ -174,7 +176,10 @@ NB_MODULE(_engine, m) {
           "Orientation (+1 or -1) of each simplex relative to the ambient frame; raise for near-degenerate ones.");
     m.def("simplicial_top_facets", &simplicial_top_facets, nb::arg("tops"), nb::arg("facets"), nb::arg("n_points"),
           "Facet IDs (n_top + facet row) of each top simplex, flattened; raise for missing or repeated facets.");
-    m.def("alpha_filtration", &alpha_filtration, nb::arg("points"),
+    m.def("alpha_filtration", &delaunay_filtration<persforest::alpha_filtration>, nb::arg("points"),
           "Alpha filtration (radius units) of points in R^2 or R^3 from geogram's Delaunay triangulation: top\n"
           "simplices and facets numbered in event order, with exact orientations; see cpp/alpha.hpp.");
+    m.def("delaunay_cech_filtration", &delaunay_filtration<persforest::delaunay_cech_filtration>, nb::arg("points"),
+          "Delaunay-Cech filtration (radius units, minimal enclosing balls) of points in R^2 or R^3, laid out\n"
+          "as alpha_filtration; see cpp/alpha.hpp.");
 }

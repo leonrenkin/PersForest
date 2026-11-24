@@ -39,8 +39,8 @@ class SimplicialAdapterArrayTests(unittest.TestCase):
             for filtration_type in ('alpha', 'delaunay_cech'):
                 with self.subTest(dim=dim, filtration_type=filtration_type):
                     cells = prepare_point_filtration(points, filtration_type)
-                    if filtration_type == 'alpha' and dim in (2, 3):
-                        # The compiled builder numbers its own events.
+                    if dim in (2, 3):
+                        # The compiled builders number their own events.
                         events = list(zip(cells.cell_keys(cells.event_cells), cells.event_values.tolist()))
                     else:
                         # GUDHI's events, read with the production precision; keep the tree alive.

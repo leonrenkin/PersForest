@@ -5,7 +5,6 @@ from pathlib import Path
 from types import SimpleNamespace
 import unittest
 
-import gudhi
 import numpy as np
 
 from persforest.filtrations._interface import facet_ids, signed_incidences
@@ -85,15 +84,8 @@ class SimplicialAdapterTests(unittest.TestCase):
                 with self.subTest(dim=dim, filtration_type=filtration_type):
                     cells = prepare_point_filtration(points, filtration_type)
                     events = list(zip(cells.cell_keys(cells.event_cells), cells.event_values.tolist()))
-                    if filtration_type == 'alpha':
-                        # The compiled builder: by value, facets first, then vertex tuple.
-                        self.assertEqual(events, sorted(events, key=lambda e: (e[1], len(e[0]) == dim + 1, e[0])))
-                    else:
-                        # GUDHI's order and values; keep the tree alive while reading it.
-                        tree = gudhi.DelaunayCechComplex(points=points).create_simplex_tree(
-                            output_squared_values=False)
-                        self.assertEqual(events, [(tuple(simplex), value) for simplex, value in tree.get_filtration()
-                                                  if len(simplex) >= dim])
+                    # The compiled builders: by value, facets first, then vertex tuple.
+                    self.assertEqual(events, sorted(events, key=lambda e: (e[1], len(e[0]) == dim + 1, e[0])))
                     self.assertEqual(sorted(cells.event_cells.tolist()), list(range(cells.n_cells)))
                     keys = cells.cell_keys(range(cells.n_cells))
                     self.assertTrue(all(len(k) == dim + 1 for k in keys[:cells.n_top]))

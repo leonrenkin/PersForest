@@ -110,12 +110,12 @@ from their modules, e.g. `persforest.measurements.shape` or
 homology has dimension `dim - 1`: H1 of a 2D point cloud or image, H2 of a 3D
 point cloud or volume.
 
-- **Alpha filtrations** of 2D and 3D point clouds are computed by persforest's
-  compiled builder on [geogram](https://github.com/BrunoLevy/geogram)'s
-  Delaunay triangulation, with exact predicates, in radius units; other
-  dimensions and Delaunay–Čech use GUDHI. Degenerate inputs (grids, cocircular
-  points) are triangulated by symbolic perturbation, and of identical points
-  only the first is used.
+- **Alpha and Delaunay–Čech filtrations** of 2D and 3D point clouds are
+  computed by persforest's compiled builders on
+  [geogram](https://github.com/BrunoLevy/geogram)'s Delaunay triangulation,
+  with exact predicates, in radius units; other dimensions use GUDHI.
+  Degenerate inputs (grids, cocircular points) are triangulated by symbolic
+  perturbation, and of identical points only the first is used.
 - **Custom simplicial filtrations** are `(simplex, value)` pairs with
   nondecreasing values, every face listed before its cofaces. The complex must
   be geometrically embedded and its final complex must have trivial homology;

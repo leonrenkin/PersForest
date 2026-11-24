@@ -1,5 +1,5 @@
-// Alpha filtrations of point clouds in R^2 and R^3 from geogram's Delaunay
-// triangulation: plain C++17, no Python dependency.
+// Alpha and Delaunay-Cech filtrations of point clouds in R^2 and R^3 from
+// geogram's Delaunay triangulation: plain C++17, no Python dependency.
 //
 // Numerical setting (u = 2^-53 is the unit roundoff, gamma_k = k u / (1 - k u)).
 // This file must be compiled without fused multiply-add contraction.
@@ -12,7 +12,7 @@
 // also behind its predicates) neither underflows nor overflows and is exact.
 // Values are scaled back exactly at the end. A cell much smaller than the
 // cloud (all edge components below 2^-60) is in addition rescaled by a power
-// of two before its radius or Gabriel test is computed, so the double formulas
+// of two before its radius or ball test is computed, so the double formulas
 // do not underflow either.
 //
 // Radii (values). With edge vectors a, b (and c) from the first vertex, a
@@ -32,16 +32,19 @@
 // |a||b| in 2D), far below |det| whenever the condition above holds; otherwise
 // it is computed exactly.
 //
-// Gabriel tests (decisions) use a semi-static filter. For a polynomial G
-// evaluated in doubles from the rounded coordinate differences with at most d
-// roundings on any path, |G~ - G| <= gamma_d A / (1 - u)^d, where A~ is the
-// same expression evaluated in doubles with every operand replaced by its
-// absolute value and every difference by a sum (Higham, Accuracy and
-// Stability of Numerical Algorithms, ch. 3). Here d <= 11, so 1e-14 A~ bounds
-// the error with a margin of 8; kTiny = 2^-1000 covers underflow in
-// intermediate products, whose absolute error is below 2^-1050 for these
-// magnitudes (all differences below 2). A sign the filter cannot certify is
-// computed exactly; G has degree 6, so that never underflows (see Scaling).
+// Ball tests (decisions): alpha's Gabriel tests (strictly inside a smallest
+// sphere?) and the containment tests behind minimal enclosing balls (inside or
+// on?) are signs of the same polynomials and use a semi-static filter. For a
+// polynomial G evaluated in doubles from the rounded coordinate differences
+// with at most d roundings on any path, |G~ - G| <= gamma_d A / (1 - u)^d,
+// where A~ is the same expression evaluated in doubles with every operand
+// replaced by its absolute value and every difference by a sum (Higham,
+// Accuracy and Stability of Numerical Algorithms, ch. 3). Here d <= 11, so
+// 1e-14 A~ bounds the error with a margin of 8; kTiny = 2^-1000 covers
+// underflow in intermediate products, whose absolute error is below 2^-1050
+// for these magnitudes (all differences below 2). A sign the filter cannot
+// certify is computed exactly; G has degree 6, so that never underflows (see
+// Scaling).
 #include "alpha.hpp"
 
 #include <Delaunay_psm.h>
@@ -65,7 +68,7 @@ using Exact = GEO::expansion_nt;
 using GEO::index_t;
 
 constexpr double kCond = 100.0;
-constexpr double kGabrielRelative = 1e-14;
+constexpr double kBallRelative = 1e-14;
 constexpr double kTiny = 0x1p-1000;
 constexpr double kMinScaledCoordinate = 0x1p-101;
 constexpr double kLocalThreshold = 0x1p-60;
@@ -153,7 +156,7 @@ ExactVec sum(const ExactVec& a, const ExactVec& b) { return {a.x + b.x, a.y + b.
 
 struct Counters {
     std::int64_t exact_radii = 0;
-    std::int64_t exact_gabriel_tests = 0;
+    std::int64_t exact_ball_tests = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -165,7 +168,7 @@ struct TopGeometry {
 };
 
 [[noreturn]] void flat_cell() {
-    throw std::logic_error("alpha filtration: geogram returned a flat Delaunay cell");
+    throw std::logic_error("Delaunay filtration: geogram returned a flat cell");
 }
 
 TopGeometry triangle_top(const double* const* p, Counters& counters) {
@@ -223,13 +226,14 @@ TopGeometry tetrahedron_top(const double* const* p, Counters& counters) {
             static_cast<std::int8_t>(sign == GEO::POSITIVE ? 1 : -1)};
 }
 
-// Squared radius of the smallest circumsphere of an edge (2D facet): well conditioned.
-double edge_squared_radius(const double* const* p) {
-    const Vec a = difference<2>(p[1], p[0]);
+// Squared radius of the smallest sphere through an edge: well conditioned.
+template <int D>
+double edge_squared_radius(const double* p0, const double* p1) {
+    const Vec a = difference<D>(p1, p0);
     return dot(a, a) / 4.0;
 }
 
-// Squared radius of the smallest circumsphere of a triangle in R^3 (3D facet).
+// Squared radius of the smallest sphere through a triangle in R^3 (3D facet).
 double triangle_squared_radius(const double* const* p, Counters& counters) {
     Vec a = difference<3>(p[1], p[0]), b = difference<3>(p[2], p[0]), c = difference<3>(p[2], p[1]);
     const int k = local_exponent(std::max({max_abs(a), max_abs(b), max_abs(c)}));
@@ -252,22 +256,24 @@ double triangle_squared_radius(const double* const* p, Counters& counters) {
     return std::ldexp(numerator.estimate() / denominator.estimate(), -2 * k);
 }
 
-// Is q strictly inside the smallest circle through the edge p[0] p[1]?
-// G = (q - p0).(q - p1) < 0, a polynomial of degree 2 (d = 3 roundings).
-bool inside_edge_circle(const double* const* p, const double* q, Counters& counters) {
-    const Vec w = difference<2>(q, p[0]), v = difference<2>(q, p[1]);
+// Side of q relative to the smallest sphere through the edge p0 p1 (its
+// diametral sphere): the sign of G = (q - p0).(q - p1), negative inside.
+// Degree 2, d <= 4 roundings.
+template <int D>
+GEO::Sign edge_ball_side(const double* p0, const double* p1, const double* q, Counters& counters) {
+    const Vec w = difference<D>(q, p0), v = difference<D>(q, p1);
     const double g = dot(w, v);
     const double bound = dot(absolute(w), absolute(v));
-    if (std::abs(g) > kGabrielRelative * bound + kTiny) return g < 0.0;
-    ++counters.exact_gabriel_tests;
-    return dot(exact_difference<2>(q, p[0], 0), exact_difference<2>(q, p[1], 0)).sign() == GEO::NEGATIVE;
+    if (std::abs(g) > kBallRelative * bound + kTiny) return g < 0.0 ? GEO::NEGATIVE : GEO::POSITIVE;
+    ++counters.exact_ball_tests;
+    return dot(exact_difference<D>(q, p0, 0), exact_difference<D>(q, p1, 0)).sign();
 }
 
-// Is q strictly inside the smallest sphere through the triangle p[0] p[1] p[2]?
-// With a = p1 - p0, b = p2 - p0, w = q - p0, n = a x b and
-// m = |a|^2 (b x n) + |b|^2 (n x a) (twice |n|^2 times the circumcenter
-// offset), G = |n|^2 |w|^2 - w.m < 0; degree 6, d = 11 roundings.
-bool inside_triangle_sphere(const double* const* p, const double* q, Counters& counters) {
+// Side of q relative to the smallest sphere through the triangle p[0] p[1] p[2]
+// in R^3, negative inside. With a = p1 - p0, b = p2 - p0, w = q - p0, n = a x b
+// and m = |a|^2 (b x n) + |b|^2 (n x a) (twice |n|^2 times the circumcenter
+// offset), the sign of G = |n|^2 |w|^2 - w.m; degree 6, d = 11 roundings.
+GEO::Sign triangle_sphere_side(const double* const* p, const double* q, Counters& counters) {
     Vec a = difference<3>(p[1], p[0]), b = difference<3>(p[2], p[0]), w = difference<3>(q, p[0]);
     const int k = local_exponent(std::max({max_abs(a), max_abs(b), max_abs(w)}));
     if (k != 0) {
@@ -281,13 +287,64 @@ bool inside_triangle_sphere(const double* const* p, const double* q, Counters& c
     const Vec abs_a = absolute(a), abs_b = absolute(b), abs_n = absolute_cross(abs_a, abs_b);
     const Vec abs_m = sum(scaled(absolute_cross(abs_b, abs_n), aa), scaled(absolute_cross(abs_n, abs_a), bb));
     const double bound = dot(abs_n, abs_n) * ww + dot(absolute(w), abs_m);
-    if (std::abs(g) > kGabrielRelative * bound + kTiny) return g < 0.0;
-    ++counters.exact_gabriel_tests;
+    if (std::abs(g) > kBallRelative * bound + kTiny) return g < 0.0 ? GEO::NEGATIVE : GEO::POSITIVE;
+    ++counters.exact_ball_tests;
     const ExactVec ea = exact_difference<3>(p[1], p[0], 0), eb = exact_difference<3>(p[2], p[0], 0),
                    ew = exact_difference<3>(q, p[0], 0);
     const ExactVec en = cross(ea, eb);
     const ExactVec em = sum(scaled(cross(eb, en), dot(ea, ea)), scaled(cross(en, ea), dot(eb, eb)));
-    return (dot(en, en) * dot(ew, ew) - dot(ew, em)).sign() == GEO::NEGATIVE;
+    return (dot(en, en) * dot(ew, ew) - dot(ew, em)).sign();
+}
+
+// Minimal enclosing balls (Delaunay-Cech values). The minimal enclosing ball
+// of a simplex is the smallest sphere through some face (center in the face's
+// affine hull) that contains every vertex, so its radius is the least radius
+// among these candidates that contain the simplex (closed balls). Every
+// candidate containing the simplex encloses it and is at least as large.
+
+// Squared radius of the minimal enclosing ball of a triangle in R^D, given the
+// squared radius of its smallest sphere: an edge's diametral ball if it
+// contains the opposite vertex (an obtuse or right angle there), else that sphere.
+template <int D>
+double triangle_enclosing_squared(const double* const* p, double sphere_squared, Counters& counters) {
+    double best = sphere_squared;
+    for (int k = 0; k < 3; ++k) {
+        const int i = k == 0 ? 1 : 0, j = k == 2 ? 1 : 2;  // the edge opposite vertex k, increasing
+        if (edge_ball_side<D>(p[i], p[j], p[k], counters) != GEO::POSITIVE) {
+            best = std::min(best, edge_squared_radius<D>(p[i], p[j]));
+        }
+    }
+    return best;
+}
+
+// The same for a tetrahedron, given its squared circumradius. An edge ball that
+// contains the other two vertices has half the diameter as radius and is the
+// minimal ball; otherwise the minimal ball is the circumsphere or the smallest
+// sphere of a face triangle that contains the fourth vertex.
+double tetrahedron_enclosing_squared(const double* const* p, double sphere_squared, Counters& counters) {
+    for (int i = 0; i < 4; ++i) {
+        for (int j = i + 1; j < 4; ++j) {
+            int others[2], n_others = 0;
+            for (int k = 0; k < 4; ++k) {
+                if (k != i && k != j) others[n_others++] = k;
+            }
+            if (edge_ball_side<3>(p[i], p[j], p[others[0]], counters) != GEO::POSITIVE &&
+                edge_ball_side<3>(p[i], p[j], p[others[1]], counters) != GEO::POSITIVE) {
+                return edge_squared_radius<3>(p[i], p[j]);
+            }
+        }
+    }
+    double best = sphere_squared;
+    for (int omitted = 0; omitted < 4; ++omitted) {
+        const double* face[3];
+        for (int k = 0, f = 0; k < 4; ++k) {
+            if (k != omitted) face[f++] = p[k];
+        }
+        if (triangle_sphere_side(face, p[omitted], counters) != GEO::POSITIVE) {
+            best = std::min(best, triangle_squared_radius(face, counters));
+        }
+    }
+    return best;
 }
 
 // ---------------------------------------------------------------------------
@@ -308,7 +365,7 @@ bool scale_points(const double* points, std::size_t n_values, std::vector<double
         const double x = std::ldexp(points[i], -exponent);
         if (x != 0.0 && std::abs(x) < kMinScaledCoordinate) {
             throw std::invalid_argument(
-                "point coordinates span too many orders of magnitude for the alpha filtration: every nonzero "
+                "point coordinates span too many orders of magnitude for the Delaunay filtration: every nonzero "
                 "coordinate must be at least 2^-100 (about 8e-31) times the largest absolute coordinate");
         }
         out[i] = x;
@@ -379,7 +436,7 @@ void use_first_of_identical_points(std::vector<index_t>& cell_vertices, const do
         if (found->second < v) renamed.emplace(v, found->second);
     }
     if (matched != first_unused.size()) {
-        throw std::logic_error("alpha filtration: a point is missing from geogram's Delaunay triangulation");
+        throw std::logic_error("Delaunay filtration: a point is missing from geogram's triangulation");
     }
     if (renamed.empty()) return;
     for (index_t& v : cell_vertices) {
@@ -436,10 +493,12 @@ void sort_events(std::vector<Event>& events, TieLess tie_less) {
     }
 }
 
+enum class Values { alpha, delaunay_cech };
+
 template <int D>
-AlphaFiltration build(const double* points, index_t n, int exponent) {
+DelaunayFiltration build(const double* points, index_t n, int exponent, Values values) {
     constexpr int kWidth = D + 1;  // vertices per top simplex
-    AlphaFiltration result;
+    DelaunayFiltration result;
     if (!spans_space(points, n, D)) return result;
 
     // Triangulate and copy the cells' vertices and neighbours.
@@ -448,7 +507,7 @@ AlphaFiltration build(const double* points, index_t n, int exponent) {
     {
         const char* algorithm = D == 2 ? "BDEL2d" : (GEO::DelaunayFactory::has_creator("PDEL") ? "PDEL" : "BDEL");
         GEO::Delaunay_var triangulation = GEO::Delaunay::create(GEO::coord_index_t(D), algorithm);
-        if (triangulation.is_null()) throw std::runtime_error("alpha filtration: geogram has no Delaunay algorithm");
+        if (triangulation.is_null()) throw std::runtime_error("Delaunay filtration: geogram has no Delaunay algorithm");
         GEO::Numeric::random_reset(-1);  // the same insertion order on every call
         triangulation->set_vertices(n, points);
         n_cells = triangulation->nb_cells();
@@ -467,11 +526,12 @@ AlphaFiltration build(const double* points, index_t n, int exponent) {
     for (index_t neighbour : neighbours) n_hull += neighbour == GEO::NO_INDEX;
     const std::size_t n_facets = (std::size_t(n_cells) * kWidth + n_hull) / 2;
     if (std::size_t(n_cells) + n_facets > std::size_t(std::numeric_limits<std::int32_t>::max())) {
-        throw std::invalid_argument("alpha filtration: too many cells for 32-bit cell IDs");
+        throw std::invalid_argument("Delaunay filtration: too many cells for 32-bit cell IDs");
     }
 
     // Top simplices: sorted vertices, the sorted position of each geogram
-    // vertex, squared circumradius and orientation of the sorted simplex.
+    // vertex, squared value (circumradius or minimal enclosing ball) and
+    // orientation of the sorted simplex.
     Counters counters;
     std::vector<index_t> vertices(raw_vertices.size());
     std::vector<std::uint8_t> position(raw_vertices.size());
@@ -496,6 +556,13 @@ AlphaFiltration build(const double* points, index_t n, int exponent) {
             top = tetrahedron_top(p, counters);
         }
         top_squared[c] = top.squared_radius;
+        if (values == Values::delaunay_cech) {
+            if constexpr (D == 2) {
+                top_squared[c] = triangle_enclosing_squared<2>(p, top.squared_radius, counters);
+            } else {
+                top_squared[c] = tetrahedron_enclosing_squared(p, top.squared_radius, counters);
+            }
+        }
         orientation[c] = top.orientation;
     }
     raw_vertices = std::vector<index_t>();
@@ -520,34 +587,47 @@ AlphaFiltration build(const double* points, index_t n, int exponent) {
                 facet_vertices.push_back(vertices[base + i]);
                 p[k++] = points + std::size_t(vertices[base + i]) * D;
             }
+            // Is the vertex opposite the facet in a top simplex strictly inside the
+            // facet's smallest sphere (alpha's Gabriel test)?
             auto inside = [&](index_t opposite) {
                 const double* q = points + std::size_t(opposite) * D;
                 if constexpr (D == 2) {
-                    return inside_edge_circle(p, q, counters);
+                    return edge_ball_side<2>(p[0], p[1], q, counters) == GEO::NEGATIVE;
                 } else {
-                    return inside_triangle_sphere(p, q, counters);
+                    return triangle_sphere_side(p, q, counters) == GEO::NEGATIVE;
                 }
             };
             double earliest_top = top_squared[c];
-            bool attached = inside(vertices[base + j]);
+            index_t other_opposite = GEO::NO_INDEX;
             if (other != GEO::NO_INDEX) {
                 const std::size_t other_base = std::size_t(other) * kWidth;
                 int other_local = 0;
                 while (other_local < kWidth && neighbours[other_base + other_local] != c) ++other_local;
-                if (other_local == kWidth) throw std::logic_error("alpha filtration: inconsistent neighbours");
+                if (other_local == kWidth) throw std::logic_error("Delaunay filtration: inconsistent neighbours");
                 const int other_j = position[other_base + other_local];
                 cell_facet[other_base + other_j] = facet;
                 earliest_top = std::min(earliest_top, top_squared[other]);
-                attached = attached || inside(vertices[other_base + other_j]);
+                other_opposite = vertices[other_base + other_j];
             }
             double own;
             if constexpr (D == 2) {
-                own = edge_squared_radius(p);
+                own = edge_squared_radius<2>(p[0], p[1]);
             } else {
                 own = triangle_squared_radius(p, counters);
             }
-            // The clamp keeps a facet from entering after a top simplex it bounds.
-            facet_squared.push_back(attached ? earliest_top : std::min(own, earliest_top));
+            double value;
+            if (values == Values::alpha) {
+                const bool attached =
+                    inside(vertices[base + j]) || (other_opposite != GEO::NO_INDEX && inside(other_opposite));
+                value = attached ? earliest_top : own;
+            } else if constexpr (D == 2) {
+                value = own;  // an edge's minimal enclosing ball is its diametral ball
+            } else {
+                value = triangle_enclosing_squared<3>(p, own, counters);
+            }
+            // The clamp keeps a facet from entering after a top simplex it bounds;
+            // mathematically it holds already, so it only absorbs rounding.
+            facet_squared.push_back(std::min(value, earliest_top));
         }
     }
     neighbours = std::vector<index_t>();
@@ -557,7 +637,7 @@ AlphaFiltration build(const double* points, index_t n, int exponent) {
     auto radius = [exponent](double squared) {
         const double value = std::ldexp(std::sqrt(squared), exponent);
         if (!std::isfinite(value)) {
-            throw std::invalid_argument("alpha filtration: a radius exceeds the double range; rescale the points");
+            throw std::invalid_argument("Delaunay filtration: a radius exceeds the double range; rescale the points");
         }
         return value;
     };
@@ -614,16 +694,18 @@ AlphaFiltration build(const double* points, index_t n, int exponent) {
         std::copy(&facet_vertices[f * D], &facet_vertices[f * D] + D, &result.facet_vertices[std::size_t(facet_id[f]) * D]);
     }
     result.n_exact_radii = counters.exact_radii;
-    result.n_exact_gabriel_tests = counters.exact_gabriel_tests;
+    result.n_exact_ball_tests = counters.exact_ball_tests;
     return result;
 }
 
 }  // namespace
 
-AlphaFiltration alpha_filtration(const double* points, std::int64_t n_points, int dim) {
-    if (dim != 2 && dim != 3) throw std::invalid_argument("the alpha filtration builder supports R^2 and R^3 only");
+namespace {
+
+DelaunayFiltration delaunay_filtration(const double* points, std::int64_t n_points, int dim, Values values) {
+    if (dim != 2 && dim != 3) throw std::invalid_argument("the compiled Delaunay filtrations support R^2 and R^3 only");
     if (n_points < 0 || n_points > std::numeric_limits<std::int32_t>::max()) {
-        throw std::invalid_argument("alpha filtration: unsupported number of points");
+        throw std::invalid_argument("Delaunay filtration: unsupported number of points");
     }
     std::vector<double> scaled_points;
     int exponent = 0;
@@ -631,7 +713,18 @@ AlphaFiltration alpha_filtration(const double* points, std::int64_t n_points, in
     const std::lock_guard<std::mutex> lock(geogram_mutex());
     initialize_geogram();
     const auto n = static_cast<index_t>(n_points);
-    return dim == 2 ? build<2>(scaled_points.data(), n, exponent) : build<3>(scaled_points.data(), n, exponent);
+    return dim == 2 ? build<2>(scaled_points.data(), n, exponent, values)
+                    : build<3>(scaled_points.data(), n, exponent, values);
+}
+
+}  // namespace
+
+DelaunayFiltration alpha_filtration(const double* points, std::int64_t n_points, int dim) {
+    return delaunay_filtration(points, n_points, dim, Values::alpha);
+}
+
+DelaunayFiltration delaunay_cech_filtration(const double* points, std::int64_t n_points, int dim) {
+    return delaunay_filtration(points, n_points, dim, Values::delaunay_cech);
 }
 
 }  // namespace persforest
