@@ -23,7 +23,6 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.26",
-    "gudhi>=3.11",
 ]
 
 [project.urls]
@@ -31,6 +30,10 @@ Repository = "https://github.com/leonrenkin/persforest"
 Issues = "https://github.com/leonrenkin/persforest/issues"
 
 [project.optional-dependencies]
+# Point clouds in 4 or more dimensions; 2D and 3D use the compiled builders.
+gudhi = [
+    "gudhi>=3.11",
+]
 plot = [
     "matplotlib>=3.8",
 ]

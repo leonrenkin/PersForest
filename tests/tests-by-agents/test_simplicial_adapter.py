@@ -34,7 +34,7 @@ class SimplicialAdapterArrayTests(unittest.TestCase):
     def test_point_filtrations_match_the_reference(self):
         rng = np.random.default_rng(3)
         complexes = {'alpha': gudhi.AlphaComplex, 'delaunay_cech': gudhi.DelaunayCechComplex}
-        for dim, n_points in ((1, 12), (2, 60), (3, 40), (4, 25)):
+        for dim, n_points in ((2, 60), (3, 40), (4, 25)):
             points = rng.random((n_points, dim))
             for filtration_type in ('alpha', 'delaunay_cech'):
                 with self.subTest(dim=dim, filtration_type=filtration_type):

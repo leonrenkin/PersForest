@@ -59,6 +59,9 @@ class FactoryEquivalenceTests(unittest.TestCase):
             PersistenceForest.from_points(points, "alpha")
         with self.assertRaisesRegex(ValueError, "filtration_type must be one of"):
             PersistenceForest.from_points(points, filtration_type="rips")
+        for filtration_type in ("alpha", "delaunay_cech"):
+            with self.assertRaisesRegex(ValueError, "1D point clouds are not supported"):
+                PersistenceForest.from_points(np.arange(5.0)[:, None], filtration_type=filtration_type)
         with self.assertRaises(TypeError):
             PersistenceForest.from_points(points, storage="diffs")
         with self.assertRaisesRegex(ValueError, "filtration_tol"):

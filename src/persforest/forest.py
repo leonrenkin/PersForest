@@ -159,8 +159,8 @@ class PersistenceForest:
         Raises
         ------
         ValueError
-            For a malformed or non-finite point array, an unknown
-            ``filtration_type``, and, for point clouds in R^2 and R^3, a
+            For a malformed or non-finite point array, a 1D point cloud, an
+            unknown ``filtration_type``, and, for point clouds in R^2 and R^3, a
             nonzero coordinate below 2^-100 times the largest absolute
             coordinate or radii beyond the double range.
 
@@ -168,11 +168,12 @@ class PersistenceForest:
         -----
         In R^2 and R^3 both filtrations are computed by persforest's compiled
         builders on geogram's Delaunay triangulation, with exact predicates;
-        other dimensions use GUDHI. In the builders, degenerate configurations
-        such as cocircular points are triangulated by symbolic perturbation in
-        lexicographic order of the coordinates, equal values are ordered facets
-        first, then by vertex tuple, and of identical points only the first is
-        a vertex. Without ``dim + 1`` affinely independent points there are no
+        four and more dimensions need the optional GUDHI dependency
+        (``persforest[gudhi]``, otherwise ``ImportError``). In the builders,
+        degenerate configurations such as cocircular points are triangulated by
+        symbolic perturbation in lexicographic order of the coordinates, equal
+        values are ordered facets first, then by vertex tuple, and of identical
+        points only the first is a vertex. Without ``dim + 1`` affinely independent points there are no
         top simplices and the barcode is empty.
         """
         options = _validated_options(reduce, compute_barcode, print_info, filtration_tol)

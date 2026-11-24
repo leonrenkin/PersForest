@@ -855,7 +855,6 @@ name = "persforest"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [
-    { name = "gudhi" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
@@ -873,6 +872,9 @@ examples = [
     { name = "matplotlib" },
     { name = "pandas" },
     { name = "scikit-learn" },
+]
+gudhi = [
+    { name = "gudhi" },
 ]
 notebook = [
     { name = "anywidget" },
@@ -892,7 +894,7 @@ plotly = [
 [package.metadata]
 requires-dist = [
     { name = "anywidget", marker = "extra == 'notebook'", specifier = ">=0.9" },
-    { name = "gudhi", specifier = ">=3.11" },
+    { name = "gudhi", marker = "extra == 'gudhi'", specifier = ">=3.11" },
     { name = "ipywidgets", marker = "extra == 'droplets'", specifier = ">=8.1" },
     { name = "ipywidgets", marker = "extra == 'notebook'", specifier = ">=8.1" },
     { name = "matplotlib", marker = "extra == 'plot'", specifier = ">=3.8" },
@@ -909,7 +911,7 @@ requires-dist = [
     { name = "scikit-learn", marker = "extra == 'examples'", specifier = ">=1.4" },
     { name = "scipy", marker = "extra == 'droplets'", specifier = ">=1.11" },
 ]
-provides-extras = ["plot", "plotly", "notebook", "examples", "droplets"]
+provides-extras = ["gudhi", "plot", "plotly", "notebook", "examples", "droplets"]
 
 [[package]]
 name = "pexpect"

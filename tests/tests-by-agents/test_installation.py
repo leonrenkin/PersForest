@@ -54,7 +54,7 @@ import sys
 import warnings
 sys.path.insert(0, {package_parent!r})
 optional = {{'matplotlib', 'seaborn', 'pandas', 'plotly', 'PIL',
-            'nbformat', 'ipywidgets', 'anywidget', 'sklearn'}}
+            'nbformat', 'ipywidgets', 'anywidget', 'sklearn', 'gudhi'}}
 class BlockOptional(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if fullname.split('.')[0] in optional:
@@ -78,6 +78,14 @@ assert family.evaluate_on_grid().shape == (1, 5)
 alpha = PersistenceForest(points)
 assert [len(simplex) for simplex, _ in alpha.filtration] == [2, 2, 2, 3]
 assert not hasattr(alpha, 'simplex_tree')
+assert PersistenceForest.from_points([[0, 0, 0], [3, 0, 0], [0, 4, 0], [0, 0, 5]],
+                                     filtration_type='delaunay_cech').barcode == set()
+try:
+    PersistenceForest([[0, 0, 0, 0], [1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
+except ImportError as error:
+    assert 'persforest[gudhi]' in str(error), str(error)
+else:
+    raise AssertionError('A 4D point cloud was built without GUDHI')
 assert not (optional & {{name.split('.')[0] for name in sys.modules}})
 for plot in (forest.plot_barcode, lambda: forest.plot_at_filtration(3),
              lambda: forest.plot_measurement_landscapes(label='length')):

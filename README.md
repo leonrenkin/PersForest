@@ -36,8 +36,8 @@ in `examples/tendril_regression/`. Citation metadata is in
 
 ## Installation
 
-Requires Python 3.11–3.14. The base installation needs only NumPy and GUDHI;
-plotting dependencies are optional extras. Installing from source compiles a
+Requires Python 3.11–3.14. The base installation needs only NumPy;
+GUDHI and plotting dependencies are optional extras. Installing from source compiles a
 small C++ extension, so a C++17 compiler is required (Xcode Command Line Tools
 on macOS, GCC or Clang on Linux, Visual Studio Build Tools on Windows); CMake
 and the other build tools are fetched automatically.
@@ -50,6 +50,7 @@ python -m pip install ".[plot]"
 
 | Extra | Adds |
 | --- | --- |
+| `gudhi` | point clouds in four or more dimensions |
 | `plot` | Matplotlib plots and animations |
 | `plotly` | interactive 2D/3D Plotly figures |
 | `notebook` | inline rendering and widgets in Jupyter |
@@ -113,7 +114,8 @@ point cloud or volume.
 - **Alpha and Delaunay–Čech filtrations** of 2D and 3D point clouds are
   computed by persforest's compiled builders on
   [geogram](https://github.com/BrunoLevy/geogram)'s Delaunay triangulation,
-  with exact predicates, in radius units; other dimensions use GUDHI.
+  with exact predicates, in radius units. Four or more dimensions use GUDHI
+  (the `gudhi` extra); 1D point clouds are not supported.
   Degenerate inputs (grids, cocircular points) are triangulated by symbolic
   perturbation, and of identical points only the first is used.
 - **Custom simplicial filtrations** are `(simplex, value)` pairs with

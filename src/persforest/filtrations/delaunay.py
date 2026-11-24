@@ -1,10 +1,12 @@
 """Delaunay-based filtrations of point clouds, in radius units.
 
 In R^2 and R^3 the compiled builders (``cpp/delaunay.hpp``, on geogram's Delaunay
-triangulation) compute alpha and Delaunay–Čech filtrations; other dimensions
-use GUDHI.
+triangulation) compute alpha and Delaunay–Čech filtrations; four and more
+dimensions use GUDHI, an optional dependency imported only then. Point clouds
+in R^1 are not supported.
 """
-import gudhi as gd
+from importlib import import_module
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -12,7 +14,7 @@ from persforest import _engine
 from persforest.filtrations.simplicial import SimplicialFiltration
 
 POINT_FILTRATION_TYPES = ("alpha", "delaunay_cech")
-_GUDHI_COMPLEXES = {"alpha": gd.AlphaComplex, "delaunay_cech": gd.DelaunayCechComplex}
+_GUDHI_COMPLEXES = {"alpha": "AlphaComplex", "delaunay_cech": "DelaunayCechComplex"}
 
 
 def _compiled_filtration(build, point_cloud: NDArray) -> SimplicialFiltration:
@@ -88,21 +90,36 @@ def delaunay_cech_filtration(point_cloud: NDArray) -> SimplicialFiltration:
 _COMPILED_FILTRATIONS = {"alpha": alpha_filtration, "delaunay_cech": delaunay_cech_filtration}
 
 
-def _gudhi_filtration(complex_type, point_cloud: NDArray) -> SimplicialFiltration:
+def _gudhi_filtration(complex_name: str, point_cloud: NDArray) -> SimplicialFiltration:
     """Adapter over GUDHI's filtration of a Delaunay-based complex, in GUDHI's order.
 
     GUDHI lists vertices in increasing order. Its filtration iterator does not
     keep the simplex tree alive, so the tree stays referenced while it is read.
+
+    Raises
+    ------
+    ImportError
+        If GUDHI is not installed, with the command that installs it.
     """
-    simplex_tree = complex_type(points=point_cloud).create_simplex_tree(output_squared_values=False)
+    try:
+        gudhi = import_module("gudhi")
+    except ModuleNotFoundError as error:
+        if error.name != "gudhi":
+            raise
+        raise ImportError(
+            f"Point clouds in {point_cloud.shape[1]} dimensions need GUDHI (2D and 3D do not). "
+            'Install it with `pip install "persforest[gudhi]"` '
+            'or `pip install ".[gudhi]"` from the repository.'
+        ) from error
+    simplex_tree = getattr(gudhi, complex_name)(points=point_cloud).create_simplex_tree(output_squared_values=False)
     return SimplicialFiltration.from_events(point_cloud, simplex_tree.get_filtration())
 
 
 def prepare_point_filtration(point_cloud: NDArray, filtration_type: str) -> SimplicialFiltration:
     """Prepare the simplicial adapter of an ``"alpha"`` or ``"delaunay_cech"`` filtration.
 
-    Point clouds in R^2 and R^3 go through the compiled builders, other
-    dimensions through GUDHI's ``AlphaComplex`` and ``DelaunayCechComplex``.
+    Point clouds in R^2 and R^3 go through the compiled builders, four and
+    more dimensions through GUDHI's ``AlphaComplex`` and ``DelaunayCechComplex``.
 
     Parameters
     ----------
@@ -114,9 +131,18 @@ def prepare_point_filtration(point_cloud: NDArray, filtration_type: str) -> Simp
     -------
     SimplicialFiltration
         An adapter over the top simplices and their facets.
+
+    Raises
+    ------
+    ValueError
+        For an unknown ``filtration_type`` and for point clouds in R^1.
+    ImportError
+        For four or more dimensions without GUDHI installed.
     """
     if filtration_type not in POINT_FILTRATION_TYPES:
         raise ValueError(f"filtration_type must be one of {POINT_FILTRATION_TYPES}, not {filtration_type!r}")
+    if point_cloud.shape[1] < 2:
+        raise ValueError("point clouds need at least 2 dimensions; 1D point clouds are not supported")
     if point_cloud.shape[1] in (2, 3):
         return _COMPILED_FILTRATIONS[filtration_type](point_cloud)
     return _gudhi_filtration(_GUDHI_COMPLEXES[filtration_type], point_cloud)

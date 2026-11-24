@@ -41,16 +41,15 @@ def draw_points(ax, points, **kwargs):
 def draw_alpha_complex(ax, split, value, lobe_colors=("C0", "C1")):
     """Draw the alpha complex of a split's points at radius ``value`` and its holes.
 
-    Triangles and edges present at ``value`` are shaded; the representatives
+    Triangles and edges of the split's forest present at ``value`` are shaded
+    (vertices enter at 0 and are always drawn); the representatives
     of the bars active at ``value`` are drawn in the color of their lobe, or
     gray if the bar is not a lobe.
     """
-    import gudhi
     from matplotlib.collections import LineCollection
     from matplotlib.collections import PolyCollection
 
-    simplex_tree = gudhi.AlphaComplex(points=split.points).create_simplex_tree(output_squared_values=False)
-    present = [simplex for simplex, filtration in simplex_tree.get_filtration() if filtration <= value]
+    present = [list(simplex) for simplex, filtration in split.forest.filtration if filtration <= value]
     xy = split.points[:, ::-1]
     ax.add_collection(PolyCollection([xy[simplex] for simplex in present if len(simplex) == 3],
                                      facecolor="lightsteelblue", edgecolor="none", alpha=0.55, zorder=2))
