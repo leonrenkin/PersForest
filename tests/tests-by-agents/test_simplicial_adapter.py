@@ -1,6 +1,7 @@
 """Array-based simplicial adapter: agrees with a dict-based numbering of the same events."""
 import unittest
 
+import gudhi
 import numpy as np
 
 from persforest.filtrations.delaunay import prepare_point_filtration
@@ -32,12 +33,21 @@ class SimplicialAdapterArrayTests(unittest.TestCase):
 
     def test_point_filtrations_match_the_reference(self):
         rng = np.random.default_rng(3)
+        complexes = {'alpha': gudhi.AlphaComplex, 'delaunay_cech': gudhi.DelaunayCechComplex}
         for dim, n_points in ((1, 12), (2, 60), (3, 40), (4, 25)):
             points = rng.random((n_points, dim))
             for filtration_type in ('alpha', 'delaunay_cech'):
                 with self.subTest(dim=dim, filtration_type=filtration_type):
-                    tree, cells = prepare_point_filtration(points, filtration_type)
-                    self.assert_matches_reference(cells, list(tree.get_filtration()), points)
+                    cells = prepare_point_filtration(points, filtration_type)
+                    if filtration_type == 'alpha' and dim in (2, 3):
+                        # The compiled builder numbers its own events.
+                        events = list(zip(cells.cell_keys(cells.event_cells), cells.event_values.tolist()))
+                    else:
+                        # GUDHI's events, read with the production precision; keep the tree alive.
+                        tree = complexes[filtration_type](points=points).create_simplex_tree(
+                            output_squared_values=False)
+                        events = list(tree.get_filtration())
+                    self.assert_matches_reference(cells, events, points)
 
     def test_custom_filtration_matches_the_reference(self):
         points = np.array([[0., 0], [2, 0], [1, 2], [3, 2], [1, -2]])
@@ -48,9 +58,12 @@ class SimplicialAdapterArrayTests(unittest.TestCase):
         self.assert_matches_reference(cells, filtration, points)
 
     def test_cell_keys_agree_on_every_input_form(self):
-        tree, cells = prepare_point_filtration(np.random.default_rng(4).random((30, 2)), 'alpha')
+        points = np.random.default_rng(4).random((30, 2))
+        tree = gudhi.AlphaComplex(points=points).create_simplex_tree(output_squared_values=False)
+        events = list(tree.get_filtration())
+        cells = prepare_simplicial_filtration(events, points)
         ids = [5, cells.n_top, 0, cells.n_cells - 1, cells.n_top - 1, 7]
-        keys = reference_numbering(list(tree.get_filtration()), 2)[0]
+        keys = reference_numbering(events, 2)[0]
         expected = [keys[cell_id] for cell_id in ids]
         long_ids = ids * 10
         for form in (ids, tuple(ids), np.array(ids), long_ids, np.array(long_ids)):

@@ -49,10 +49,21 @@ def alpha_filtration(point_cloud: NDArray) -> SimplicialFiltration:
     )
 
 
-def prepare_alpha_filtration(
-    point_cloud: NDArray,
-) -> tuple[gd.SimplexTree, SimplicialFiltration]:
-    """Prepare the alpha simplex tree and its simplicial adapter.
+def _gudhi_filtration(complex_type, point_cloud: NDArray) -> SimplicialFiltration:
+    """Adapter over GUDHI's filtration of a Delaunay-based complex, in GUDHI's order.
+
+    GUDHI lists vertices in increasing order. Its filtration iterator does not
+    keep the simplex tree alive, so the tree stays referenced while it is read.
+    """
+    simplex_tree = complex_type(points=point_cloud).create_simplex_tree(output_squared_values=False)
+    return SimplicialFiltration.from_events(point_cloud, simplex_tree.get_filtration())
+
+
+def prepare_alpha_filtration(point_cloud: NDArray) -> SimplicialFiltration:
+    """Prepare the alpha filtration's simplicial adapter.
+
+    Point clouds in R^2 and R^3 go through the compiled builder
+    (``alpha_filtration``), other dimensions through GUDHI's ``AlphaComplex``.
 
     Parameters
     ----------
@@ -61,18 +72,16 @@ def prepare_alpha_filtration(
 
     Returns
     -------
-    tuple
-        The simplex tree and an adapter over its top simplices and their facets,
-        in GUDHI's filtration order. GUDHI lists vertices in increasing order.
+    SimplicialFiltration
+        An adapter over the top simplices and their facets.
     """
-    simplex_tree = gd.AlphaComplex(points=point_cloud).create_simplex_tree(output_squared_values=False)
-    return simplex_tree, SimplicialFiltration.from_events(point_cloud, simplex_tree.get_filtration())
+    if point_cloud.shape[1] in (2, 3):
+        return alpha_filtration(point_cloud)
+    return _gudhi_filtration(gd.AlphaComplex, point_cloud)
 
 
-def prepare_delaunay_cech_filtration(
-    point_cloud: NDArray,
-) -> tuple[gd.SimplexTree, SimplicialFiltration]:
-    """Prepare the Delaunay–Čech simplex tree and its simplicial adapter.
+def prepare_delaunay_cech_filtration(point_cloud: NDArray) -> SimplicialFiltration:
+    """Prepare the Delaunay–Čech filtration's simplicial adapter, from GUDHI.
 
     The complex is the Delaunay triangulation, as for alpha; a simplex enters at
     the radius of its minimal enclosing ball.
@@ -84,17 +93,13 @@ def prepare_delaunay_cech_filtration(
 
     Returns
     -------
-    tuple
-        The simplex tree and an adapter over its top simplices and their facets,
-        in GUDHI's filtration order.
+    SimplicialFiltration
+        An adapter over the top simplices and their facets, in GUDHI's order.
     """
-    simplex_tree = gd.DelaunayCechComplex(points=point_cloud).create_simplex_tree(output_squared_values=False)
-    return simplex_tree, SimplicialFiltration.from_events(point_cloud, simplex_tree.get_filtration())
+    return _gudhi_filtration(gd.DelaunayCechComplex, point_cloud)
 
 
-def prepare_point_filtration(
-    point_cloud: NDArray, filtration_type: str,
-) -> tuple[gd.SimplexTree, SimplicialFiltration]:
+def prepare_point_filtration(point_cloud: NDArray, filtration_type: str) -> SimplicialFiltration:
     """Dispatch on ``filtration_type`` (``"alpha"`` or ``"delaunay_cech"``)."""
     if filtration_type == "alpha":
         return prepare_alpha_filtration(point_cloud)

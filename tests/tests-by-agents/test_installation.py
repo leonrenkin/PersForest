@@ -76,7 +76,8 @@ family = forest.compute_measurement_landscapes(
     cycle_func=signed_chain_edge_length, max_k=1, x_grid=[2, 3, 4, 5, 6], label='length')
 assert family.evaluate_on_grid().shape == (1, 5)
 alpha = PersistenceForest(points)
-assert alpha.simplex_tree.num_vertices() == 3
+assert [len(simplex) for simplex, _ in alpha.filtration] == [2, 2, 2, 3]
+assert not hasattr(alpha, 'simplex_tree')
 assert not (optional & {{name.split('.')[0] for name in sys.modules}})
 for plot in (forest.plot_barcode, lambda: forest.plot_at_filtration(3),
              lambda: forest.plot_measurement_landscapes(label='length')):

@@ -1,4 +1,4 @@
-"""A1–A6: real GUDHI alpha geometry, radii, and independent persistence pairs."""
+"""A1–A6: real alpha geometry, radii, and persistence pairs independent of persforest (GUDHI)."""
 import math
 from pathlib import Path
 import subprocess
@@ -56,15 +56,19 @@ class AlphaIntegrationTests(unittest.TestCase):
         for count, dim in [(12, 2), (10, 3)]:
             points = np.random.default_rng(17).random((count, dim))
             forest = PersistenceForest(points)
+            # GUDHI's exact alpha complex: the same triangulation in general
+            # position, and all faces, which the homology oracle needs.
+            # Keep the owner alive while its iterators or persistence data are used.
+            alpha = gudhi.AlphaComplex(points=points, precision='exact')
+            tree = alpha.create_simplex_tree(output_squared_values=False)
+            values = {tuple(s): t for s, t in tree.get_filtration()}
+            np.testing.assert_allclose([t for s, t in forest.filtration], [values[s] for s, _ in forest.filtration],
+                                       rtol=1e-13, atol=0)
             for field in (2, 3):
-                # Keep the owner alive while its iterators or persistence data are used.
-                alpha = gudhi.AlphaComplex(points=points)
-                tree = alpha.create_simplex_tree(output_squared_values=False)
                 pairs = tree.persistence(homology_coeff_field=field, min_persistence=0)
                 expected = sorted(interval for dimension, interval in pairs
                                   if dimension == dim - 1 and np.isfinite(interval[1]) and interval[1] > interval[0] + 1e-12)
-                np.testing.assert_allclose(positive_bars(forest), expected, rtol=1e-10, atol=1e-12)
-            values = {tuple(s): t for s, t in forest.simplex_tree.get_filtration()}
+                np.testing.assert_allclose(positive_bars(forest), expected, rtol=1e-13, atol=0)
             # Slab midpoints avoid conflating tolerance-collapsed critical values
             # with exact backend events; exact fixture endpoints are tested separately.
             levels = sorted(set(values.values()))

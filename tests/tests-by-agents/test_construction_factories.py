@@ -37,7 +37,7 @@ class FactoryEquivalenceTests(unittest.TestCase):
                 self.assertEqual(snapshot(factory), snapshot(shorthand))
                 self.assertEqual((factory.filtration_type, factory.filtration_units), ("alpha", "radius"))
                 self.assertEqual(shorthand.filtration_type, "alpha")
-                self.assertIsNotNone(factory.simplex_tree)
+                self.assertFalse(hasattr(factory, "simplex_tree"))
 
     def test_from_simplicial_filtration_matches_the_shorthand_and_warns_at_the_caller(self):
         points, entries = custom_entries()
@@ -51,7 +51,7 @@ class FactoryEquivalenceTests(unittest.TestCase):
         self.assertIn("meaningless", str(caught[0].message))
         self.assertEqual((factory.filtration_type, factory.filtration_units),
                          ("custom_simplicial", "custom"))
-        self.assertIsNone(factory.simplex_tree)
+        self.assertFalse(hasattr(factory, "simplex_tree"))
 
     def test_options_are_keyword_only_and_validated_before_input(self):
         points = np.random.default_rng(0).random((10, 2))
@@ -75,17 +75,20 @@ class FactoryEquivalenceTests(unittest.TestCase):
 
 class DelaunayCechTests(unittest.TestCase):
     def test_bars_match_gudhi_persistence_for_both_point_filtrations(self):
+        # Alpha in 2D and 3D comes from persforest's builder, compared with GUDHI's
+        # exact values; Delaunay–Čech comes from GUDHI with its default precision.
+        reference = {"alpha": (lambda points: gudhi.AlphaComplex(points=points, precision="exact"), 1e-13),
+                     "delaunay_cech": (lambda points: gudhi.DelaunayCechComplex(points=points), 0.0)}
         for dim, n in ((2, 60), (3, 40)):
             for seed in (0, 1):
                 points = np.random.default_rng(seed).random((n, dim))
-                for filtration_type, complex_type in (("alpha", gudhi.AlphaComplex),
-                                                      ("delaunay_cech", gudhi.DelaunayCechComplex)):
-                    tree = complex_type(points=points).create_simplex_tree(output_squared_values=False)
+                for filtration_type, (complex_for, rtol) in reference.items():
+                    tree = complex_for(points).create_simplex_tree(output_squared_values=False)
                     expected = gudhi_bars(tree, dim - 1)
                     with self.subTest(dim=dim, seed=seed, filtration_type=filtration_type):
                         forest = PersistenceForest.from_points(points, filtration_type=filtration_type)
                         self.assertTrue(expected)
-                        self.assertEqual(forest_bars(forest), expected)
+                        np.testing.assert_allclose(forest_bars(forest), expected, rtol=rtol, atol=0)
                         self.assertEqual(forest.filtration_units, "radius")
 
     def test_representatives_are_bounded_cycles(self):

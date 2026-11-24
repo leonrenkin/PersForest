@@ -3,7 +3,7 @@ from dataclasses import dataclass, replace
 import importlib
 from itertools import combinations
 from types import SimpleNamespace
-from unittest.mock import patch
+import warnings
 
 import gudhi
 import numpy as np
@@ -135,8 +135,14 @@ def simplex_tree(fixture: Fixture) -> gudhi.SimplexTree:
 
 
 def build(fixture: Fixture, *, order=None, **options):
-    """Inject only alpha construction; run the complete production algorithm."""
+    """Run the complete production algorithm on the fixture's filtration.
+
+    The events go through the custom-filtration path in GUDHI's order, or in
+    ``order`` when given (an explicit tie order). The path's warning about
+    unverified embeddedness is silenced: fixtures are embedded by construction.
+    """
     tree = simplex_tree(fixture)
+    entries = [(tuple(s), float(t)) for s, t in tree.get_filtration()]
     if order is not None:
         entries = [(tuple(s), float(t)) for s, t in order]
         if len(entries) != len(fixture.values) or dict(entries) != fixture.values:
@@ -147,10 +153,9 @@ def build(fixture: Fixture, *, order=None, **options):
                 raise ValueError('Order decreases in filtration')
             if any(face and positions[face] >= i for face in combinations(s, len(s) - 1)):
                 raise ValueError('Order puts coface before face')
-        tree = SimpleNamespace(get_filtration=lambda: iter(entries))
-    fake_alpha = SimpleNamespace(create_simplex_tree=lambda **kwargs: tree)
-    with patch.object(gudhi, 'AlphaComplex', return_value=fake_alpha):
-        return MODULE.PersistenceForest(fixture.points, **options)
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', message='A custom filtration must be', category=UserWarning)
+        return MODULE.PersistenceForest(fixture.points, filtration=entries, **options)
 
 
 def positive_bars(forest) -> list[tuple[float, float]]:

@@ -155,6 +155,25 @@ class PersistenceForest:
         Returns
         -------
         PersistenceForest
+
+        Raises
+        ------
+        ValueError
+            For a malformed or non-finite point array, an unknown
+            ``filtration_type``, and, for the alpha filtration in R^2 and R^3,
+            a nonzero coordinate below 2^-100 times the largest absolute
+            coordinate or radii beyond the double range.
+
+        Notes
+        -----
+        In R^2 and R^3 the alpha filtration is computed by persforest's compiled
+        builder on geogram's Delaunay triangulation, with exact predicates; other
+        dimensions and ``"delaunay_cech"`` use GUDHI. In the builder, degenerate
+        configurations such as cocircular points are triangulated by symbolic
+        perturbation in lexicographic order of the coordinates, equal values are
+        ordered facets first, then by vertex tuple, and of identical points only
+        the first is a vertex. Without ``dim + 1`` affinely independent points
+        there are no top simplices and the barcode is empty.
         """
         options = _validated_options(reduce, compute_barcode, print_info, filtration_tol)
         forest = object.__new__(cls)
@@ -240,7 +259,7 @@ class PersistenceForest:
         Returns
         -------
         PersistenceForest
-            With ``point_cloud`` and ``simplex_tree`` set to None, the
+            With ``point_cloud`` set to None, the
             physical grid in ``geometry`` and a read-only copy of the values in
             ``grid_values``.
         """
@@ -254,7 +273,6 @@ class PersistenceForest:
         grid.setflags(write=False)
         forest.grid_values = grid
         forest.point_cloud = None
-        forest.simplex_tree = None
         forest.dim = grid.ndim
         forest.filtration_type = filtration_type
         forest.filtration_units = "grid values"
@@ -299,7 +317,7 @@ class PersistenceForest:
         self.point_cloud = points
         self.dim = points.shape[1]
         start = time.perf_counter()
-        self.simplex_tree, self._cells = prepare_point_filtration(points, filtration_type)
+        self._cells = prepare_point_filtration(points, filtration_type)
         self.geometry = points
         if print_info:
             print(f"{filtration_type} filtration generated in {time.perf_counter() - start}")
@@ -324,7 +342,6 @@ class PersistenceForest:
             UserWarning,
             stacklevel=3,
         )
-        self.simplex_tree = None
         self.filtration_type = "custom_simplicial"
         self.filtration_units = "custom"
 

@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import unittest
 
+import gudhi
 import numpy as np
 
 from persforest.filtrations._interface import facet_ids, signed_incidences
@@ -77,16 +78,22 @@ class SimplicialAdapterTests(unittest.TestCase):
         self.assertEqual({f: c for f, c in total.items() if c},
                          {(0, 1): 1, (1, 2): 1, (2, 3): 1, (0, 3): -1})
 
-    def test_ids_facets_and_event_order_match_the_simplex_tree(self):
+    def test_ids_facets_and_event_order(self):
         for dim, n_points in ((2, 40), (3, 25)):
             points = np.random.default_rng(dim).random((n_points, dim))
             for filtration_type in ('alpha', 'delaunay_cech'):
                 with self.subTest(dim=dim, filtration_type=filtration_type):
-                    tree, cells = prepare_point_filtration(points, filtration_type)
-                    expected = [(tuple(simplex), value) for simplex, value in tree.get_filtration()
-                                if len(simplex) >= dim]
-                    self.assertEqual(list(zip(cells.cell_keys(cells.event_cells), cells.event_values.tolist())),
-                                     expected)
+                    cells = prepare_point_filtration(points, filtration_type)
+                    events = list(zip(cells.cell_keys(cells.event_cells), cells.event_values.tolist()))
+                    if filtration_type == 'alpha':
+                        # The compiled builder: by value, facets first, then vertex tuple.
+                        self.assertEqual(events, sorted(events, key=lambda e: (e[1], len(e[0]) == dim + 1, e[0])))
+                    else:
+                        # GUDHI's order and values; keep the tree alive while reading it.
+                        tree = gudhi.DelaunayCechComplex(points=points).create_simplex_tree(
+                            output_squared_values=False)
+                        self.assertEqual(events, [(tuple(simplex), value) for simplex, value in tree.get_filtration()
+                                                  if len(simplex) >= dim])
                     self.assertEqual(sorted(cells.event_cells.tolist()), list(range(cells.n_cells)))
                     keys = cells.cell_keys(range(cells.n_cells))
                     self.assertTrue(all(len(k) == dim + 1 for k in keys[:cells.n_top]))

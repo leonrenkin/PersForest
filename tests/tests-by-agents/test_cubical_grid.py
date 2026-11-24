@@ -120,7 +120,7 @@ class CubicalInputTests(unittest.TestCase):
         values = np.random.default_rng(1).random((4, 5))
         forest = PersistenceForest.from_cubical_grid(values, spacing=(0.5, 2.0), origin=1.0)
         self.assertIsNone(forest.point_cloud)
-        self.assertIsNone(forest.simplex_tree)
+        self.assertFalse(hasattr(forest, "simplex_tree"))
         self.assertEqual(forest.dim, 2)
         self.assertEqual((forest.filtration_type, forest.filtration_units), ("top_cells", "grid values"))
         np.testing.assert_array_equal(forest.grid_values, values)
