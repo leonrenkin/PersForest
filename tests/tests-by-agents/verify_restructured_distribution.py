@@ -27,9 +27,12 @@ def main() -> None:
     dist_info = f"persforest-{project['version']}.dist-info/"
     expected = {path.relative_to(root / 'src').as_posix(): path.read_bytes()
                 for path in (root / 'src/persforest').rglob('*.py')}
-    # Sources and build files of the compiled engine, shipped in the sdist only.
+    # Sources and build files of the compiled engine, including vendored
+    # third-party code with its license, shipped in the sdist only.
+    third_party = sorted(path for path in (root / 'cpp/third_party').rglob('*') if path.is_file())
     engine_sources = {path.relative_to(root).as_posix(): path.read_bytes()
-                      for path in [root / 'CMakeLists.txt', *sorted((root / 'cpp').glob('*.[ch]pp'))]}
+                      for path in [root / 'CMakeLists.txt', *sorted((root / 'cpp').glob('*.[ch]pp')),
+                                   *third_party]}
     wheel, = args.dist_dir.glob('*.whl')
     sdist, = args.dist_dir.glob('*.tar.gz')
     with zipfile.ZipFile(wheel) as archive:
@@ -46,7 +49,11 @@ def main() -> None:
         constraint = Parser().parsestr(metadata)['Requires-Python']
         assert {part.strip() for part in constraint.split(',')} == {
             part.strip() for part in project['requires-python'].split(',')}, constraint
-        assert any(name.endswith('/LICENSE') for name in members)
+        # Every license in `license-files` ships with the wheel: the compiled
+        # engine contains the vendored BSD-3-Clause code.
+        for license_file in project['license-files']:
+            shipped = archive.read(f'{dist_info}licenses/{license_file}')
+            assert shipped == (root / license_file).read_bytes(), ('wheel license mismatch', license_file)
         wheel_members = members
     with tarfile.open(sdist) as archive:
         names = [member.name for member in archive.getmembers() if member.isfile()]

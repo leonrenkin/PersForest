@@ -7,8 +7,9 @@ authors = [
     {name = "Fabian Lenzen"}
 ]
 readme = "README.md"
-license = "MIT"
-license-files = ["LICENSE"]
+# persforest is MIT; the compiled engine includes geogram's Delaunay module (BSD-3-Clause).
+license = "MIT AND BSD-3-Clause"
+license-files = ["LICENSE", "cpp/third_party/geogram/LICENSE"]
 requires-python = ">=3.11,<3.15"
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -68,8 +69,8 @@ cmake.build-type = "Release"
 wheel.packages = ["src/persforest"]
 # The sdist holds the package, the engine sources and the build files only.
 sdist.exclude = ["*"]
-sdist.include = ["/src/persforest/**/*.py", "/cpp/*.cpp", "/cpp/*.hpp", "/CMakeLists.txt",
-                 "/LICENSE", "/README.md", "/pyproject.toml"]
+sdist.include = ["/src/persforest/**/*.py", "/cpp/*.cpp", "/cpp/*.hpp", "/cpp/third_party/**",
+                 "/CMakeLists.txt", "/LICENSE", "/README.md", "/pyproject.toml"]
 
 [tool.uv]
 # Rebuild the editable install when the compiled engine or its build changes.
