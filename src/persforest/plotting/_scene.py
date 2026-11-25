@@ -148,9 +148,12 @@ def _complex_snapshot_at_filtration(self, filt_val: float) -> Dict[str, Any]:
         standalone_triangles = simplices["triangles"]
         edges = simplices["edges"]
 
+        # Both top cells and their signs follow forward filtration order.
+        orientations = self._cells.top_orientation
         boundary_from_tets = boundary_faces_from_tetrahedra(
             tetrahedra=tetrahedra,
             point_cloud=pts,
+            orientations=None if orientations is None else orientations[:len(tetrahedra)],
         )
         tet_face_keys = {tuple(sorted(face)) for face in boundary_from_tets}
         standalone_keys = {tuple(sorted(face)) for face in standalone_triangles}

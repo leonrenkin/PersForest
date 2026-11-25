@@ -161,8 +161,9 @@ class PersistenceForest:
         ValueError
             For a malformed or non-finite point array, a 1D point cloud, an
             unknown ``filtration_type``, and, for point clouds in R^2 and R^3, a
-            nonzero coordinate below 2^-100 times the largest absolute
-            coordinate or radii beyond the double range.
+            nonzero coordinate with magnitude below 2^-101 after scaling the
+            largest absolute coordinate into [1/2, 1), or radii beyond the
+            double range.
 
         Notes
         -----

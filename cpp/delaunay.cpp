@@ -10,10 +10,9 @@
 // 2^-153, so a polynomial of degree k <= 7 in coordinate differences is a
 // multiple of 2^-153k >= 2^-1071: geogram's expansion arithmetic (expansion_nt,
 // also behind its predicates) neither underflows nor overflows and is exact.
-// Values are scaled back exactly at the end. A cell much smaller than the
+// Values are scaled back at the end, exactly for normal finite results. A cell much smaller than the
 // cloud (all edge components below 2^-60) is in addition rescaled by a power
-// of two before its radius or ball test is computed, so the double formulas
-// do not underflow either.
+// of two for the double formulas, so they do not underflow either.
 //
 // Radii (values). With edge vectors a, b (and c) from the first vertex, a
 // triangle's squared circumradius is |a|^2 |b|^2 |c|^2 / (4 |a x b|^2), c the
@@ -25,7 +24,8 @@
 // |a||b||c| / |det| and K_m = (|a|^2|b||c| + |b|^2|c||a| + |c|^2|a||b|) / |m|.
 // The cancellations in the cross products and det are what K measures. Below
 // kCond = 100 this is under 1e-12 for squared radii; above, numerator and
-// denominator are computed exactly and rounded (a few ulps).
+// denominator are computed exactly. Overlapping error ranges are resolved
+// before event ordering by rounding the exact radius to nearest, ties to even.
 //
 // Orientation (decision). The sign of the edge-vector determinant (|a x b| in
 // 2D, det in 3D) has absolute error at most gamma_7 sqrt(3) |a||b||c| (gamma_4
@@ -72,6 +72,8 @@ constexpr double kBallRelative = 1e-14;
 constexpr double kTiny = 0x1p-1000;
 constexpr double kMinScaledCoordinate = 0x1p-101;
 constexpr double kLocalThreshold = 0x1p-60;
+// Allow for both radius errors, with margin for the bounds above.
+constexpr double kRadiusOverlap = 2e-12;
 
 // ---------------------------------------------------------------------------
 // geogram setup. geogram keeps global state (thread manager, random generator,
@@ -136,10 +138,10 @@ struct ExactVec {
     Exact x, y, z;
 };
 
-// (p - q) 2^k exactly; z = 0 in 2D.
+// p - q exactly; z = 0 in 2D.
 template <int D>
-ExactVec exact_difference(const double* p, const double* q, int k) {
-    auto component = [k](double a, double b) { return Exact(std::ldexp(a, k)) - Exact(std::ldexp(b, k)); };
+ExactVec exact_difference(const double* p, const double* q) {
+    auto component = [](double a, double b) { return Exact(Exact::DIFF, a, b); };
     if constexpr (D == 2) {
         return {component(p[0], q[0]), component(p[1], q[1]), Exact(0.0)};
     } else {
@@ -153,6 +155,69 @@ ExactVec cross(const ExactVec& a, const ExactVec& b) {
 }
 ExactVec scaled(const ExactVec& a, const Exact& s) { return {a.x * s, a.y * s, a.z * s}; }
 ExactVec sum(const ExactVec& a, const ExactVec& b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
+
+struct ExactSquaredRadius {
+    Exact numerator;
+    Exact denominator;
+    int exponent = 0;  // the ratio is multiplied by 2^exponent
+
+    double estimate() const {
+        int numerator_exponent, denominator_exponent;
+        const double numerator_fraction = std::frexp(numerator.estimate(), &numerator_exponent);
+        const double denominator_fraction = std::frexp(denominator.estimate(), &denominator_exponent);
+        return std::ldexp(numerator_fraction / denominator_fraction,
+                          exponent + numerator_exponent - denominator_exponent);
+    }
+};
+
+void scale_expansion(Exact& x, int exponent) {
+    for (index_t i = 0; i < x.length(); ++i) {
+        x.rep()[i] = std::ldexp(x.component(i), exponent);
+    }
+}
+
+// Compare the squared radius with the square of the exact midpoint of two
+// adjacent doubles. Scale the two expansions to a common exponent before
+// subtracting. Their bit spans are at most 8*153 plus a few bits for sums, so
+// a leading exponent of 320 leaves room for even their lowest components.
+GEO::Sign compare_midpoint(const ExactSquaredRadius& squared, double low, double high) {
+    int midpoint_exponent;
+    std::frexp(high, &midpoint_exponent);
+    const Exact midpoint =
+        (Exact(std::ldexp(low, -midpoint_exponent)) + std::ldexp(high, -midpoint_exponent)) * 0.5;
+    Exact rhs = squared.denominator * (midpoint * midpoint);
+    Exact lhs = squared.numerator;
+    const int rhs_exponent = 2 * midpoint_exponent;
+    const int common_exponent = std::max(
+        std::ilogb(lhs.component(lhs.length() - 1)) + squared.exponent,
+        std::ilogb(rhs.component(rhs.length() - 1)) + rhs_exponent);
+    scale_expansion(lhs, 320 + squared.exponent - common_exponent);
+    scale_expansion(rhs, 320 + rhs_exponent - common_exponent);
+    return lhs.compare(rhs);
+}
+
+std::uint64_t double_bits(double value) {
+    std::uint64_t bits;
+    std::memcpy(&bits, &value, sizeof bits);
+    return bits;
+}
+
+double round_radius(const ExactSquaredRadius& squared) {
+    double radius = std::sqrt(squared.estimate());
+    while (true) {
+        const double low = std::nextafter(radius, 0.0);
+        const bool odd = double_bits(radius) & 1;
+        const GEO::Sign lower = compare_midpoint(squared, low, radius);
+        if (lower == GEO::NEGATIVE || (lower == GEO::ZERO && odd)) {
+            radius = low;
+            continue;
+        }
+        const double high = std::nextafter(radius, std::numeric_limits<double>::infinity());
+        const GEO::Sign upper = compare_midpoint(squared, radius, high);
+        if (upper != GEO::POSITIVE && !(upper == GEO::ZERO && odd)) return radius;
+        radius = high;
+    }
+}
 
 struct Counters {
     std::int64_t exact_radii = 0;
@@ -171,6 +236,34 @@ struct TopGeometry {
     throw std::logic_error("Delaunay filtration: geogram returned a flat cell");
 }
 
+template <int D>
+ExactSquaredRadius exact_triangle(const double* const* p, std::int8_t* orientation = nullptr) {
+    const ExactVec a = exact_difference<D>(p[1], p[0]), b = exact_difference<D>(p[2], p[0]),
+                   c = exact_difference<D>(p[2], p[1]);
+    const ExactVec normal = cross(a, b);
+    const Exact denominator = dot(normal, normal) * 4.0;
+    if (denominator.sign() == GEO::ZERO) flat_cell();
+    if (orientation != nullptr) *orientation = normal.z.sign() == GEO::POSITIVE ? 1 : -1;
+    return {dot(a, a) * dot(b, b) * dot(c, c), denominator};
+}
+
+ExactSquaredRadius exact_tetrahedron(const double* const* p, std::int8_t* orientation = nullptr) {
+    const ExactVec a = exact_difference<3>(p[1], p[0]), b = exact_difference<3>(p[2], p[0]),
+                   c = exact_difference<3>(p[3], p[0]);
+    const ExactVec bc = cross(b, c);
+    const Exact det = dot(a, bc);
+    const GEO::Sign sign = det.sign();
+    if (sign == GEO::ZERO) flat_cell();
+    if (orientation != nullptr) *orientation = sign == GEO::POSITIVE ? 1 : -1;
+    ExactVec m = sum(sum(scaled(bc, dot(a, a)), scaled(cross(c, a), dot(b, b))), scaled(cross(a, b), dot(c, c)));
+    // The numerator is degree eight. Scale before squaring to keep its
+    // lowest terms normal. Leave room in the denominator for a midpoint square.
+    scale_expansion(m.x, 128);
+    scale_expansion(m.y, 128);
+    scale_expansion(m.z, 128);
+    return {dot(m, m), det * det * 0x1p66, 64 - 256};
+}
+
 TopGeometry triangle_top(const double* const* p, Counters& counters) {
     Vec a = difference<2>(p[1], p[0]), b = difference<2>(p[2], p[0]), c = difference<2>(p[2], p[1]);
     const int k = local_exponent(std::max({max_abs(a), max_abs(b), max_abs(c)}));
@@ -184,15 +277,9 @@ TopGeometry triangle_top(const double* const* p, Counters& counters) {
         return {std::ldexp(aa * bb * cc / (4.0 * det * det), -2 * k), static_cast<std::int8_t>(det > 0.0 ? 1 : -1)};
     }
     ++counters.exact_radii;
-    const ExactVec ea = exact_difference<2>(p[1], p[0], k), eb = exact_difference<2>(p[2], p[0], k),
-                   ec = exact_difference<2>(p[2], p[1], k);
-    const Exact edet = ea.x * eb.y - ea.y * eb.x;
-    const GEO::Sign sign = edet.sign();
-    if (sign == GEO::ZERO) flat_cell();
-    const Exact numerator = dot(ea, ea) * dot(eb, eb) * dot(ec, ec);
-    const Exact denominator = edet * edet * 4.0;
-    return {std::ldexp(numerator.estimate() / denominator.estimate(), -2 * k),
-            static_cast<std::int8_t>(sign == GEO::POSITIVE ? 1 : -1)};
+    std::int8_t orientation;
+    const double squared = exact_triangle<2>(p, &orientation).estimate();
+    return {squared, orientation};
 }
 
 TopGeometry tetrahedron_top(const double* const* p, Counters& counters) {
@@ -213,17 +300,9 @@ TopGeometry tetrahedron_top(const double* const* p, Counters& counters) {
         return {std::ldexp(mm / (4.0 * det * det), -2 * k), static_cast<std::int8_t>(det > 0.0 ? 1 : -1)};
     }
     ++counters.exact_radii;
-    const ExactVec ea = exact_difference<3>(p[1], p[0], k), eb = exact_difference<3>(p[2], p[0], k),
-                   ec = exact_difference<3>(p[3], p[0], k);
-    const ExactVec ebc = cross(eb, ec);
-    const Exact edet = dot(ea, ebc);
-    const GEO::Sign sign = edet.sign();
-    if (sign == GEO::ZERO) flat_cell();
-    const ExactVec em =
-        sum(sum(scaled(ebc, dot(ea, ea)), scaled(cross(ec, ea), dot(eb, eb))), scaled(cross(ea, eb), dot(ec, ec)));
-    const Exact denominator = edet * edet * 4.0;
-    return {std::ldexp(dot(em, em).estimate() / denominator.estimate(), -2 * k),
-            static_cast<std::int8_t>(sign == GEO::POSITIVE ? 1 : -1)};
+    std::int8_t orientation;
+    const double squared = exact_tetrahedron(p, &orientation).estimate();
+    return {squared, orientation};
 }
 
 // Squared radius of the smallest sphere through an edge: well conditioned.
@@ -247,13 +326,7 @@ double triangle_squared_radius(const double* const* p, Counters& counters) {
         return std::ldexp(aa * bb * cc / (4.0 * nn), -2 * k);
     }
     ++counters.exact_radii;
-    const ExactVec ea = exact_difference<3>(p[1], p[0], k), eb = exact_difference<3>(p[2], p[0], k),
-                   ec = exact_difference<3>(p[2], p[1], k);
-    const ExactVec en = cross(ea, eb);
-    const Exact denominator = dot(en, en) * 4.0;
-    if (denominator.sign() == GEO::ZERO) flat_cell();
-    const Exact numerator = dot(ea, ea) * dot(eb, eb) * dot(ec, ec);
-    return std::ldexp(numerator.estimate() / denominator.estimate(), -2 * k);
+    return exact_triangle<3>(p).estimate();
 }
 
 // Side of q relative to the smallest sphere through the edge p0 p1 (its
@@ -266,7 +339,7 @@ GEO::Sign edge_ball_side(const double* p0, const double* p1, const double* q, Co
     const double bound = dot(absolute(w), absolute(v));
     if (std::abs(g) > kBallRelative * bound + kTiny) return g < 0.0 ? GEO::NEGATIVE : GEO::POSITIVE;
     ++counters.exact_ball_tests;
-    return dot(exact_difference<D>(q, p0, 0), exact_difference<D>(q, p1, 0)).sign();
+    return dot(exact_difference<D>(q, p0), exact_difference<D>(q, p1)).sign();
 }
 
 // Side of q relative to the smallest sphere through the triangle p[0] p[1] p[2]
@@ -289,8 +362,8 @@ GEO::Sign triangle_sphere_side(const double* const* p, const double* q, Counters
     const double bound = dot(abs_n, abs_n) * ww + dot(absolute(w), abs_m);
     if (std::abs(g) > kBallRelative * bound + kTiny) return g < 0.0 ? GEO::NEGATIVE : GEO::POSITIVE;
     ++counters.exact_ball_tests;
-    const ExactVec ea = exact_difference<3>(p[1], p[0], 0), eb = exact_difference<3>(p[2], p[0], 0),
-                   ew = exact_difference<3>(q, p[0], 0);
+    const ExactVec ea = exact_difference<3>(p[1], p[0]), eb = exact_difference<3>(p[2], p[0]),
+                   ew = exact_difference<3>(q, p[0]);
     const ExactVec en = cross(ea, eb);
     const ExactVec em = sum(scaled(cross(eb, en), dot(ea, ea)), scaled(cross(en, ea), dot(eb, eb)));
     return (dot(en, en) * dot(ew, ew) - dot(ew, em)).sign();
@@ -302,26 +375,26 @@ GEO::Sign triangle_sphere_side(const double* const* p, const double* q, Counters
 // among these candidates that contain the simplex (closed balls). Every
 // candidate containing the simplex encloses it and is at least as large.
 
-// Squared radius of the minimal enclosing ball of a triangle in R^D, given the
-// squared radius of its smallest sphere: an edge's diametral ball if it
-// contains the opposite vertex (an obtuse or right angle there), else that sphere.
+// The support of a minimal enclosing ball is a face whose circumsphere
+// contains the simplex and whose circumcenter belongs to that face.
+constexpr std::uint8_t vertex_mask(int count) {
+    return static_cast<std::uint8_t>((1 << count) - 1);
+}
+
+// A triangle's minimal ball is its diametral edge ball at a right or obtuse
+// angle, or its circumsphere. Support masks refer to positions in vertex order.
 template <int D>
-double triangle_enclosing_squared(const double* const* p, double sphere_squared, Counters& counters) {
-    double best = sphere_squared;
+std::uint8_t triangle_support(const double* const* p, Counters& counters) {
     for (int k = 0; k < 3; ++k) {
         const int i = k == 0 ? 1 : 0, j = k == 2 ? 1 : 2;  // the edge opposite vertex k, increasing
         if (edge_ball_side<D>(p[i], p[j], p[k], counters) != GEO::POSITIVE) {
-            best = std::min(best, edge_squared_radius<D>(p[i], p[j]));
+            return static_cast<std::uint8_t>(vertex_mask(3) ^ (1 << k));
         }
     }
-    return best;
+    return vertex_mask(3);
 }
 
-// The same for a tetrahedron, given its squared circumradius. An edge ball that
-// contains the other two vertices has half the diameter as radius and is the
-// minimal ball; otherwise the minimal ball is the circumsphere or the smallest
-// sphere of a face triangle that contains the fourth vertex.
-double tetrahedron_enclosing_squared(const double* const* p, double sphere_squared, Counters& counters) {
+std::uint8_t tetrahedron_support(const double* const* p, Counters& counters) {
     for (int i = 0; i < 4; ++i) {
         for (int j = i + 1; j < 4; ++j) {
             int others[2], n_others = 0;
@@ -330,21 +403,33 @@ double tetrahedron_enclosing_squared(const double* const* p, double sphere_squar
             }
             if (edge_ball_side<3>(p[i], p[j], p[others[0]], counters) != GEO::POSITIVE &&
                 edge_ball_side<3>(p[i], p[j], p[others[1]], counters) != GEO::POSITIVE) {
-                return edge_squared_radius<3>(p[i], p[j]);
+                return static_cast<std::uint8_t>((1 << i) | (1 << j));
             }
         }
     }
-    double best = sphere_squared;
     for (int omitted = 0; omitted < 4; ++omitted) {
         const double* face[3];
         for (int k = 0, f = 0; k < 4; ++k) {
             if (k != omitted) face[f++] = p[k];
         }
-        if (triangle_sphere_side(face, p[omitted], counters) != GEO::POSITIVE) {
-            best = std::min(best, triangle_squared_radius(face, counters));
+        if (triangle_sphere_side(face, p[omitted], counters) != GEO::POSITIVE &&
+            triangle_support<3>(face, counters) == vertex_mask(3)) {
+            return static_cast<std::uint8_t>(vertex_mask(4) ^ (1 << omitted));
         }
     }
-    return best;
+    return vertex_mask(4);
+}
+
+template <int D>
+double enclosing_squared(const double* const* p, int count, std::uint8_t support, double circumradius,
+                         Counters& counters) {
+    if (support == vertex_mask(count)) return circumradius;
+    const double* ball[3];
+    int size = 0;
+    for (int j = 0; j < count; ++j) {
+        if (support & (1 << j)) ball[size++] = p[j];
+    }
+    return size == 2 ? edge_squared_radius<D>(ball[0], ball[1]) : triangle_squared_radius(ball, counters);
 }
 
 // ---------------------------------------------------------------------------
@@ -363,10 +448,10 @@ bool scale_points(const double* points, std::size_t n_values, std::vector<double
     out.resize(n_values);
     for (std::size_t i = 0; i < n_values; ++i) {
         const double x = std::ldexp(points[i], -exponent);
-        if (x != 0.0 && std::abs(x) < kMinScaledCoordinate) {
+        if (points[i] != 0.0 && std::abs(x) < kMinScaledCoordinate) {
             throw std::invalid_argument(
                 "point coordinates span too many orders of magnitude for the Delaunay filtration: every nonzero "
-                "coordinate must be at least 2^-100 (about 8e-31) times the largest absolute coordinate");
+                "coordinate must be at least 2^-101 after scaling the largest absolute coordinate into [1/2, 1)");
         }
         out[i] = x;
     }
@@ -451,26 +536,18 @@ struct Event {
     double value;
     std::uint32_t index;  // cell or facet index
     bool top;
+    std::uint8_t support;
 };
 
-// Sort events by value with a stable LSD radix sort on the bits of the values
-// (for nonnegative doubles, unsigned integer order is numeric order), then each
-// run of equal values with tie_less. In general position nearly all runs have
-// one or two events, so this is much faster than a comparison sort.
-template <typename TieLess>
-void sort_events(std::vector<Event>& events, TieLess tie_less) {
+// Stable LSD radix sort for nonnegative doubles: unsigned bit order is numeric
+// order. Keep events in triangulation order within each value until refinement.
+void sort_by_radius(std::vector<Event>& events) {
     constexpr int kDigitBits = 11, kPasses = 6;  // 6 x 11 bits cover 64
     constexpr std::size_t kBuckets = std::size_t(1) << kDigitBits;
-    auto key = [](const Event& event) {
-        const double value = event.value + 0.0;  // never -0.0
-        std::uint64_t bits;
-        std::memcpy(&bits, &value, sizeof bits);
-        return bits;
-    };
     const std::size_t n = events.size();
     std::vector<std::size_t> counts(kPasses * kBuckets, 0);
     for (const Event& event : events) {
-        const std::uint64_t bits = key(event);
+        const std::uint64_t bits = double_bits(event.value);
         for (int pass = 0; pass < kPasses; ++pass) ++counts[pass * kBuckets + ((bits >> (pass * kDigitBits)) & (kBuckets - 1))];
     }
     std::vector<Event> buffer(n);
@@ -481,14 +558,98 @@ void sort_events(std::vector<Event>& events, TieLess tie_less) {
         if (std::find(count, count + kBuckets, n) != count + kBuckets) continue;  // one digit for all
         std::size_t offset = 0;
         for (std::size_t b = 0; b < kBuckets; ++b) offset += std::exchange(count[b], offset);
-        for (const Event& event : *source) (*target)[count[(key(event) >> (pass * kDigitBits)) & (kBuckets - 1)]++] = event;
+        for (const Event& event : *source) {
+            (*target)[count[(double_bits(event.value) >> (pass * kDigitBits)) & (kBuckets - 1)]++] = event;
+        }
         std::swap(source, target);
     }
     if (source != &events) events.swap(buffer);
-    for (std::size_t begin = 0; begin < n;) {
-        std::size_t end = begin + 1;
-        while (end < n && events[end].value == events[begin].value) ++end;
-        if (end - begin > 1) std::sort(events.begin() + std::ptrdiff_t(begin), events.begin() + std::ptrdiff_t(end), tie_less);
+}
+
+// The radius is that of the sphere through this increasing vertex tuple.
+// Trailing sentinels distinguish supports of different dimensions.
+using BallSupport = std::array<index_t, 4>;
+
+constexpr std::size_t kRadiusCacheSize = 128;
+
+template <int D>
+struct CachedRadius {
+    std::array<double, 3 * D + 1> offsets{};
+    double radius = 0.0;
+};
+
+template <int D>
+double exact_radius(const double* points, const BallSupport& support, CachedRadius<D>* cache) {
+    const double* p[4];
+    int size = 0;
+    while (size < 4 && support[size] != GEO::NO_INDEX) {
+        p[size] = points + std::size_t(support[size]) * D;
+        ++size;
+    }
+    const auto compute = [&] {
+        if (size == 2) {
+            const ExactVec edge = exact_difference<D>(p[1], p[0]);
+            return round_radius({dot(edge, edge), Exact(4.0)});
+        }
+        return size == 3 ? round_radius(exact_triangle<D>(p)) : round_radius(exact_tetrahedron(p));
+    };
+    if (cache == nullptr) return compute();
+
+    // Large ties on regular lattices contain many translated copies of the
+    // same ball support. Reuse a radius only if the edge offsets are exact.
+    std::array<double, 3 * D + 1> offsets{};
+    offsets.back() = size;
+    std::uint64_t hash = size;
+    for (int i = 1; i < size; ++i) {
+        for (int axis = 0; axis < D; ++axis) {
+            double offset, error;
+            GEO::two_diff(p[i][axis], p[0][axis], offset, error);
+            if (error != 0.0) return compute();
+            offsets[(i - 1) * D + axis] = offset;
+            const std::uint64_t bits = double_bits(offset + 0.0);
+            hash = hash * 0x100000001b3ULL ^ (bits >> 32) ^ bits;
+        }
+    }
+    hash ^= hash >> 33;
+    hash *= 0xff51afd7ed558ccdULL;
+    const auto slot = static_cast<std::size_t>((hash ^ (hash >> 33)) % kRadiusCacheSize);
+    auto& entry = cache[slot];
+    if (entry.offsets != offsets) entry = {offsets, compute()};
+    return entry.radius;
+}
+
+// Recompute only the runs in which radius error ranges can overlap. Exact
+// rounding gives equal mathematical radii the same value without merging
+// distinguishable nearby radii. Most ties just share a support and can take
+// the fast path, e.g. an alpha facet that enters with its top coface.
+template <int D, typename GetSupport>
+void refine_radii(std::vector<Event>& events, const double* points, GetSupport get_support) {
+    const auto near = [](double left, double right) { return right - left <= kRadiusOverlap * right; };
+    const auto less = [](const Event& x, const Event& y) { return x.value < y.value; };
+    std::array<CachedRadius<D>, kRadiusCacheSize> cache;
+    for (auto begin = events.begin(); begin != events.end();) {
+        auto end = begin + 1;
+        while (end != events.end() && near((end - 1)->value, end->value)) ++end;
+        if (end - begin > 1) {
+            const BallSupport first = get_support(*begin);
+            const auto distinct = std::find_if(begin + 1, end, [&](const Event& event) {
+                return get_support(event) != first;
+            });
+            if (distinct != end) {
+                auto* cache_entries = end - begin >= 16 ? cache.data() : nullptr;
+                BallSupport last = first;
+                double radius = exact_radius<D>(points, last, cache_entries);
+                for (auto item = begin; item != end; ++item) {
+                    const BallSupport support = get_support(*item);
+                    if (support != last) {
+                        radius = exact_radius<D>(points, support, cache_entries);
+                        last = support;
+                    }
+                    item->value = radius;
+                }
+                if (!std::is_sorted(begin, end, less)) std::sort(begin, end, less);
+            }
+        }
         begin = end;
     }
 }
@@ -530,12 +691,13 @@ DelaunayFiltration build(const double* points, index_t n, int exponent, Values v
     }
 
     // Top simplices: sorted vertices, the sorted position of each geogram
-    // vertex, squared value (circumradius or minimal enclosing ball) and
+    // vertex, value (circumradius or minimal enclosing ball) and
     // orientation of the sorted simplex.
     Counters counters;
     std::vector<index_t> vertices(raw_vertices.size());
     std::vector<std::uint8_t> position(raw_vertices.size());
-    std::vector<double> top_squared(n_cells);
+    std::vector<Event> events;
+    events.reserve(std::size_t(n_cells) + n_facets);
     std::vector<std::int8_t> orientation(n_cells);
     for (index_t c = 0; c < n_cells; ++c) {
         const std::size_t base = std::size_t(c) * kWidth;
@@ -555,14 +717,17 @@ DelaunayFiltration build(const double* points, index_t n, int exponent, Values v
         } else {
             top = tetrahedron_top(p, counters);
         }
-        top_squared[c] = top.squared_radius;
+        double squared = top.squared_radius;
+        std::uint8_t support = vertex_mask(kWidth);
         if (values == Values::delaunay_cech) {
             if constexpr (D == 2) {
-                top_squared[c] = triangle_enclosing_squared<2>(p, top.squared_radius, counters);
+                support = triangle_support<2>(p, counters);
             } else {
-                top_squared[c] = tetrahedron_enclosing_squared(p, top.squared_radius, counters);
+                support = tetrahedron_support(p, counters);
             }
+            squared = enclosing_squared<D>(p, kWidth, support, squared, counters);
         }
+        events.push_back({std::sqrt(squared), c, true, support});
         orientation[c] = top.orientation;
     }
     raw_vertices = std::vector<index_t>();
@@ -570,15 +735,15 @@ DelaunayFiltration build(const double* points, index_t n, int exponent, Values v
     // Facets, each once: from the cell with the smaller index, or the only one.
     std::vector<index_t> facet_vertices;
     facet_vertices.reserve(n_facets * D);
-    std::vector<double> facet_squared;
-    facet_squared.reserve(n_facets);
+    std::vector<index_t> attached_top;
+    if (values == Values::alpha) attached_top.reserve(n_facets);
     std::vector<std::uint32_t> cell_facet(std::size_t(n_cells) * kWidth);  // by sorted position
     for (index_t c = 0; c < n_cells; ++c) {
         const std::size_t base = std::size_t(c) * kWidth;
         for (int local = 0; local < kWidth; ++local) {
             const index_t other = neighbours[base + local];
             if (other != GEO::NO_INDEX && other < c) continue;
-            const auto facet = static_cast<std::uint32_t>(facet_squared.size());
+            const auto facet = static_cast<std::uint32_t>(events.size() - n_cells);
             const int j = position[base + local];
             cell_facet[base + j] = facet;
             const double* p[D];
@@ -597,7 +762,6 @@ DelaunayFiltration build(const double* points, index_t n, int exponent, Values v
                     return triangle_sphere_side(p, q, counters) == GEO::NEGATIVE;
                 }
             };
-            double earliest_top = top_squared[c];
             index_t other_opposite = GEO::NO_INDEX;
             if (other != GEO::NO_INDEX) {
                 const std::size_t other_base = std::size_t(other) * kWidth;
@@ -606,8 +770,19 @@ DelaunayFiltration build(const double* points, index_t n, int exponent, Values v
                 if (other_local == kWidth) throw std::logic_error("Delaunay filtration: inconsistent neighbours");
                 const int other_j = position[other_base + other_local];
                 cell_facet[other_base + other_j] = facet;
-                earliest_top = std::min(earliest_top, top_squared[other]);
                 other_opposite = vertices[other_base + other_j];
+            }
+            if (values == Values::alpha) {
+                // The dual Voronoi edge lies on the facet's normal line.
+                // If its smallest sphere contains an opposite vertex, the
+                // coface on that side gives the closest feasible center.
+                const index_t attached = inside(vertices[base + j]) ? c :
+                    (other_opposite != GEO::NO_INDEX && inside(other_opposite) ? other : GEO::NO_INDEX);
+                attached_top.push_back(attached);
+                if (attached != GEO::NO_INDEX) {
+                    events.push_back({events[attached].value, facet, false, vertex_mask(kWidth)});
+                    continue;
+                }
             }
             double own;
             if constexpr (D == 2) {
@@ -615,49 +790,57 @@ DelaunayFiltration build(const double* points, index_t n, int exponent, Values v
             } else {
                 own = triangle_squared_radius(p, counters);
             }
-            double value;
-            if (values == Values::alpha) {
-                const bool attached =
-                    inside(vertices[base + j]) || (other_opposite != GEO::NO_INDEX && inside(other_opposite));
-                value = attached ? earliest_top : own;
-            } else if constexpr (D == 2) {
-                value = own;  // an edge's minimal enclosing ball is its diametral ball
-            } else {
-                value = triangle_enclosing_squared<3>(p, own, counters);
+            std::uint8_t support = vertex_mask(D);
+            if constexpr (D == 3) {
+                if (values == Values::delaunay_cech) {
+                    support = triangle_support<3>(p, counters);
+                    own = enclosing_squared<3>(p, D, support, own, counters);
+                }
             }
-            // The clamp keeps a facet from entering after a top simplex it bounds;
-            // mathematically it holds already, so it only absorbs rounding.
-            facet_squared.push_back(std::min(value, earliest_top));
+            events.push_back({std::sqrt(own), facet, false, support});
         }
     }
     neighbours = std::vector<index_t>();
     position = std::vector<std::uint8_t>();
 
-    // Values in radius units, scaled back exactly.
-    auto radius = [exponent](double squared) {
-        const double value = std::ldexp(std::sqrt(squared), exponent);
-        if (!std::isfinite(value)) {
+    // Refine in scaled radius units so even extreme input scales can be
+    // compared before conversion to the output's double range.
+    sort_by_radius(events);
+    refine_radii<D>(events, points, [&](const Event& event) {
+        const index_t top = event.top ? event.index :
+            (values == Values::alpha ? attached_top[event.index] : GEO::NO_INDEX);
+        const index_t* row = top != GEO::NO_INDEX ? &vertices[std::size_t(top) * kWidth] :
+            &facet_vertices[std::size_t(event.index) * D];
+        const int width = top != GEO::NO_INDEX ? kWidth : D;
+        BallSupport support;
+        support.fill(GEO::NO_INDEX);
+        for (int j = 0, k = 0; j < width; ++j) {
+            if (event.support & (1 << j)) support[k++] = row[j];
+        }
+        return support;
+    });
+    for (Event& event : events) {
+        event.value = std::ldexp(event.value, exponent);
+        if (!std::isfinite(event.value)) {
             throw std::invalid_argument("Delaunay filtration: a radius exceeds the double range; rescale the points");
         }
-        return value;
-    };
-    std::vector<Event> events;
-    events.reserve(std::size_t(n_cells) + facet_squared.size());
-    for (index_t c = 0; c < n_cells; ++c) events.push_back({radius(top_squared[c]), c, true});
-    for (std::size_t f = 0; f < facet_squared.size(); ++f) {
-        events.push_back({radius(facet_squared[f]), static_cast<std::uint32_t>(f), false});
     }
-    top_squared = std::vector<double>();
-    facet_squared = std::vector<double>();
 
-    // Order: value, facets before tops, increasing vertex tuple.
-    sort_events(events, [&](const Event& x, const Event& y) {
+    // Order ties by dimension, then increasing vertex tuple. Scaling can
+    // introduce ties when the output radius is subnormal.
+    const auto tie_less = [&](const Event& x, const Event& y) {
         if (x.top != y.top) return y.top;
         const index_t* vx = x.top ? &vertices[std::size_t(x.index) * kWidth] : &facet_vertices[std::size_t(x.index) * D];
         const index_t* vy = y.top ? &vertices[std::size_t(y.index) * kWidth] : &facet_vertices[std::size_t(y.index) * D];
         const int width = x.top ? kWidth : D;
         return std::lexicographical_compare(vx, vx + width, vy, vy + width);
-    });
+    };
+    for (auto begin = events.begin(); begin != events.end();) {
+        auto end = begin + 1;
+        while (end != events.end() && end->value == begin->value) ++end;
+        if (end - begin > 1) std::sort(begin, end, tie_less);
+        begin = end;
+    }
 
     // Number cells in event order, top simplices first.
     const std::int64_t n_top = n_cells;

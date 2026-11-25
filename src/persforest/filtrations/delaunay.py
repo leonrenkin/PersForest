@@ -57,8 +57,9 @@ def alpha_filtration(point_cloud: NDArray) -> SimplicialFiltration:
     ------
     ValueError
         For another dimension, and for coordinates the builder cannot handle
-        exactly: a nonzero coordinate below 2^-100 times the largest absolute
-        coordinate, or radii beyond the double range.
+        exactly: a nonzero coordinate with magnitude below 2^-101 after
+        scaling the largest absolute coordinate into [1/2, 1), or radii beyond
+        the double range.
     """
     return _compiled_filtration(_engine.alpha_filtration, point_cloud)
 

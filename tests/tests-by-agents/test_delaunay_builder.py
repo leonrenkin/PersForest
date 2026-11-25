@@ -9,14 +9,14 @@ values are compared with GUDHI at 1e-9 only and checked against minimal
 enclosing balls computed in rational arithmetic.
 """
 from fractions import Fraction
-from itertools import combinations
+from itertools import combinations, product
 import math
 import unittest
 
 import gudhi as gd
 import numpy as np
 
-from persforest import _engine
+from persforest import PersistenceForest, _engine
 from persforest._forest.arrays import build_forest_arrays
 from persforest.filtrations.delaunay import alpha_filtration, delaunay_cech_filtration
 from persforest.filtrations.simplicial import SimplicialFiltration, simplicial_boundary
@@ -297,6 +297,55 @@ class DegenerateInputTests(FiltrationContractMixin, unittest.TestCase):
                     self.assertEqual(positive_bars(cells).shape, (0, 2))
 
 
+class FiltrationTieTests(unittest.TestCase):
+    def test_scaled_right_triangle_keeps_exact_tie(self):
+        points = 64 * np.array([[0., 0.], [459., 464.], [-464., 459.]])
+        for kind in BUILDERS:
+            for tolerance in (0., FILTRATION_TOL):
+                with self.subTest(kind=kind, tolerance=tolerance):
+                    forest = PersistenceForest.from_points(points, filtration_type=kind, filtration_tol=tolerance)
+                    values = dict(forest.filtration)
+                    self.assertEqual(values[1, 2], values[0, 1, 2])
+                    self.assertEqual(forest.barcode, set())
+
+    def test_cospherical_cloud_preserves_exact_ties(self):
+        points = 10007 * np.array([
+            p for p in product(range(-8, 9), repeat=3) if sum(x * x for x in p) == 74
+        ], dtype=float)
+        expected_radius = math.sqrt(74 * 10007**2)
+        for tolerance in (0., FILTRATION_TOL):
+            with self.subTest(tolerance=tolerance):
+                forest = PersistenceForest.from_points(points, filtration_tol=tolerance)
+                values = {value for simplex, value in forest.filtration if len(simplex) == 4}
+                self.assertEqual(values, {expected_radius})
+                (bar,) = forest.barcode
+                self.assertEqual(bar.death, expected_radius)
+                self.assertGreater(bar.death - bar.birth, 1e4)
+
+        # The same triangulation also has distinct Čech supports with equal
+        # minimal enclosing radii. Check the ties using rational geometry.
+        by_radius = {}
+        for simplex, value in values_by_key(delaunay_cech_filtration(points)).items():
+            radius = exact_enclosing_radius(points, simplex)
+            self.assertEqual(by_radius.setdefault(radius, value), value)
+
+    def test_close_unequal_radii_keep_their_short_bar(self):
+        # When the height h is just above 1, this acute triangle has radius
+        # (h**2 + 1)/(2*h), which rounds to two ulps above the long edge's 1.
+        points = np.array([[-1., 0.], [1., 0.], [0., 1. + 2.**-25]])
+        death = math.nextafter(math.nextafter(1., math.inf), math.inf)
+        for kind in BUILDERS:
+            for exponent, tolerance in ((0, 0.), (16, FILTRATION_TOL)):
+                with self.subTest(kind=kind, exponent=exponent, tolerance=tolerance):
+                    forest = PersistenceForest.from_points(
+                        np.ldexp(points, exponent), filtration_type=kind, filtration_tol=tolerance)
+                    (bar,) = forest.barcode
+                    self.assertEqual((bar.birth, bar.death), (2.**exponent, math.ldexp(death, exponent)))
+                    self.assertIsNotNone(forest.cycle_for_bar_at(bar, bar.birth))
+                    with self.assertRaises(ValueError):
+                        forest.cycle_for_bar_at(bar, bar.death)
+
+
 class ExactPathTests(unittest.TestCase):
     def test_nearly_flat_cells_have_exact_values_and_orientations(self):
         rng = np.random.default_rng(9)
@@ -388,6 +437,12 @@ class ScaleTests(unittest.TestCase):
                     filtration(points)
                 points[3, 0] = 1e-29  # above 2^-100 times the largest coordinate
                 self.assertGreater(filtration(points).n_top, 0)
+
+    def test_nonzero_coordinate_underflow_cannot_merge_vertices(self):
+        points = [[0., 0.], [1e100, 0.], [1e-250, 1e100], [0., 1e100]]
+        for kind in BUILDERS:
+            with self.subTest(kind=kind), self.assertRaisesRegex(ValueError, 'orders of magnitude'):
+                PersistenceForest.from_points(points, filtration_type=kind)
 
     def test_invalid_input_is_rejected(self):
         for points in (np.zeros((3, 1)), np.zeros((5, 4)), np.array([[0.0, 0.0], [np.nan, 1.0], [1.0, 0.0]]),

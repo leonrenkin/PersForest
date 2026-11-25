@@ -82,14 +82,14 @@ def simplex_orientation(simplex: Sequence[int], point_cloud: NDArray) -> int:
 def boundary_faces_from_tetrahedra(
     tetrahedra: Iterable[Sequence[int]],
     point_cloud: NDArray,
+    *,
+    orientations: Iterable[int] | None = None,
 ) -> List[Tuple[int, int, int]]:
     """
     Compute boundary triangular faces of a tetrahedral complex.
 
-    Tetrahedra are put in increasing vertex order and oriented using
-    ``point_cloud``. Their signed boundaries are summed, and faces with net zero
-    coefficient are removed. This cancels interior faces while preserving
-    boundary faces.
+    Their signed boundaries are summed, and faces with net zero coefficient
+    are removed. This cancels interior faces while preserving boundary faces.
 
     Parameters
     ----------
@@ -97,6 +97,9 @@ def boundary_faces_from_tetrahedra(
         Tetrahedra represented by vertex indices.
     point_cloud : ndarray
         Ambient coordinates for simplex vertices.
+    orientations : iterable of int, optional
+        Ambient signs in increasing vertex order, one per input tetrahedron.
+        By default the signs are computed from ``point_cloud``.
 
     Returns
     -------
@@ -106,13 +109,17 @@ def boundary_faces_from_tetrahedra(
     Raises
     ------
     ValueError
-        If a tetrahedron is degenerate or numerically near-degenerate.
+        If a tetrahedron needs its sign computed and is degenerate or
+        numerically near-degenerate.
     """
     face_coeffs: Dict[Tuple[int, int, int], int] = defaultdict(int)
 
-    for tet in tetrahedra:
-        tet_tuple = tuple(sorted(tet))
-        orientation = simplex_orientation(simplex=tet_tuple, point_cloud=point_cloud)
+    canonical = (tuple(sorted(tet)) for tet in tetrahedra)
+    if orientations is None:
+        signed = ((tet, simplex_orientation(tet, point_cloud)) for tet in canonical)
+    else:
+        signed = zip(canonical, orientations, strict=True)
+    for tet_tuple, orientation in signed:
         for i in range(len(tet_tuple)):
             face_coeffs[tet_tuple[:i] + tet_tuple[i + 1:]] += orientation * (-1) ** i
 

@@ -7,6 +7,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection, PolyCollection
 from matplotlib.colors import is_color_like
+from persforest import PersistenceForest
 from persforest.measurements.basic import signed_chain_area, constant_one_functional
 from persforest.plotting.landscapes import plot_barcode_measurement_generic, plot_landscape_comparison
 from persforest.plotting._scene import _activity_rows_for_plotting
@@ -27,6 +28,18 @@ class PlottingContractTests(unittest.TestCase):
             self.assertEqual(set(snapshot['edges']), {s for s, v in fixture.values.items() if len(s) == 2 and v <= time})
             self.assertEqual(set(snapshot['triangles']), {s for s, v in fixture.values.items() if len(s) == 3 and v <= time})
             np.testing.assert_array_equal(snapshot['points'], fixture.points)
+
+    def test_filtration_plot_accepts_nearly_flat_tetrahedron(self):
+        points = [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.], [.2, .3, 1e-14]]
+        for kind in ("alpha", "delaunay_cech"):
+            with self.subTest(kind=kind):
+                forest = PersistenceForest.from_points(points, filtration_type=kind)
+                radius = forest.filtration[-1][1]
+                snapshot = forest._complex_snapshot_at_filtration(radius)
+                self.assertEqual(snapshot["tetrahedra"], [(0, 1, 2, 3)])
+                self.assertEqual(set(snapshot["triangles"]), {(0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3)})
+                ax = forest.plot_at_filtration(radius, show=False)
+                self.assertEqual(ax.name, "3d")
 
     def test_filtration_cycle_artists_observe_birth_split_and_death(self):
         forest = build(split())

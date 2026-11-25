@@ -19,7 +19,7 @@ struct DelaunayFiltration {
     std::vector<std::int8_t> top_orientation;  // sign of det(p[v_k] - p[v_0]), k = 1 .. dim, per top
     std::vector<std::int64_t> event_cells;     // cell IDs in forward filtration order
     std::vector<double> event_values;          // radius units
-    // Numbers of radii and of ball tests (Gabriel or containment) that needed exact arithmetic.
+    // Counts of exact fallbacks in the initial radius calculations and ball tests.
     std::int64_t n_exact_radii = 0;
     std::int64_t n_exact_ball_tests = 0;
 };
@@ -34,12 +34,13 @@ struct DelaunayFiltration {
 // are no top simplices and the result is empty. Events are ordered by value,
 // then facets before top simplices, then by increasing vertex tuple. A facet
 // never enters after a top simplex it bounds. Orientations and ball tests are
-// exact; radii are accurate to about 1e-12 relative or better (see delaunay.cpp).
+// exact. Radii are accurate to about 1e-12 relative or better, with exact
+// rounding where approximation errors could affect the event order.
 //
 // Both throw std::invalid_argument for another dimension, non-finite
-// coordinates, nonzero coordinates smaller than 2^-100 times the largest
-// absolute coordinate (exact arithmetic could underflow), too many points or
-// cells for 32-bit IDs, and radii beyond the double range.
+// coordinates, nonzero coordinates smaller than 2^-101 after scaling the
+// largest absolute coordinate into [1/2, 1) (exact arithmetic could underflow),
+// too many points or cells for 32-bit IDs, and radii beyond the double range.
 
 // Alpha filtration, in radius units: a top simplex enters at its
 // circumradius. A facet that is attached (a vertex opposite it in an adjacent

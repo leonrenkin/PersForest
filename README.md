@@ -117,11 +117,14 @@ point cloud or volume.
   with exact predicates, in radius units. Four or more dimensions use GUDHI
   (the `gudhi` extra); 1D point clouds are not supported.
   Degenerate inputs (grids, cocircular points) are triangulated by symbolic
-  perturbation, and of identical points only the first is used.
+  perturbation and may give different representatives from earlier versions.
+  Of identical points only the first is used. The former `forest.simplex_tree`
+  attribute was removed. `forest.filtration` lists the top cells and their
+  facets in filtration order.
 - **Custom simplicial filtrations** are `(simplex, value)` pairs with
   nondecreasing values, every face listed before its cofaces. The complex must
-  be geometrically embedded and its final complex must have trivial homology;
-  this is not checked.
+  be geometrically embedded and its final complex must be contractible.
+  The factory warns that it does not verify these requirements.
 - **Cubical grids** follow GUDHI's conventions (`top_cells`: entries are
   pixels/voxels; `vertices`: lower-star filtration). `spacing` and `origin`
   place the grid in space. In 2D, bars enclose regions brighter than their
