@@ -608,8 +608,7 @@ def _plot_at_filtration_3d(
     cycle_edge_alpha = style["cycle_edge_alpha"]
     if cycle_edge_alpha is None:
         cycle_edge_alpha = min(1.0, cycle_face_alpha + 0.25)
-    snapshot = forest._complex_snapshot_at_filtration(filt_val=float(filt_val))
-    pts = np.asarray(snapshot["points"], dtype=float)
+    pts = np.asarray(forest.point_cloud, dtype=float)
     if pts.ndim != 2 or pts.shape[1] != 3:
         raise ValueError("point_cloud must be an (n_points, 3) array-like.")
 
@@ -620,6 +619,7 @@ def _plot_at_filtration_3d(
         raise ValueError("3D plotting requires a matplotlib 3D axis (projection='3d').")
 
     if show_complex:
+        snapshot = forest._complex_snapshot_at_filtration(filt_val=float(filt_val))
         edges = snapshot.get("edges", [])
         if edges:
             segments = [pts[list(edge)] for edge in edges]

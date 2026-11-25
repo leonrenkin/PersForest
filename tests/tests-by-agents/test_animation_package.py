@@ -95,6 +95,13 @@ class AnimationPackageTests(unittest.TestCase):
             for ax in fig.axes[2:]:
                 np.testing.assert_allclose(ax.lines[-1].get_xdata(), [value, value])
 
+    def test_3d_still_with_hidden_complex_skips_the_snapshot(self):
+        forest = build(tetrahedra())
+        with patch.object(forest, '_complex_snapshot_at_filtration') as snapshot:
+            ax = forest.plot_at_filtration(2., show=False, show_complex=False)
+        snapshot.assert_not_called()
+        self.assertEqual(sum(isinstance(c, Poly3DCollection) for c in ax.collections), 1)
+
     @patch('persforest.plotting.animation.filtration._save_filtration_animation')
     def test_3d_frames_keep_cycles_camera_and_barcode_in_sync(self, save_animation):
         forest = build(tetrahedra())
