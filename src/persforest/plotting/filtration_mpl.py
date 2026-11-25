@@ -7,25 +7,29 @@ from ._dependencies import require_plotting
 require_plotting()
 
 from collections import defaultdict
+from matplotlib import colors as mcolors
 from matplotlib.collections import LineCollection
 from matplotlib.collections import PolyCollection
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from persforest.chains import SignedChain
 from persforest.plotting._geometry import _camera_from_eye
 from typing import Any
 from typing import Literal
 from typing import Optional
 from typing import Tuple
+from typing import TYPE_CHECKING
 import itertools
 import matplotlib.pyplot as plt
 import numpy as np
+
+if TYPE_CHECKING:
+    from persforest.forest import PersistenceForest
 
 def _desaturate_color(color: Any, amount: float) -> tuple[float, float, float]:
     """
     Return an RGB color with saturation reduced by `amount` in [0, 1].
     """
-    from matplotlib import colors as mcolors
-
     rgb = np.asarray(mcolors.to_rgb(color), dtype=float)
     amount = float(np.clip(amount, 0.0, 1.0))
     if amount <= 0.0:
@@ -575,6 +579,68 @@ def _plot_at_filtration_with_dual_2d(
 
     return ax
 
+def _complex_collections_3d(
+    forest: PersistenceForest, filt_val: float, points: np.ndarray, style: dict[str, Any],
+) -> list[Line3DCollection | Poly3DCollection]:
+    """Build the visible complex collections in drawing order."""
+    snapshot = forest._complex_snapshot_at_filtration(filt_val=filt_val)
+    collections = []
+    face_alpha = float(style["complex_face_alpha"])
+    edges = snapshot.get("edges", [])
+    if edges:
+        edge_alpha = style["complex_edge_alpha"]
+        collections.append(Line3DCollection(
+            [points[list(edge)] for edge in edges],
+            colors=style["complex_edge_color"],
+            linewidths=float(style["complex_edge_width"]),
+            alpha=max(0.2, face_alpha) if edge_alpha is None else float(edge_alpha),
+            antialiased=bool(style["antialiased"]),
+        ))
+
+    triangles = snapshot.get("triangles", [])
+    if triangles:
+        complex_rgb = _desaturate_color(style["complex_color"], float(style["desaturate_complex"]))
+        collections.append(Poly3DCollection(
+            [points[list(triangle)] for triangle in triangles],
+            facecolors=(*complex_rgb, face_alpha),
+            edgecolors="none",
+            antialiased=bool(style["antialiased"]),
+            zsort=style["zsort"],
+        ))
+    return collections
+
+
+def _cycle_collection_3d(
+    cycle: SignedChain, points: np.ndarray, color: Any, style: dict[str, Any], *, signed: bool,
+) -> Poly3DCollection | None:
+    """Build a surface for a single representative using its signed or unsigned support."""
+    if cycle.dim() != 2:
+        raise ValueError(
+            f"plot_at_filtration expected a 2-chain, got dim={cycle.dim()}"
+        )
+    faces = cycle.simplices(signed=signed)
+    if not faces:
+        return None
+    face_alpha = float(style["cycle_face_alpha"])
+    edge_alpha = style["cycle_edge_alpha"]
+    edge_color = style["cycle_edge_color"]
+    return Poly3DCollection(
+        [points[list(face)] for face in faces],
+        facecolors=mcolors.to_rgba(color, face_alpha),
+        edgecolors=mcolors.to_rgba(
+            color if edge_color is None else edge_color,
+            min(1.0, face_alpha + 0.25) if edge_alpha is None else float(edge_alpha),
+        ),
+        linewidths=float(style["cycle_edge_width"]),
+        antialiased=bool(style["antialiased"]),
+        zsort=style["zsort"],
+    )
+
+
+def _filtration_title_3d(filt_val: float) -> str:
+    return fr"Filtration at radius r= {filt_val:.4g} "
+
+
 def _plot_at_filtration_3d(
     forest,
     filt_val: float,
@@ -600,14 +666,6 @@ def _plot_at_filtration_3d(
     """
     color_map = forest._get_color_map(coloring=coloring)
     style = _resolve_style_3d(style_3d)
-    complex_face_alpha = float(style["complex_face_alpha"])
-    cycle_face_alpha = float(style["cycle_face_alpha"])
-    complex_edge_alpha = style["complex_edge_alpha"]
-    if complex_edge_alpha is None:
-        complex_edge_alpha = max(0.2, complex_face_alpha)
-    cycle_edge_alpha = style["cycle_edge_alpha"]
-    if cycle_edge_alpha is None:
-        cycle_edge_alpha = min(1.0, cycle_face_alpha + 0.25)
     pts = np.asarray(forest.point_cloud, dtype=float)
     if pts.ndim != 2 or pts.shape[1] != 3:
         raise ValueError("point_cloud must be an (n_points, 3) array-like.")
@@ -619,31 +677,8 @@ def _plot_at_filtration_3d(
         raise ValueError("3D plotting requires a matplotlib 3D axis (projection='3d').")
 
     if show_complex:
-        snapshot = forest._complex_snapshot_at_filtration(filt_val=float(filt_val))
-        edges = snapshot.get("edges", [])
-        if edges:
-            segments = [pts[list(edge)] for edge in edges]
-            edge_coll = Line3DCollection(
-                segments,
-                colors=style["complex_edge_color"],
-                linewidths=float(style["complex_edge_width"]),
-                alpha=float(complex_edge_alpha),
-                antialiased=bool(style["antialiased"]),
-            )
-            ax.add_collection3d(edge_coll)
-
-        triangles = snapshot.get("triangles", [])
-        if triangles:
-            tri_polys = [pts[list(tri)] for tri in triangles]
-            complex_rgb = _desaturate_color(style["complex_color"], float(style["desaturate_complex"]))
-            tri_coll = Poly3DCollection(
-                tri_polys,
-                facecolors=(*complex_rgb, complex_face_alpha),
-                edgecolors="none",
-                antialiased=bool(style["antialiased"]),
-                zsort=style["zsort"],
-            )
-            ax.add_collection3d(tri_coll)
+        for collection in _complex_collections_3d(forest, float(filt_val), pts, style):
+            ax.add_collection3d(collection)
 
     ax.scatter(
         pts[:, 0],
@@ -662,29 +697,10 @@ def _plot_at_filtration_3d(
         )
         active = sorted(active, key=lambda bc: bc[0].lifespan(), reverse=True)
 
-        from matplotlib import colors as mcolors
         for bar, cycle in active:
-            if cycle.dim() != 2:
-                raise ValueError(
-                    f"plot_at_filtration expected a 2-chain, got dim={cycle.dim()}"
-                )
-            tri_faces = cycle.simplices(signed=signed)
-            if not tri_faces:
-                continue
-            cycle_polys = [pts[list(face)] for face in tri_faces]
-            color = color_map[bar]
-            cycle_edge_color_eff = (
-                color if style["cycle_edge_color"] is None else style["cycle_edge_color"]
-            )
-            cycle_coll = Poly3DCollection(
-                cycle_polys,
-                facecolors=mcolors.to_rgba(color, alpha=cycle_face_alpha),
-                edgecolors=mcolors.to_rgba(cycle_edge_color_eff, alpha=float(cycle_edge_alpha)),
-                linewidths=float(style["cycle_edge_width"]),
-                antialiased=bool(style["antialiased"]),
-                zsort=style["zsort"],
-            )
-            ax.add_collection3d(cycle_coll)
+            collection = _cycle_collection_3d(cycle, pts, color_map[bar], style, signed=signed)
+            if collection is not None:
+                ax.add_collection3d(collection)
 
     mins = np.min(pts, axis=0)
     maxs = np.max(pts, axis=0)
@@ -717,10 +733,7 @@ def _plot_at_filtration_3d(
         ax.set_xlabel("x")
         ax.set_ylabel("y")
         ax.set_zlabel("z")
-    if title is None:
-        ax.set_title(fr"Filtration at radius r= {filt_val:.4g} ")
-    else:
-        ax.set_title(title)
+    ax.set_title(_filtration_title_3d(filt_val) if title is None else title)
 
     if show:
         plt.show()

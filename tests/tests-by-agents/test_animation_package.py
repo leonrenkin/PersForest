@@ -119,6 +119,56 @@ class AnimationPackageTests(unittest.TestCase):
             self.assertAlmostEqual(scene.azim, 20. + 120 * index)
             np.testing.assert_allclose(barcode.lines[-1].get_xdata(), [value, value])
 
+    @patch('persforest.plotting.animation.filtration._save_filtration_animation')
+    def test_3d_frames_reuse_points_and_cycles_within_active_intervals(self, save_animation):
+        forest = build(tetrahedra())
+        bar = max(forest.barcode, key=lambda bar: bar.lifespan())
+        with patch.object(forest, 'cycle_for_bar_at', wraps=forest.cycle_for_bar_at) as cycle, \
+             patch.object(forest, 'plot_at_filtration', wraps=forest.plot_at_filtration) as plot:
+            anim, fig = forest.animate_filtration(
+                frames=8, t_min=0, t_max=7, show_complex=False, signed=True,
+                filtration_kwargs={'min_bar_length': bar.lifespan()})
+            fig.canvas.draw()
+            ax = fig.axes[0]
+            points, = ax.collections
+            radius_box, = ax.artists
+            for index, expected_calls in [(1, 1), (2, 1), (3, 2), (6, 2), (7, 2), (2, 3), (0, 3)]:
+                anim._func(index)
+                self.assertEqual(cycle.call_count, expected_calls)
+                self.assertIs(ax.collections[0], points)
+                self.assertIs(ax.artists[0], radius_box)
+                self.assertEqual(len(ax.collections), 1 + (1 <= index < 7))
+                self.assertEqual(radius_box.txt.get_text(), f'$r = {index}$')
+                if index == 1:
+                    first_surface = ax.collections[1]
+                elif index == 2 and expected_calls == 1:
+                    self.assertIs(ax.collections[1], first_surface)
+                elif index == 3:
+                    self.assertIsNot(ax.collections[1], first_surface)
+            plot.assert_called_once()
+            self.assertEqual([call.args for call in cycle.call_args_list], [(bar, 1.), (bar, 3.), (bar, 2.)])
+        self.assertNotIn('_filtration_events', forest.__dict__)
+
+    @patch('persforest.plotting.animation.filtration._save_filtration_animation')
+    def test_3d_frames_reuse_visible_mesh_until_filtration_advances(self, save_animation):
+        forest = build(tetrahedra())
+        with patch.object(forest, '_complex_snapshot_at_filtration',
+                          wraps=forest._complex_snapshot_at_filtration) as snapshot:
+            anim, fig = forest.animate_filtration(
+                frames=5, t_min=0, t_max=2, show_cycles=False)
+            fig.canvas.draw()
+            ax = fig.axes[0]
+            points, = ax.collections
+            anim._func(2)
+            mesh, frame_points = ax.collections
+            self.assertIs(frame_points, points)
+            fig.canvas.draw()
+            anim._func(4)
+            self.assertIs(ax.collections[0], mesh)
+            anim._func(0)
+            self.assertEqual(list(ax.collections), [points])
+        self.assertEqual([call.kwargs['filt_val'] for call in snapshot.call_args_list], [0., 1., 0.])
+
 
 if __name__ == '__main__':
     unittest.main()

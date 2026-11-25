@@ -298,16 +298,6 @@ def animate_filtration(
         if barcode_kwargs is not None:
             barcode_panel_kwargs.update(barcode_kwargs)
 
-        t_max_3d = t_max
-        if t_max_3d is None:
-            finite_deaths = [float(bar.death) for bar in self.barcode if np.isfinite(float(bar.death))]
-            if finite_deaths:
-                t_max_3d = max(finite_deaths)
-            else:
-                finite_filtration = [float(f) for _, f in self.filtration if np.isfinite(float(f))]
-                if finite_filtration:
-                    t_max_3d = max(finite_filtration)
-
         return _animate_filtration_generic(
             self,
             filename=resolved_filename,
@@ -315,7 +305,7 @@ def animate_filtration(
             fps=fps,
             frames=frames,
             t_min=t_min,
-            t_max=t_max_3d,
+            t_max=t_max,
             coloring=coloring,
             dpi=dpi,
             figsize=figsize,

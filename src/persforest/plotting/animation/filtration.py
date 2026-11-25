@@ -141,9 +141,12 @@ def _animate_filtration_generic(
 
         _validate_radius_box_corner(radius_box_corner)
 
-        if not hasattr(forest, "filtration") or not forest.filtration:
-            raise ValueError("Forest has no filtration data to animate.")
         is_3d = (getattr(forest, "dim", None) == 3)
+        is_point_cloud_3d = is_3d and not _is_grid(forest)
+        event_values = forest._cells.event_values if is_point_cloud_3d else None
+        has_filtration = event_values.size > 0 if event_values is not None else bool(getattr(forest, "filtration", None))
+        if not has_filtration:
+            raise ValueError("Forest has no filtration data to animate.")
         if int(dpi) <= 0:
             raise ValueError("dpi must be a positive integer.")
 
@@ -195,6 +198,8 @@ def _animate_filtration_generic(
             ]
             if finite_deaths:
                 t_max = max(finite_deaths)
+            elif event_values is not None:
+                t_max = float(event_values[-1])
             else:
                 finite_filtration = [float(f) for _, f in forest.filtration if np.isfinite(float(f))]
                 if not finite_filtration:
@@ -323,35 +328,42 @@ def _animate_filtration_generic(
             ax_bar = None
             barcode_line = None
 
-        # ---- Helper to draw a single frame on the cloud panel ----
-        def _draw_frame_at_time(t: float, frame_idx: int = 0):
-            """Helper: clear the cloud axis and redraw for filtration value t."""
-            ax_cloud.clear()
-            local_plot_kwargs = filtration_kwargs
-            if is_3d:
-                local_plot_kwargs = dict(filtration_kwargs)
-                camera_mode = local_plot_kwargs.pop("camera_mode", "fixed")
-                style_3d = dict(local_plot_kwargs.get("style_3d", {}) or {})
-                camera_eye = style_3d.get("camera_eye", None)
-                if camera_mode not in {"fixed", "orbit"}:
-                    raise ValueError("camera_mode must be 'fixed' or 'orbit'.")
-                if camera_mode == "orbit":
-                    base_elev = 22.0
-                    base_azim = -55.0
-                    if isinstance(camera_eye, dict):
-                        base_elev = float(camera_eye.get("elev", base_elev))
-                        base_azim = float(camera_eye.get("azim", base_azim))
-                    elif isinstance(camera_eye, (tuple, list)) and len(camera_eye) >= 2:
-                        base_elev = float(camera_eye[0])
-                        base_azim = float(camera_eye[1])
-                    denom = max(1, len(frame_times) - 1)
-                    style_3d["camera_eye"] = (
-                        base_elev,
-                        base_azim + 360.0 * float(frame_idx) / float(denom),
-                    )
-                    local_plot_kwargs["style_3d"] = style_3d
-            # Delegate the heavy lifting to the existing helper
-            forest.plot_at_filtration(filt_val=t, ax=ax_cloud, **local_plot_kwargs)
+        orbit_view = None
+        if is_3d:
+            camera_mode = filtration_kwargs.pop("camera_mode", "fixed")
+            if camera_mode not in {"fixed", "orbit"}:
+                raise ValueError("camera_mode must be 'fixed' or 'orbit'.")
+            if camera_mode == "orbit":
+                style_3d = dict(filtration_kwargs.get("style_3d", {}) or {})
+                camera_eye = style_3d.get("camera_eye")
+                orbit_view = (22.0, -55.0)
+                if isinstance(camera_eye, dict):
+                    orbit_view = float(camera_eye.get("elev", 22.0)), float(camera_eye.get("azim", -55.0))
+                elif isinstance(camera_eye, (tuple, list)) and len(camera_eye) >= 2:
+                    orbit_view = float(camera_eye[0]), float(camera_eye[1])
+
+        draw_point_cloud = None
+        if is_point_cloud_3d:
+            from ._point_cloud import _point_cloud_frame_drawer
+
+            draw_point_cloud = _point_cloud_frame_drawer(forest, ax_cloud, filtration_kwargs)
+        radius_box = None
+
+        def _draw_frame_at_time(t: float, frame_idx: int = 0) -> None:
+            """Update the cloud panel and its radius label."""
+            nonlocal radius_box
+            camera_eye = None
+            if orbit_view is not None:
+                elev, azim = orbit_view
+                camera_eye = elev, azim + 360.0 * frame_idx / max(1, len(frame_times) - 1)
+            if draw_point_cloud is None:
+                ax_cloud.clear()
+                local_plot_kwargs = filtration_kwargs
+                if camera_eye is not None:
+                    local_plot_kwargs = dict(filtration_kwargs, style_3d={**style_3d, "camera_eye": camera_eye})
+                forest.plot_at_filtration(filt_val=t, ax=ax_cloud, **local_plot_kwargs)
+            else:
+                draw_point_cloud(t, camera_eye)
 
             # Overlay the current radius with a fixed inset from the axes.
             symbol = _filtration_symbol(forest)
@@ -359,7 +371,10 @@ def _animate_filtration_generic(
                 radius_text = rf"${symbol} = {t:.3g}$"
             else:
                 radius_text = rf"${symbol} = {t:.{alpha_digits}f}$"
-            _add_radius_box(ax_cloud, radius_text, radius_box_corner)
+            if draw_point_cloud is None or radius_box is None:
+                radius_box = _add_radius_box(ax_cloud, radius_text, radius_box_corner)
+            else:
+                radius_box.txt.set_text(radius_text)
 
         # ---- Animation callbacks ----
         def init():
