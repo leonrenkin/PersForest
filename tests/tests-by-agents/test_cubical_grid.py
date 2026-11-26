@@ -157,6 +157,18 @@ class CubicalInputTests(unittest.TestCase):
             with self.subTest(kwargs=kwargs), self.assertRaisesRegex(ValueError, message):
                 PersistenceForest.from_cubical_grid(**kwargs)
 
+    def test_doubled_grid_size_limit(self):
+        # 3^19 doubled-grid positions fit 32-bit IDs, 3^20 and 3^40 do not; the
+        # last overflowed 64-bit size arithmetic before the guard.
+        self.assertEqual(len(PersistenceForest.from_cubical_grid(np.zeros((1,) * 19)).barcode), 0)
+        for shape in [(1,) * 20, (1,) * 40]:
+            with self.subTest(shape=len(shape)), self.assertRaisesRegex(ValueError, "doubled-grid positions"):
+                PersistenceForest.from_cubical_grid(np.broadcast_to(0.0, shape))
+        from persforest import _engine
+        for d in (20, 40):
+            with self.subTest(engine=d), self.assertRaisesRegex(ValueError, "doubled-grid positions"):
+                _engine.cubical_events([1] * d, np.zeros(1 + 2 * d, np.int32), np.zeros(1 + 2 * d), 1)
+
     def test_delayed_barcode_and_interior_activity(self):
         values = [[1, 1, 1], [1, 3, 1], [1, 1, 1]]
         delayed = PersistenceForest.from_cubical_grid(values, compute_barcode=False)

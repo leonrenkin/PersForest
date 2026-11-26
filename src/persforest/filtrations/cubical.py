@@ -1,11 +1,15 @@
 """Cubical filtrations of full rectangular grids."""
 
 from dataclasses import dataclass
+import math
 
 import numpy as np
 from numpy.typing import NDArray
 
 from persforest import _engine
+
+# Cells are addressed by 32-bit positions in the doubled grid (see cpp/cubical.cpp).
+_MAX_DOUBLED_POSITIONS = 2**31 - 1
 
 CUBICAL_FILTRATION_TYPES = ("top_cells", "vertices")
 
@@ -194,6 +198,14 @@ def prepare_cubical_filtration(values, filtration_type: str = "top_cells") -> tu
     grid = _validated_grid(values, filtration_type)
     d = grid.ndim
     top_shape = grid.shape if filtration_type == "top_cells" else tuple(n - 1 for n in grid.shape)
+    # Checked before any per-cell work; the engine repeats the check.
+    n_positions = math.prod(2 * n + 1 for n in top_shape)
+    if n_positions > _MAX_DOUBLED_POSITIONS:
+        raise ValueError(
+            f"cubical grid with top-cell shape {top_shape} has {n_positions} doubled-grid positions "
+            f"(the product of 2 n + 1 over the extents n); at most {_MAX_DOUBLED_POSITIONS} are "
+            "supported. This includes thin grids in many dimensions."
+        )
     # Every cell takes the minimum or maximum of some grid entries, so ranks
     # among the distinct grid values order the cells as their values do. The
     # engine then sorts by (rank, dimension, doubled coordinates in row-major

@@ -71,10 +71,22 @@ CubicalEvents cubical_events(const std::vector<std::int64_t>& top_shape, const s
                              const double* cell_value, std::int64_t n_cells, std::int64_t n_ranks) {
     const std::size_t d = top_shape.size();
     if (d == 0 || n_ranks < 0) throw std::invalid_argument("invalid cubical grid");
+    // Cells are addressed by their position in the doubled grid, whose size
+    // prod(2 n + 1) must fit the 32-bit IDs. It exceeds the number of cells
+    // (and of top cells), so checking it before each multiplication also
+    // keeps n_top from overflowing. Thin grids in many dimensions reach the
+    // limit with few cells: shape (1,) * 20 has 41 cells but 3^20 positions.
+    constexpr std::int64_t max_positions = std::numeric_limits<std::int32_t>::max();
     std::int64_t n_top = 1;
     std::int64_t n_positions = 1;
     for (const std::int64_t extent : top_shape) {
         if (extent < 1) throw std::invalid_argument("cubical grid extents must be positive");
+        if (extent > max_positions / 2 || n_positions > max_positions / (2 * extent + 1)) {
+            throw std::invalid_argument(
+                "cubical grids with more than " + std::to_string(max_positions) +
+                " doubled-grid positions (the product of 2 n + 1 over the extents n) are not supported "
+                "(32-bit IDs); this includes thin grids in many dimensions");
+        }
         n_top *= extent;
         n_positions *= 2 * extent + 1;
     }
@@ -85,11 +97,6 @@ CubicalEvents cubical_events(const std::vector<std::int64_t>& top_shape, const s
         block_offsets[a + 2] = block_offsets[a + 1] + n_top / top_shape[a] * (top_shape[a] + 1);
     }
     if (block_offsets[d + 1] != n_cells) throw std::invalid_argument("cell count does not match the grid shape");
-    if (n_positions > std::numeric_limits<std::int32_t>::max()) {
-        throw std::invalid_argument("cubical grids with more than " +
-                                    std::to_string(std::numeric_limits<std::int32_t>::max()) +
-                                    " doubled-grid positions are not supported (32-bit IDs)");
-    }
 
     // Counting sort by (rank, dimension): the events of rank r are its facets,
     // then its top cells. Count both per rank, then turn the counts into the
