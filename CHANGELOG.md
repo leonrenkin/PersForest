@@ -41,6 +41,28 @@ supported platforms.
     largest after scaling) raise `ValueError`.
 - **Measurement animations default to `signed=False`**, like every other
   measurement entry point.
+- **Plots are no longer shown automatically.** Every plotting method defaults
+  to `show=False` (`plot_barcode` gained the parameter); call
+  `matplotlib.pyplot.show()` or pass `show=True`. New figures use Matplotlib's
+  `figure.dpi` instead of a fixed resolution, and plots of one kind share a
+  default size.
+- **Unknown style keys raise** for point-cloud plots, as they already did for
+  grids.
+- **`plot_barcode` shows at most the 100 longest bars by default**, and
+  `sort="tree"` groups the bars of each tree.
+
+### Plot appearance
+
+- `coloring="forest"` gives all bars of a tree one color (trees ranked by
+  their longest bar); `coloring="bars"` uses tab20 by lifespan rank.
+- 2D cycles are drawn as joined lines on a light grey complex.
+  `style_2d["cycle_halo"]` adds a white halo, on by default for cubical grids.
+- 3D plots draw the complex as a faint shell and active cycles as shaded,
+  opaque surfaces. The 3D interior plot shows each bar's region as a surface;
+  `style["opacity_by"] = "activity"` restores per-face opacity.
+- Barcodes use round-capped bars that fill the rows.
+- Landscape, profile and measurement charts have an open frame and a faint
+  grid; landscape levels run from dark (k = 1) to light.
 - **Plots no longer call `plt.show()` by default.** Every plotting method
   takes `show=False`; pass `show=True` (or call `plt.show()`) in scripts.
   `plot_barcode` gained the `show` parameter. Notebooks are unaffected.
