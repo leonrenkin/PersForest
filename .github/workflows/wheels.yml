@@ -12,9 +12,11 @@ on:
         type: choice
         options: [none, testpypi]
         default: none
+  push:
+    paths: &build-paths ["cpp/**", "CMakeLists.txt", "pyproject.toml", ".github/workflows/wheels.yml",
+                         "tests/tests-by-agents/wheel_smoke.py"]
   pull_request:
-    paths: ["cpp/**", "CMakeLists.txt", "pyproject.toml", ".github/workflows/wheels.yml",
-            "tests/tests-by-agents/wheel_smoke.py"]
+    paths: *build-paths
   release:
     types: [published]
 
