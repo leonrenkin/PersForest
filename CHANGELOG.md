@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 (unreleased)
+## 0.3.0 (2026-11-26)
 
 The forest is now built by a compiled C++ engine, and 2D/3D point-cloud
 filtrations come from a compiled builder on geogram's Delaunay triangulation.
