@@ -1,20 +1,22 @@
-"""plotting.barcode: mechanically extracted reference implementation."""
+"""Matplotlib rendering of barcodes."""
 
 from typing import Literal
 from ._dependencies import require_plotting
 
 def _bar_color_map(forest, coloring) -> dict:
-    """Return the bar -> color map for a barcode coloring scheme."""
-    # Same logic as plot_at_filtration; built lazily on first use.
-    if coloring == "forest":
-        if not hasattr(forest, "color_map_forest"):
-            forest._build_color_map_forest()
-        return forest.color_map_forest
-    if coloring == "bars":
-        if not hasattr(forest, "color_map_bars"):
-            forest._build_color_map_bars()
-        return forest.color_map_bars
-    return {}
+    """Return the bar -> color map for ``coloring``; empty for "none" and "grey".
+
+    Reads the ``color_map_*`` attributes directly so forest-like objects
+    without ``PersistenceForest._get_color_map`` remain supported.
+    """
+    if coloring in ("forest", "bars"):
+        name = f"color_map_{coloring}"
+        if not hasattr(forest, name):
+            getattr(forest, f"_build_{name}")()
+        return getattr(forest, name)
+    if coloring in ("none", "grey"):
+        return {}
+    raise ValueError("coloring must be 'forest', 'bars', 'none' or 'grey'")
 
 
 def _select_bars(forest, min_bar_length: float = 0.0, max_bars: int = 0, bars=None) -> list:
@@ -73,6 +75,7 @@ def _plot_barcode_generic(
         tight_layout: bool = True,
         orientation: Literal["horizontal", "vertical"] = "horizontal",
         ylabel: str | None = None,
+        show: bool = False,
     ):
     """
     Plot a 1D barcode from ``forest.barcode``.
@@ -116,6 +119,8 @@ def _plot_barcode_generic(
         If True, reverse the selected sort order.
     tight_layout : bool
         If True, call ``fig.tight_layout()`` after drawing.
+    show : bool
+        If True, call ``matplotlib.pyplot.show`` after drawing.
 
     Returns
     -------
@@ -161,14 +166,12 @@ def _plot_barcode_generic(
     n_bars = len(bars)
 
     # ---- Create axes if needed, with controlled figure height ----
-    created_ax = False
     if ax is None:
         # Height grows sublinearly and is capped to avoid gigantic figures
         base_height = 2.5
         extra_height = 0.12 * min(n_bars, 80)   # at most ~9.1 total
         size = (base_height + extra_height, 7) if vertical else (7, base_height + extra_height)
         fig, ax = plt.subplots(figsize=size)
-        created_ax = True
     else:
         fig = ax.figure
 
@@ -217,9 +220,7 @@ def _plot_barcode_generic(
     if tight_layout:
         fig.tight_layout()
 
-    # If we created the axes, show it immediately (so this works in scripts)
-    if created_ax:
-        import matplotlib.pyplot as plt
+    if show:
         plt.show()
 
     return ax

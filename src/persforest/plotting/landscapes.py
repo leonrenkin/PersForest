@@ -10,6 +10,7 @@ from persforest.landscapes.profiles import CycleValueFunc
 from persforest.landscapes.profiles import _build_step_function_data
 from persforest.landscapes.family import MeasurementLandscapeFamily
 from persforest.landscapes._validation import positive_integer
+from persforest.plotting._style import CHART_FIGSIZE
 from typing import Any
 from typing import Dict
 from typing import List
@@ -58,11 +59,13 @@ def plot_barcode_measurement_generic(
     y_range : (float, float), optional
         If given, set the y-limits to this range.
     title : str, optional
-        Title for the axes. If None, a default title is constructed.
+        Title for the axes. If None, the measurement name and bar interval.
     label : str, optional
-        Label used in the fallback title when ``title`` is omitted.
+        Measurement name for the default title and the y-axis label. Defaults
+        to ``cycle_func.measurement_name``, then to the function's name.
     show_baseline : bool, default True
-        Whether to draw the baseline of the step function.
+        Whether to draw the baseline of the step function, as a thin grey
+        dashed line unless ``baseline_kwargs`` says otherwise.
     show : bool, default False
         Whether to call `plt.show()` after plotting.
     **kwargs
@@ -81,13 +84,23 @@ def plot_barcode_measurement_generic(
 
     step_func = _build_step_function_data(forest=forest, bar=bar, cycle_func=cycle_func, signed=signed)
 
+    if label is None:
+        label = getattr(cycle_func, "measurement_name", None) or getattr(cycle_func, "__name__", None)
+        if label == "<lambda>":
+            label = None
+
     if ax is None:
-        _, ax = plt.subplots()
+        _, ax = plt.subplots(figsize=CHART_FIGSIZE)
 
-    step_func.plot(x_range=x_range, y_range=y_range, ax= ax, title = title,show_baseline=show_baseline, **kwargs)
+    kwargs["baseline_kwargs"] = {"color": "0.6", "linewidth": 0.8, **(kwargs.get("baseline_kwargs") or {})}
+    step_func.plot(x_range=x_range, y_range=y_range, ax=ax, show_baseline=show_baseline, **kwargs)
 
+    interval = f"[{bar.birth:.4g}, {bar.death:.4g})"
     if title is None:
-        ax.set_title(f"{label} progression in max bar")
+        title = f"{label} along bar {interval}" if label else f"Measurement along bar {interval}"
+    ax.set_title(title)
+    ax.set_xlabel("filtration value")
+    ax.set_ylabel(label if label else "measurement")
 
     if show:
         plt.show()
@@ -195,7 +208,7 @@ def _draw_measurement_profiles(
     lower, limit = min((lower, *x_include)), max((limit, *x_include))
 
     if ax is None:
-        _, ax = plt.subplots(figsize=(7, 4))
+        _, ax = plt.subplots(figsize=CHART_FIGSIZE)
 
     drawn = []
     for bar in selected:
@@ -229,7 +242,7 @@ def plot_landscape_family(
         ks: Optional[List[int]] = None,
         ax: Optional["matplotlib.axes.Axes"] = None,
         title: Optional[str] = None,
-        show: bool = True,
+        show: bool = False,
         *,
         show_legend: Optional[bool] = None,
         linewidth: Optional[float] = None,
@@ -282,7 +295,7 @@ def plot_landscape_family(
     family.evaluate_on_grid(levels=ks)  # Validate before creating any artists.
 
     if ax is None:
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=CHART_FIGSIZE)
 
     colors_by_k = {}
     if cmap is not None:
@@ -366,7 +379,7 @@ def plot_landscape_comparison(
     for family in families:
         family.evaluate_on_grid(levels=[k])
     if ax is None:
-        _, ax = plt.subplots()
+        _, ax = plt.subplots(figsize=CHART_FIGSIZE)
     for family, label in zip(families, labels):
         ax.plot(family.x_grid, family.landscapes[k], label=label, **kwargs)
     ax.set_xlabel("filtration value")
@@ -414,7 +427,7 @@ def _plot_step_function(
             The axis with the rendered step function.
         """
     if ax is None:
-        _, ax = plt.subplots()
+        _, ax = plt.subplots(figsize=CHART_FIGSIZE)
 
     starts = np.asarray(self.starts, dtype=float).ravel()
     ends = np.asarray(self.ends, dtype=float).ravel()

@@ -1,4 +1,4 @@
-"""plotting.filtration plotly: mechanically extracted reference implementation."""
+"""Plotly rendering of simplicial filtrations and cycle representatives."""
 
 from __future__ import annotations
 
@@ -415,7 +415,7 @@ def plot_at_filtration_plotly(
     show_complex: bool = True,
     complex_opacity: float = 0.20,
     cycle_opacity: float = 0.55,
-    show: bool = True,
+    show: bool = False,
     renderer: Optional[str] = None,
     vertex_size: float = 3.0,
     width: Optional[int] = None,   
@@ -539,7 +539,7 @@ def plot_filtration_interactive(
     complex_opacity: float = 0.20,
     cycle_opacity: float = 0.55,
     resolution: int =100,
-    show: bool = True,
+    show: bool = False,
     renderer: Optional[str] = None,
     fill_triangles: bool = True,
     vertex_size: float = 3.0,

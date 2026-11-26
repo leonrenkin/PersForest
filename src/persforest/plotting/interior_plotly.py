@@ -1,4 +1,4 @@
-"""plotting.interior plotly: mechanically extracted reference implementation."""
+"""Plotly rendering of 3D interior-simplex activity."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from persforest.plotting._geometry import _activity_face_records
 from persforest.plotting._geometry import _validated_activity_tetrahedra
 from persforest.plotting._scene import _activity_rows_for_plotting
 from persforest.plotting._scene import _complex_edge_segments_3d
+from persforest.plotting._style import resolve_style
 from typing import Any
 from typing import Literal
 import numpy as np
@@ -193,7 +194,7 @@ def plot_interior_simplex_activity_plotly(
     geometry: Literal["cells", "surface"] = "surface",
     cell_shrink: float = 1.0,
     opacity: float | None = None,
-    show: bool = True,
+    show: bool = False,
     renderer: str | None = None,
     width: int | None = None,
     height: int | None = None,
@@ -318,8 +319,7 @@ def plot_interior_simplex_activity_plotly(
         "lightposition": {"x": 100.0, "y": 200.0, "z": 100.0},
         "camera_eye": {"x": 1.45, "y": 1.45, "z": 1.15},
     }
-    if style is not None:
-        plot_style.update(style)
+    plot_style = resolve_style(style, plot_style, "style")
 
     resolved_edge_mode = edge_mode
     if resolved_edge_mode == "none" and bool(plot_style["show_activity_edges"]):

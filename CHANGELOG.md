@@ -41,12 +41,22 @@ supported platforms.
     largest after scaling) raise `ValueError`.
 - **Measurement animations default to `signed=False`**, like every other
   measurement entry point.
+- **Plots no longer call `plt.show()` by default.** Every plotting method
+  takes `show=False`; pass `show=True` (or call `plt.show()`) in scripts.
+  `plot_barcode` gained the `show` parameter. Notebooks are unaffected.
+- **Unknown `style`, `style_2d` and `style_3d` keys raise `ValueError`**
+  for point clouds as they already did for grids, listing the supported keys.
 
 ### Other changes
 
 - `forest.barcode` iterates in `bar.index` order. Ties between bars with equal
   endpoints are broken by `bar.index`, so lifespan rankings, profile IDs and
   `max_bar`/`longest_bars` are the same in every run.
+- New figures use Matplotlib's `figure.dpi` unless `dpi` is passed, and plots
+  of one kind share a figure size (5×5 scenes, 6×4 charts, 10×6 forests).
+- `plot_barcode_measurement` titles the plot with the measurement name and the
+  bar interval and labels both axes; `coloring` values other than `"forest"`,
+  `"bars"`, `"none"` and `"grey"` raise `ValueError` in barcode and profile plots.
 - `cycle_for_bar_at` raises `ValueError` for NaN and for values outside
   `[birth, death)`, and no longer copies the bar's progression.
 - Cubical grids whose doubled grid exceeds 2^31 - 1 positions (including thin

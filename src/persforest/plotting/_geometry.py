@@ -1,4 +1,4 @@
-"""plotting. geometry: mechanically extracted reference implementation."""
+"""Geometric helpers shared by the 3D renderers: camera angles and activity faces."""
 
 from __future__ import annotations
 

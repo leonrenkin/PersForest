@@ -20,6 +20,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from persforest.plotting import _cubical_scene as scene
+from persforest.plotting._style import resolve_style
 from persforest.plotting._scene import _activity_rows_for_plotting
 from persforest.plotting.interior_plotly import _bar_value
 from persforest.plotting.interior_plotly import _darken_color
@@ -210,7 +211,7 @@ def plot_cubical_at_filtration_plotly(
     show_complex: bool = True,
     complex_opacity: float = 0.20,
     cycle_opacity: float = 0.55,
-    show: bool = True,
+    show: bool = False,
     renderer: Optional[str] = None,
     width: Optional[int] = None,
     height: Optional[int] = None,
@@ -260,7 +261,7 @@ def plot_cubical_filtration_interactive(
     complex_opacity: float = 0.20,
     cycle_opacity: float = 0.55,
     resolution: int = 100,
-    show: bool = True,
+    show: bool = False,
     renderer: Optional[str] = None,
     width: Optional[int] = None,
     height: Optional[int] = None,
@@ -338,7 +339,7 @@ def plot_cubical_interior_activity_plotly(
     geometry: Literal["cells", "surface"] = "surface",
     cell_shrink: float = 1.0,
     opacity: float | None = None,
-    show: bool = True,
+    show: bool = False,
     renderer: str | None = None,
     width: int | None = None,
     height: int | None = None,
@@ -369,7 +370,7 @@ def plot_cubical_interior_activity_plotly(
     cell_shrink = float(cell_shrink)
     if not 0.0 < cell_shrink <= 1.0:
         raise ValueError("cell_shrink must be greater than 0 and at most 1.")
-    plot_style = scene.resolve_style(style, _INTERIOR_STYLE, "style")
+    plot_style = resolve_style(style, _INTERIOR_STYLE, "style")
     alpha_range = ((float(opacity),) * 2 if opacity is not None
                    else tuple(float(value) for value in plot_style["activity_alpha_range"]))
     if len(alpha_range) != 2 or not all(0.0 <= value <= 1.0 for value in alpha_range):

@@ -1,4 +1,4 @@
-"""plotting. scene: mechanically extracted reference implementation."""
+"""Backend-independent snapshots of a simplicial filtration for the renderers."""
 
 from __future__ import annotations
 

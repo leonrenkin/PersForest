@@ -1,4 +1,4 @@
-"""plotting.filtration mpl: mechanically extracted reference implementation."""
+"""Matplotlib rendering of simplicial filtrations and cycle representatives."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from persforest.chains import SignedChain
 from persforest.plotting._geometry import _camera_from_eye
+from persforest.plotting._style import resolve_style
 from typing import Any
 from typing import Literal
 from typing import Optional
@@ -61,9 +62,7 @@ def _resolve_style_2d(style_2d: Optional[dict[str, Any]]) -> dict[str, Any]:
         "arrow_linewidth": 0.8,
         "arrow_scale": 4.0,
     }
-    if style_2d:
-        style.update(style_2d)
-    return style
+    return resolve_style(style_2d, style, "style_2d")
 
 def _resolve_style_3d(style_3d: Optional[dict[str, Any]]) -> dict[str, Any]:
     """
@@ -95,17 +94,15 @@ def _resolve_style_3d(style_3d: Optional[dict[str, Any]]) -> dict[str, Any]:
         "zsort": "average",
         "desaturate_complex": 0.0,
     }
-    if style_3d:
-        style.update(style_3d)
-    return style
+    return resolve_style(style_3d, style, "style_3d")
 
 def _plot_at_filtration_generic(
     forest,
     filt_val: float,
     ax=None,
-    show: bool = True,
+    show: bool = False,
     show_complex: bool = True,
-    figsize: tuple[float, float] = (7, 7),
+    figsize: tuple[float, float] = (5, 5),
     vertex_size: float = 3,
     coloring: Literal["forest", "bars"] = "forest",
     title: Optional[str] = None,
@@ -114,7 +111,7 @@ def _plot_at_filtration_generic(
     min_bar_length: float = 0,
     point_zorder: float = 6,
     cycle_zorder: float = 5,
-    dpi: int =200,
+    dpi: int | None = None,
     style_2d: Optional[dict[str, Any]] = None,
     style_3d: Optional[dict[str, Any]] = None,
 ):
@@ -156,8 +153,8 @@ def _plot_at_filtration_generic(
         Only draw cycles for bars with lifespan at least this value.
     point_zorder, cycle_zorder : float
         Matplotlib z-order controls used by the 2D renderer.
-    dpi : int
-        DPI used when creating a new figure.
+    dpi : int or None
+        Resolution of a newly created figure; None uses Matplotlib's ``figure.dpi``.
     style_2d, style_3d : dict | None
         Renderer-specific style overrides.
 
@@ -209,9 +206,9 @@ def _plot_at_filtration_2d(
     forest,
     filt_val: float,
     ax=None,
-    show: bool = True,
+    show: bool = False,
     show_complex: bool = True,
-    figsize: tuple[float, float] = (7, 7),
+    figsize: tuple[float, float] = (5, 5),
     vertex_size: float = 3,
     coloring: Literal["forest", "bars"] = "forest",
     title: Optional[str] = None,
@@ -220,7 +217,7 @@ def _plot_at_filtration_2d(
     min_bar_length: float = 0,
     point_zorder: float = 6,
     cycle_zorder: float = 5,
-    dpi: int =200,
+    dpi: int | None = None,
     style_2d: Optional[dict[str, Any]] = None,
 ):
     """
@@ -361,7 +358,7 @@ def _plot_at_filtration_with_dual_2d(
     filt_val: float,
     ax=None,
     fill_triangles: bool = True,
-    figsize: tuple[float, float] = (7, 7),
+    figsize: tuple[float, float] = (5, 5),
     vertex_size: float = 12,
     coloring: Literal["forest", "bars"] = "forest",
     dual_vertex_size: float = 12,
@@ -370,7 +367,7 @@ def _plot_at_filtration_with_dual_2d(
     linewidth_cycle: float = 1.8,
     linewidth_dual_edge: float = 0.4,
     show_dual: bool = True,
-    show: bool = True,
+    show: bool = False,
 ):
     """
     Plot primal and dual edges of the alpha complex at a filtration value.
@@ -645,16 +642,16 @@ def _plot_at_filtration_3d(
     forest,
     filt_val: float,
     ax=None,
-    show: bool = True,
+    show: bool = False,
     show_complex: bool = True,
     show_cycles: bool = True,
     signed: bool = False,
     min_bar_length: float = 0.0,
-    figsize: tuple[float, float] = (7, 7),
+    figsize: tuple[float, float] = (5, 5),
     vertex_size: float = 3.0,
     coloring: Literal["forest", "bars"] = "forest",
     title: Optional[str] = None,
-    dpi: int =200,
+    dpi: int | None = None,
     style_3d: Optional[dict[str, Any]] = None,
 ):
     """
@@ -745,8 +742,8 @@ def plot_barcode_cycle_reps(
     min_bar_length: float = 0,
     relative_position: float = 0.1,
     ax=None,
-    show: bool = True,
-    figsize: tuple[float, float] = (7, 7),
+    show: bool = False,
+    figsize: tuple[float, float] = (5, 5),
     vertex_size: float = 3,
     point_zorder: float = 3,
     coloring: Literal["forest", "bars"] = "forest",

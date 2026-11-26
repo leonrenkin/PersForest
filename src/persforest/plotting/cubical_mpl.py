@@ -29,6 +29,7 @@ from numpy.typing import NDArray
 
 from persforest.geometry.cubical import CubicalGeometry
 from persforest.plotting import _cubical_scene as scene
+from persforest.plotting._style import resolve_style
 from persforest.plotting._geometry import _camera_from_eye
 from persforest.plotting._scene import _activity_rows_for_plotting
 from persforest.plotting.interior_mpl import _activity_conflict
@@ -278,7 +279,7 @@ def plot_cubical_at_filtration(
     forest,
     filt_val: float,
     ax=None,
-    show: bool = True,
+    show: bool = False,
     show_complex: bool = True,
     figsize: tuple[float, float] = (5, 5),
     coloring: Literal["forest", "bars"] = "forest",
@@ -287,7 +288,7 @@ def plot_cubical_at_filtration(
     signed: bool = False,
     min_bar_length: float = 0,
     cycle_zorder: float = 5,
-    dpi: int = 100,
+    dpi: int | None = None,
     style_2d: Optional[dict[str, Any]] = None,
     style_3d: Optional[dict[str, Any]] = None,
     image_orientation: bool = False,
@@ -328,8 +329,8 @@ def plot_cubical_at_filtration(
         Only draw cycles of bars with lifespan at least this value.
     cycle_zorder : float
         Matplotlib z-order of cycle edges (2D only).
-    dpi : int
-        DPI used when a new figure is created.
+    dpi : int or None
+        Resolution of a newly created figure; None uses Matplotlib's ``figure.dpi``.
     style_2d : dict or None
         2D style overrides: ``image_cmap``, ``image_alpha``,
         ``image_colorbar`` (with ``show_image``, default True),
@@ -360,7 +361,7 @@ def plot_cubical_at_filtration(
     active = forest._active_bars_with_cycles_at(filt_val, min_bar_length=min_bar_length) if show_cycles else []
 
     if geometry.dim == 2:
-        style = scene.resolve_style(style_2d, _FILTRATION_STYLE_2D, "style_2d")
+        style = resolve_style(style_2d, _FILTRATION_STYLE_2D, "style_2d")
         if ax is None:
             _, ax = plt.subplots(figsize=figsize, dpi=dpi)
         if show_complex or show_image:
@@ -372,7 +373,7 @@ def plot_cubical_at_filtration(
                            bool(style["show_orientation_arrows"]), style, cycle_zorder)
         _finish_axes_2d(ax, geometry, image_orientation, style, show_image)
     else:
-        style = scene.resolve_style(style_3d, _FILTRATION_STYLE_3D, "style_3d")
+        style = resolve_style(style_3d, _FILTRATION_STYLE_3D, "style_3d")
         ax = _new_3d_axes(ax, figsize, dpi)
         if show_complex:
             quads = scene.present_voxel_quads(forest, geometry, filt_val)
@@ -416,8 +417,8 @@ def plot_cubical_barcode_cycle_reps(
     min_bar_length: float = 0,
     relative_position: float = 0.1,
     ax=None,
-    show: bool = True,
-    figsize: tuple[float, float] = (7, 7),
+    show: bool = False,
+    figsize: tuple[float, float] = (5, 5),
     coloring: Literal["forest", "bars"] = "forest",
     title: Optional[str] = None,
     show_orientation_arrows: bool = False,
@@ -446,7 +447,7 @@ def plot_cubical_barcode_cycle_reps(
         raise ValueError("relative_position must be in [0,1]")
     geometry = scene.require_grid_dimension(forest, "plot_barcode_cycle_reps", supported=(2,))
     show_image = scene.resolve_flat_options(geometry, image_orientation, show_image)
-    style = scene.resolve_style(style_2d, _FILTRATION_STYLE_2D, "style_2d")
+    style = resolve_style(style_2d, _FILTRATION_STYLE_2D, "style_2d")
     cycle_linewidth = (
         float(style["cycle_edge_width"])
         if style_2d is not None and "cycle_edge_width" in style_2d
@@ -489,9 +490,9 @@ def _activity_alpha(length, max_length: float, alpha_range):
 def plot_cubical_interior_activity(
     forest,
     ax=None,
-    show: bool = True,
+    show: bool = False,
     figsize: tuple[float, float] = (5, 5),
-    dpi: int = 300,
+    dpi: int | None = None,
     coloring: Literal["forest", "bars"] = "forest",
     show_complex: bool = False,
     complex_max_filtration: float | None = None,
@@ -550,7 +551,7 @@ def plot_cubical_interior_activity(
             forest, grid, rows, color_map, max_activity_length, ax, show, figsize, dpi,
             show_complex, complex_max_filtration, style, geometry)
 
-    plot_style = scene.resolve_style(style, _INTERIOR_STYLE_2D, "style")
+    plot_style = resolve_style(style, _INTERIOR_STYLE_2D, "style")
     canvas = np.zeros(scene.top_cell_shape(grid) + (4,))
     # Rows are ordered so that "layer" composites longer intervals over shorter
     # ones; with "longest" every pixel occurs once and "over" reduces to assignment.
@@ -582,7 +583,7 @@ def plot_cubical_interior_activity(
 
 def _plot_interior_activity_3d(forest, grid, rows, color_map, max_activity_length, ax, show, figsize,
                                dpi, show_complex, complex_max_filtration, style, geometry):
-    plot_style = scene.resolve_style(style, _INTERIOR_STYLE_3D, "style")
+    plot_style = resolve_style(style, _INTERIOR_STYLE_3D, "style")
     cell_shrink = float(plot_style["cell_shrink"])
     if not 0.0 < cell_shrink <= 1.0:
         raise ValueError("cell_shrink must be greater than 0 and at most 1.")
@@ -681,9 +682,9 @@ def _stream_activity_image(rows, shape: tuple[int, int], color_map, activity_sca
 def plot_cubical_interior_activity_gradient(
     forest,
     ax=None,
-    show: bool = True,
+    show: bool = False,
     figsize: tuple[float, float] = (5, 5),
-    dpi: int = 300,
+    dpi: int | None = None,
     coloring: Literal["forest", "bars"] = "forest",
     title: str | None = None,
     min_activity_length: float = 0.0,
@@ -721,7 +722,7 @@ def plot_cubical_interior_activity_gradient(
     """
     grid = scene.require_grid_dimension(
         forest, "plot_interior_simplex_activity_gradient", supported=(2,))
-    plot_style = scene.resolve_style(style, _GRADIENT_STYLE, "style")
+    plot_style = resolve_style(style, _GRADIENT_STYLE, "style")
     rows = _activity_rows_for_plotting(forest, "longest", min_activity_length)
     color_map = forest._get_color_map(coloring=coloring)
 

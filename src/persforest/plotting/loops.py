@@ -23,7 +23,7 @@ from persforest.plotting._cubical_scene import display
 def plot_planar_loops(
     loops: PlanarLoops,
     ax=None,
-    show: bool = True,
+    show: bool = False,
     color=None,
     linewidth: float = 2.0,
     linestyle: str = "-",

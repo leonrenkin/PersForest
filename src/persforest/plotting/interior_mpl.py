@@ -1,4 +1,4 @@
-"""plotting.interior mpl: mechanically extracted reference implementation."""
+"""Matplotlib rendering of interior-simplex activity."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from persforest.plotting._geometry import _camera_angles
 from persforest.plotting._geometry import _validated_activity_tetrahedra
 from persforest.plotting._scene import _activity_rows_for_plotting
 from persforest.plotting._scene import _complex_edge_segments_3d
+from persforest.plotting._style import resolve_style
 from typing import Any
 from typing import Literal
 import matplotlib.pyplot as plt
@@ -24,9 +25,9 @@ import numpy as np
 def plot_interior_simplex_activity(
     forest,
     ax=None,
-    show: bool = True,
+    show: bool = False,
     figsize: tuple[float, float] = (5, 5),
-    dpi: int = 300,
+    dpi: int | None = None,
     coloring: Literal["forest", "bars"] = "forest",
     show_complex: bool = False,
     complex_max_filtration: float | None = None,
@@ -59,8 +60,8 @@ def plot_interior_simplex_activity(
         If True, call ``matplotlib.pyplot.show`` after plotting.
     figsize : tuple[float, float]
         Figure size used when creating an axes.
-    dpi : int
-        Figure resolution used when creating an axes.
+    dpi : int or None
+        Resolution of a newly created figure; None uses Matplotlib's ``figure.dpi``.
     coloring : {"forest", "bars"}
         Bar color map to use.
     show_complex : bool
@@ -125,9 +126,9 @@ def plot_interior_simplex_activity(
 def _plot_interior_simplex_activity_2d(
     forest,
     ax=None,
-    show: bool = True,
+    show: bool = False,
     figsize: tuple[float, float] = (5, 5),
-    dpi: int = 300,
+    dpi: int | None = None,
     coloring: Literal["forest", "bars"] = "forest",
     show_complex: bool = False,
     complex_max_filtration: float | None = None,
@@ -156,8 +157,7 @@ def _plot_interior_simplex_activity_2d(
         "remove_axes": True,
         "activity_alpha_range": (0.15, 0.95),
     }
-    if style is not None:
-        plot_style.update(style)
+    plot_style = resolve_style(style, plot_style, "style")
 
     pts = np.asarray(forest.point_cloud, dtype=float)
     color_map = forest._get_color_map(coloring=coloring)
@@ -258,9 +258,9 @@ def _plot_interior_simplex_activity_2d(
 def _plot_interior_simplex_activity_3d(
     forest,
     ax=None,
-    show: bool = True,
+    show: bool = False,
     figsize: tuple[float, float] = (5, 5),
-    dpi: int = 300,
+    dpi: int | None = None,
     coloring: Literal["forest", "bars"] = "forest",
     show_complex: bool = False,
     complex_max_filtration: float | None = None,
@@ -298,8 +298,7 @@ def _plot_interior_simplex_activity_3d(
         "zsort": "average",
         "camera_eye": None,
     }
-    if style is not None:
-        plot_style.update(style)
+    plot_style = resolve_style(style, plot_style, "style")
 
     cell_shrink = float(plot_style["cell_shrink"])
     if not 0.0 < cell_shrink <= 1.0:
@@ -545,9 +544,9 @@ def _blend_activity_fields(
 def plot_interior_simplex_activity_gradient(
     forest,
     ax=None,
-    show: bool = True,
+    show: bool = False,
     figsize: tuple[float, float] = (5, 5),
-    dpi: int = 300,
+    dpi: int | None = None,
     coloring: Literal["forest", "bars"] = "forest",
     vertex_size: float = 2,
     title: str | None = None,
@@ -587,9 +586,9 @@ def plot_interior_simplex_activity_gradient(
 def _plot_interior_simplex_activity_gradient_2d(
     forest,
     ax=None,
-    show: bool = True,
+    show: bool = False,
     figsize: tuple[float, float] = (5, 5),
-    dpi: int = 300,
+    dpi: int | None = None,
     coloring: Literal["forest", "bars"] = "forest",
     vertex_size: float = 2,
     title: str | None = None,
@@ -651,8 +650,7 @@ def _plot_interior_simplex_activity_gradient_2d(
         "different_color_threshold": 0.18,
         "conflict_whitening": 0.85,
     }
-    if style is not None:
-        plot_style.update(style)
+    plot_style = resolve_style(style, plot_style, "style")
 
 
     pts = np.asarray(forest.point_cloud, dtype=float)

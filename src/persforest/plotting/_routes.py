@@ -1,4 +1,4 @@
-"""plotting. routes: mechanically extracted reference implementation."""
+"""Edge routing for persistence-forest plots."""
 
 from dataclasses import dataclass
 from matplotlib.path import Path

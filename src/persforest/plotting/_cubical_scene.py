@@ -10,7 +10,6 @@ right as an image viewer would.
 from __future__ import annotations
 
 from typing import Any
-from typing import Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -36,19 +35,6 @@ FLAT_FILTRATION_STYLE = {
     "complex_face_alpha": 0.2,
     "absent_veil_alpha": 0.65,
 }
-
-
-def resolve_style(style: Optional[dict[str, Any]], defaults: dict[str, Any], name: str) -> dict[str, Any]:
-    """Merge overrides, rejecting point-cloud keys that have no grid meaning."""
-    resolved = dict(defaults)
-    if style:
-        unknown = sorted(set(style) - set(defaults))
-        if unknown:
-            raise ValueError(
-                f"{name} keys {unknown} are not supported for cubical grids; "
-                f"supported keys are {sorted(defaults)}.")
-        resolved.update(style)
-    return resolved
 
 
 def require_grid_dimension(forest, method: str, supported: tuple[int, ...] = (2, 3)) -> CubicalGeometry:

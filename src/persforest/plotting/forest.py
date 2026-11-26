@@ -1,19 +1,20 @@
-"""plotting.forest: mechanically extracted reference implementation."""
+"""Matplotlib rendering of persistence forests."""
 
 from ._dependencies import require_plotting
 
 require_plotting()
 
 from persforest.plotting._routes import edge_routes as _forest_edge_routes
+from persforest.plotting._style import FOREST_FIGSIZE
 import matplotlib.pyplot as plt
 import numpy as np
 
 def _plot_persistence_forest_generic(
-    forest, *, ax=None, show=True, min_tree_span=0.0, min_bar_length=0.0,
+    forest, *, ax=None, show=False, min_tree_span=0.0, min_bar_length=0.0,
     min_branch_span=0.0, max_trees=None, nodes="none", collapse_degree2=True,
     coloring="forest", color="0.28", linewidth=1.2, alpha=1.0,
     node_size=12.0, node_color=None, node_alpha=None, annotate_ids=False,
-    leaf_spacing=1.0, tree_gap=2.0, figsize=(10, 6),
+    leaf_spacing=1.0, tree_gap=2.0, figsize=FOREST_FIGSIZE,
     title=None, ylabel="Filtration value", grid=False, rasterized=False,
     return_layout=False, edge_style="curved", curvature=1.0, branch_angle=45.0,
     min_clearance=2.0, orientation="vertical",
