@@ -41,8 +41,12 @@ Requires Python 3.11–3.14. The base installation needs only NumPy; GUDHI and
 plotting dependencies are optional extras.
 
 ```bash
-python -m pip install "persforest[plot]"
+python -m pip install persforest
 ```
+
+Plots and animations need Matplotlib, which the `plot` extra installs:
+`python -m pip install "persforest[plot]"` (the quotes keep shells such as zsh
+from expanding the brackets).
 
 Binary wheels are available for Linux (x86_64, aarch64), macOS (Intel and Apple
 silicon, macOS 11 or later) and Windows (x86_64). On other platforms, and when
