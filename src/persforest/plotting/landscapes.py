@@ -11,6 +11,8 @@ from persforest.landscapes.profiles import _build_step_function_data
 from persforest.landscapes.family import MeasurementLandscapeFamily
 from persforest.landscapes._validation import positive_integer
 from persforest.plotting._style import CHART_FIGSIZE
+from persforest.plotting._style import landscape_colors
+from persforest.plotting._style import style_chart_axes
 from typing import Any
 from typing import Dict
 from typing import List
@@ -69,7 +71,8 @@ def plot_barcode_measurement_generic(
     show : bool, default False
         Whether to call `plt.show()` after plotting.
     **kwargs
-        Forwarded to ``StepFunctionData.plot`` as line style options.
+        Forwarded to ``StepFunctionData.plot`` as line style options. The line
+        takes the bar's forest color unless ``color`` is given.
 
     Returns
     -------
@@ -92,6 +95,8 @@ def plot_barcode_measurement_generic(
     if ax is None:
         _, ax = plt.subplots(figsize=CHART_FIGSIZE)
 
+    if "color" not in kwargs and "c" not in kwargs and hasattr(forest, "_get_color_map"):
+        kwargs["color"] = forest._get_color_map("forest").get(bar)
     kwargs["baseline_kwargs"] = {"color": "0.6", "linewidth": 0.8, **(kwargs.get("baseline_kwargs") or {})}
     step_func.plot(x_range=x_range, y_range=y_range, ax=ax, show_baseline=show_baseline, **kwargs)
 
@@ -101,6 +106,7 @@ def plot_barcode_measurement_generic(
     ax.set_title(title)
     ax.set_xlabel("filtration value")
     ax.set_ylabel(label if label else "measurement")
+    style_chart_axes(ax)
 
     if show:
         plt.show()
@@ -235,6 +241,7 @@ def _draw_measurement_profiles(
     ax.set_title(f"{profiles.label} profiles" if title is None else title)
     if legend:
         ax.legend()
+    style_chart_axes(ax)
     return ax, drawn
 
 def plot_landscape_family(
@@ -274,7 +281,8 @@ def plot_landscape_family(
         Sequential colormap used across the selected landscape levels.
         Colors follow increasing ``k``.
         Named reversed colormaps such as ``"viridis_r"`` are supported.
-        If omitted, Matplotlib's default color cycle is used.
+        If omitted, levels run from dark to light along
+        ``plotting._style.LANDSCAPE_CMAP``.
     higher_layers_on_top : bool
         If True, landscape levels with larger ``k`` are drawn in front of
         levels with smaller ``k``. The default keeps lower levels, including
@@ -297,10 +305,11 @@ def plot_landscape_family(
     if ax is None:
         fig, ax = plt.subplots(figsize=CHART_FIGSIZE)
 
-    colors_by_k = {}
-    if cmap is not None:
+    ordered_ks = sorted(set(ks))
+    if cmap is None:
+        colors_by_k = dict(zip(ordered_ks, landscape_colors(len(ordered_ks))))
+    else:
         colormap = matplotlib.colormaps.get_cmap(cmap)
-        ordered_ks = sorted(set(ks))
         if len(ordered_ks) == 1:
             color_positions = np.array([0.5])
         else:
@@ -322,8 +331,7 @@ def plot_landscape_family(
         }
         if linewidth is not None:
             plot_kwargs["linewidth"] = linewidth
-        if cmap is not None:
-            plot_kwargs["color"] = colors_by_k[k]
+        plot_kwargs["color"] = colors_by_k[k]
         ax.plot(family.x_grid, samples, **plot_kwargs)
 
     ax.set_xlabel("filtration value")
@@ -336,6 +344,7 @@ def plot_landscape_family(
     if show_legend:
         ax.legend()
     ax.set_ylim(bottom=0)
+    style_chart_axes(ax)
 
     if show:
         plt.show()
@@ -387,6 +396,7 @@ def plot_landscape_comparison(
     ax.set_title(fr"Comparison of $\lambda_{k}$" if title is None else title)
     if families:
         ax.legend()
+    style_chart_axes(ax)
     return ax
 
 

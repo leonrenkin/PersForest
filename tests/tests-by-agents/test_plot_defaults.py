@@ -69,6 +69,24 @@ class PlotDefaultTests(unittest.TestCase):
         self.assertTrue(any(np.allclose(c.get_linewidths(), 3.0) for c in ax.collections
                             if len(c.get_linewidths())))
 
+    def test_charts_have_open_frame_and_landscapes_run_dark_to_light(self):
+        from matplotlib.colors import to_rgb
+        forest = self.forest
+        charts = [forest.plot_measurement_landscapes("area"),
+                  forest.plot_barcode_measurement(signed_chain_area)[0],
+                  forest.plot_landscape_comparison_between_measurements(["area"])]
+        for ax in charts:
+            self.assertFalse(ax.spines["top"].get_visible())
+            self.assertFalse(ax.spines["right"].get_visible())
+            self.assertTrue(ax.spines["left"].get_visible())
+            legend = ax.get_legend()
+            if legend is not None:
+                self.assertFalse(legend.get_frame_on())
+        lines = charts[0].get_lines()
+        self.assertEqual([line.get_label() for line in lines], [r"$\lambda_{1}$", r"$\lambda_{2}$"])
+        luminance = [np.dot(to_rgb(line.get_color()), (0.2126, 0.7152, 0.0722)) for line in lines]
+        self.assertLess(luminance[0], luminance[1])
+
     def test_unknown_barcode_coloring_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "coloring must be"):
             self.forest.plot_barcode(coloring="rainbow")

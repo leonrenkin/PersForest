@@ -60,8 +60,11 @@ supported platforms.
   `max_bar`/`longest_bars` are the same in every run.
 - New figures use Matplotlib's `figure.dpi` unless `dpi` is passed, and plots
   of one kind share a figure size (5×5 scenes, 6×4 charts, 10×6 forests).
+- Charts (landscapes, landscape comparisons, profiles, measurements) have an
+  open frame with a faint grid; landscape levels run from dark (λ₁) to light
+  along plasma unless `cmap` is given.
 - `plot_barcode_measurement` titles the plot with the measurement name and the
-  bar interval and labels both axes; `coloring` values other than `"forest"`,
+  bar interval, labels both axes and draws in the bar's forest color; `coloring` values other than `"forest"`,
   `"bars"`, `"none"` and `"grey"` raise `ValueError` in barcode and profile plots.
 - `cycle_for_bar_at` raises `ValueError` for NaN and for values outside
   `[birth, death)`, and no longer copies the bar's progression.

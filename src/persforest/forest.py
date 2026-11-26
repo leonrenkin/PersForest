@@ -2110,7 +2110,8 @@ class PersistenceForest:
             Sequential colormap used across the selected landscape levels.
             Colors follow increasing ``k``.
             Named reversed colormaps such as ``"viridis_r"`` are supported.
-            If omitted, Matplotlib's default color cycle is used.
+            If omitted, levels run from dark to light along
+            ``plotting._style.LANDSCAPE_CMAP``.
         higher_layers_on_top : bool
             If True, landscape levels with larger ``k`` are drawn in front of
             levels with smaller ``k``. The default keeps lower levels,
