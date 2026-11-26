@@ -23,7 +23,8 @@ in `examples/tendril_regression/`. Citation metadata is in
 ## What this repo provides
 
 - `PersistenceForest`: the forest of optimal cycles of a filtration, with its
-  barcode and cycle representatives. Supports alpha and Delaunay–Čech
+  barcode and cycle representatives, built by a compiled engine: millions of
+  points or pixels take seconds (see [Performance](#performance)). Supports alpha and Delaunay–Čech
   filtrations of point clouds, custom simplicial filtrations, and cubical grids
   (images and volumes).
 - Plots and animations of cycle representatives, barcodes and persistence
@@ -108,6 +109,42 @@ plt.show()
 `PersistenceForest` is the public entry point. Other functions are imported
 from their modules, e.g. `persforest.measurements.shape` or
 `persforest.chains.SignedChain`.
+
+## Performance
+
+Building the forest of a large input takes seconds. The times below run from
+a NumPy array to the complete forest and its barcode (filtration, forest and
+bar objects); every bar's cycle representatives can then be read from the
+forest. Peak memory is that of the whole Python process, input included.
+Measured on an Apple M4 Pro (macOS, Python 3.13) in November 2026.
+
+**Point clouds** (alpha filtration, uniform random points; median of 3 runs;
+Delaunay–Čech takes about the same time):
+
+| Points | 2D time | 2D memory | 3D time | 3D memory |
+| ---: | ---: | ---: | ---: | ---: |
+| 10,000 | 0.01 s | 0.05 GiB | 0.04 s | 0.07 GiB |
+| 100,000 | 0.14 s | 0.14 GiB | 0.36 s | 0.33 GiB |
+| 1,000,000 | 1.7 s | 0.96 GiB | 4.8 s | 3.0 GiB |
+| 3,000,000 | 6.1 s | 2.7 GiB | 17 s | 8.9 GiB |
+| 10,000,000 | 24 s | 9.3 GiB | | |
+
+**Cubical grids** (top-cell filtration; one run per size). Uniform noise is the
+slowest input; smooth images, closer to real data, are 1.4–3× faster:
+
+| Grid | Cells | Smooth field | Uniform noise | Memory |
+| --- | ---: | ---: | ---: | ---: |
+| 1024² | 1.0 M | 0.20 s | 0.32 s | 0.4 GiB |
+| 2048² | 4.2 M | 0.86 s | 1.7 s | 1.2–1.4 GiB |
+| 4096² | 16.8 M | 4.2 s | 10 s | 4.6–5.5 GiB |
+| 8192² | 67.1 M | 18 s | 52 s | 18 GiB |
+| 128³ | 2.1 M | 0.47 s | 0.67 s | 0.8 GiB |
+| 256³ | 16.8 M | 5.7 s | 8.7 s | 5.8–6.6 GiB |
+
+Memory grows linearly with the input size, so it usually limits the input size
+before time does. The engine is single-threaded; the 3D point-cloud builder
+uses about 1.5 cores. The benchmark harness is in
+[`benchmarks/performance/`](benchmarks/performance/README.md).
 
 ## Filtrations
 
