@@ -44,6 +44,12 @@ supported platforms.
 - **Plots no longer call `plt.show()` by default.** Every plotting method
   takes `show=False`; pass `show=True` (or call `plt.show()`) in scripts.
   `plot_barcode` gained the `show` parameter. Notebooks are unaffected.
+- **New bar colors.** `coloring="forest"` gives every bar of a tree the same
+  color from Paul Tol's vibrant palette, trees ranked by their longest bar;
+  `coloring="bars"` uses tab20 (dark shades first) by lifespan rank. Both
+  repeat once the palette is used up. The color-generation helpers
+  (`build_color_scheme`, `distinct_base_colors`, `color_map_for_bars`, …) were
+  removed; `set_longest_bar_colors` still overrides colors.
 - **Unknown `style`, `style_2d` and `style_3d` keys raise `ValueError`**
   for point clouds as they already did for grids, listing the supported keys.
 

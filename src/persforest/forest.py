@@ -614,28 +614,20 @@ class PersistenceForest:
 
     # ------ generate color scheme  ---------
 
-    def _build_color_map_forest(self, seed: Optional[int] = 39, start_color: Optional[str] = "#ff7f0e",):
-        """
-        Computes a color map which assign a color to each bar in the barcode. 
-        Bars in same tree will have similiar colors. 
-        Saved as a dictionary {bar: "#RRGGBB"} in self.color_map_forest
-        Based on json
+    def _build_color_map_forest(self):
+        """Store ``{bar: "#rrggbb"}`` in ``self.color_map_forest``: one color per tree.
 
-        Parameters
-        ----------
-        seed : int | None
-            Random seed to make the palette repeatable.
-        start_color : str | None
-            Preferred color to start the palette with (hex).
+        Trees take the colors of ``plotting.colors.FOREST_PALETTE`` in order of
+        their longest bar, repeating once the palette is used up.
         """
         from persforest.plotting.colors import _build_color_map_forest
-        return _build_color_map_forest(self, seed, start_color)
+        return _build_color_map_forest(self)
 
     def _build_color_map_bars(self):
-        """
-        Computes a color map which assign a color to each bar in the barcode. 
-        Ignores tree structure and cycles through 20 colors from longest to shortest bar 
-        Saved as a dictionary {bar: "#RRGGBB"} in self.color_map_bars
+        """Store ``{bar: "#rrggbb"}`` in ``self.color_map_bars``, by lifespan rank alone.
+
+        Bars take the colors of ``plotting.colors.BARS_PALETTE`` (tab20, dark
+        shades first) from the longest bar down, ignoring the trees.
         """
         from persforest.plotting.colors import _build_color_map_bars
         return _build_color_map_bars(self)

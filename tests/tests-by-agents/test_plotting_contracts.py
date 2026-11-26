@@ -12,7 +12,8 @@ from persforest.measurements.basic import signed_chain_area, constant_one_functi
 from persforest.plotting.landscapes import plot_barcode_measurement_generic, plot_landscape_comparison
 from persforest.plotting._scene import _activity_rows_for_plotting
 from persforest.plotting.animation._timing import _compute_frame_times
-from persforest.plotting.colors import build_color_scheme
+from persforest.plotting.colors import BARS_PALETTE, FOREST_PALETTE, bar_color_map, forest_color_map
+from persforest.barcode import PFBar
 from fixtures_small_filtrations import triangle, split, fan, build, reps
 
 
@@ -143,17 +144,36 @@ class PlottingContractTests(unittest.TestCase):
             if cycles:
                 self.assertEqual(len(cycles[0].get_segments()), 3)
 
-    def test_color_scheme_repeatability_valid_colors_and_no_global_rng_effect(self):
-        before = np.random.get_state()
-        first = build_color_scheme([2, 1], ['a', 'b'], seed=17, num_hues=24)
-        build_color_scheme([1], ['other'], seed=99, num_hues=24)
-        second = build_color_scheme([2, 1], ['a', 'b'], seed=17, num_hues=24)
-        self.assertEqual(first, second)
-        self.assertEqual(set(first['sets']), {'a', 'b'})
-        for name, count in [('a', 2), ('b', 1)]:
-            self.assertEqual(len(first['sets'][name]['colors']), count)
-            self.assertTrue(all(is_color_like(c) for c in first['sets'][name]['colors']))
-        after = np.random.get_state()
-        np.testing.assert_array_equal(before[1], after[1])
-        self.assertEqual(before[2:], after[2:])
-        self.assertEqual(build_color_scheme([], [], seed=17)['sets'], {})
+    def test_forest_colors_one_color_per_tree_ranked_by_longest_bar(self):
+        # Tree 7 holds the longest bar, tree 3 the second longest; tree 5 is a single short bar.
+        bars = [PFBar(0, 1, tree_id=3), PFBar(0, 5, tree_id=7), PFBar(1, 2, tree_id=7),
+                PFBar(0, 3, tree_id=3), PFBar(0, 0.5, tree_id=5), PFBar(2, 2.2)]
+        colors = forest_color_map(bars)
+        self.assertEqual({colors[bars[1]], colors[bars[2]]}, {FOREST_PALETTE[0].lower()})
+        self.assertEqual({colors[bars[0]], colors[bars[3]]}, {FOREST_PALETTE[1].lower()})
+        self.assertEqual(colors[bars[4]], FOREST_PALETTE[2].lower())
+        # A bar without a tree forms its own tree.
+        self.assertEqual(colors[bars[5]], FOREST_PALETTE[3].lower())
+        # The palette repeats once used up.
+        many = [PFBar(0, 10 - i, tree_id=i) for i in range(len(FOREST_PALETTE) + 1)]
+        self.assertEqual(forest_color_map(many)[many[-1]], forest_color_map(many)[many[0]])
+        self.assertEqual(forest_color_map([]), {})
+
+    def test_bar_colors_follow_lifespan_rank_with_stable_ties(self):
+        bars = [PFBar(0, 1, tree_id=0), PFBar(0, 3, tree_id=0), PFBar(1, 2, tree_id=1), PFBar(5, 8, tree_id=2)]
+        colors = bar_color_map(bars)
+        ranked = [bars[1], bars[3], bars[0], bars[2]]  # lifespans 3, 3, 1, 1; ties keep input order
+        self.assertEqual([colors[b] for b in ranked], list(BARS_PALETTE[:4]))
+        self.assertEqual(len(BARS_PALETTE), 20)
+        self.assertEqual(len(set(BARS_PALETTE)), 20)
+        self.assertTrue(all(is_color_like(c) for c in colors.values()))
+
+    def test_forest_color_maps_are_deterministic_across_builds(self):
+        rng = np.random.default_rng(1)
+        angles = rng.uniform(0, 2 * np.pi, 60)
+        points = np.c_[np.cos(angles), np.sin(angles)] + rng.normal(0, 0.05, (60, 2))
+        first, second = PersistenceForest(points), PersistenceForest(points)
+        for coloring in ("forest", "bars"):
+            a = first._get_color_map(coloring)
+            b = second._get_color_map(coloring)
+            self.assertEqual([a[bar] for bar in first.barcode], [b[bar] for bar in second.barcode])
