@@ -11,8 +11,10 @@ class PFBar:
     The representative of the class changes at ``critical_values``; between
     consecutive critical values it is constant. Representatives are obtained
     from the forest (``cycle_for_bar_at``, ``iter_bar_cycle_reps``), and so is
-    the forest structure (``parent_bar``, ``child_bars``). Bars compare and
-    hash by identity.
+    the forest structure (``parent_bar``, ``child_bars``). Bars compare by
+    identity. A forest's bars hash by ``index``, so iterating over
+    ``forest.barcode`` follows the deterministic bar order in every process;
+    other bars hash by identity.
 
     Attributes
     ----------
@@ -93,6 +95,13 @@ class PFBar:
     def lifespan(self) -> float:
         """Return ``death - birth``."""
         return self.death - self.birth
+
+    def __hash__(self) -> int:
+        # Identity hashes depend on memory addresses, which would make the
+        # iteration order of a barcode set, and every tie broken by it, vary
+        # between runs. Equality stays identity: equal bars have equal indices.
+        index = self._index
+        return object.__hash__(self) if index is None else hash(index)
 
     def __repr__(self) -> str:
         return f"PFBar(birth={self.birth!r}, death={self.death!r})"

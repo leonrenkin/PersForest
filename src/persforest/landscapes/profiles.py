@@ -159,6 +159,12 @@ class MeasurementProfiles:
             raise ValueError("Measurement profiles do not match this forest and bar; recompute profiles")
 
 
+def _index_or_inf(bar) -> float:
+    """``bar.index`` as a final sort key; bars without one sort last."""
+    index = getattr(bar, "index", None)
+    return float("inf") if index is None else index
+
+
 def _measurement_geometry(forest):
     """Return the second measurement argument: ``forest.geometry`` or, for generic
     forest-like inputs without it, ``forest.point_cloud``."""
@@ -309,13 +315,16 @@ def compute_measurement_profiles(
     min_bar_length = float(min_bar_length)
     if not np.isfinite(min_bar_length) or min_bar_length < 0:
         raise ValueError("min_bar_length must be finite and nonnegative")
-    # PFBar sets have no stable iteration order. Sort only this extraction's
+    # Sets of generic bars have no stable iteration order. Sort only this extraction's
     # records, without changing forest construction, ties, or representative order.
     source_bars = list(forest.barcode)
     for i, bar in enumerate(source_bars):
         ProfileBar(i, float(bar.birth), float(bar.death))
     if isinstance(forest.barcode, (set, frozenset)):
-        source_bars.sort(key=lambda bar: (bar.birth, bar.death, tuple(getattr(bar, "critical_values", ()))))
+        # The bar index breaks remaining ties reproducibly (None for bars not
+        # created by a forest, which keep their set order).
+        source_bars.sort(key=lambda bar: (bar.birth, bar.death, tuple(getattr(bar, "critical_values", ())),
+                                          _index_or_inf(bar)))
     source_manifest = tuple((float(bar.birth), float(bar.death), tuple(getattr(bar, "critical_values", ())))
                             for bar in source_bars)
     selected = [bar for bar in source_bars if bar.death - bar.birth >= min_bar_length]

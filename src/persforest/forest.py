@@ -63,6 +63,12 @@ def _cyclic_gc_paused():
             gc.enable()
 
 
+def _longest_first(bar: PFBar) -> tuple[float, float]:
+    """Sort key: descending lifespan, ties by ascending ``bar.index``."""
+    index = bar.index
+    return (-bar.lifespan(), float("inf") if index is None else index)
+
+
 def _validated_options(reduce, compute_barcode, print_info, filtration_tol) -> dict:
     """Validate the shared forest options before any input preparation."""
     filtration_tol = float(filtration_tol)
@@ -546,8 +552,8 @@ class PersistenceForest:
         Returns
         -------
         PFBar
-            A bar of maximal lifespan; among equal lifespans, the first in
-            ``barcode`` order.
+            A bar of maximal lifespan; among equal lifespans, the one with the
+            smallest ``index``.
 
         Raises
         ------
@@ -560,11 +566,11 @@ class PersistenceForest:
             raise RuntimeError("Barcode has not been computed; call compute_barcode() first")
         if not self.barcode:
             raise ValueError("Barcode is empty; there is no longest bar")
-        return max(self.barcode, key=lambda bar: bar.lifespan())
+        return min(self.barcode, key=_longest_first)
     
     def longest_bars(self,k:int) -> List[PFBar]:
-        """Return the ``k`` longest bars in descending lifespan order."""
-        return sorted(self.barcode, key=lambda bar: bar.lifespan(), reverse=True)[0:k]
+        """Return the ``k`` longest bars in descending lifespan order, ties by ``index``."""
+        return sorted(self.barcode, key=_longest_first)[0:k]
     
     def active_bars_at(self, filt_val:float):
         """Return bars whose lifespan contains ``filt_val``."""
@@ -653,9 +659,9 @@ class PersistenceForest:
     def plot_interior_simplex_activity(
         self,
         ax=None,
-        show: bool = True,
+        show: bool = False,
         figsize: tuple[float, float] = (5, 5),
-        dpi: int = 300,
+        dpi: int | None = None,
         coloring: Literal["forest", "bars"] = "forest",
         show_complex: bool = False,
         complex_max_filtration: float | None = None,
@@ -683,8 +689,8 @@ class PersistenceForest:
             If True, call ``matplotlib.pyplot.show`` after plotting.
         figsize : tuple[float, float]
             Figure size used when creating an axes.
-        dpi : int
-            Figure resolution used when creating an axes.
+        dpi : int or None
+            Resolution of a newly created figure; None uses Matplotlib's ``figure.dpi``.
         coloring : {"forest", "bars"}
             Bar color map to use.
         show_complex : bool
@@ -762,9 +768,9 @@ class PersistenceForest:
     def plot_interior_simplex_activity_gradient(
         self,
         ax=None,
-        show: bool = True,
+        show: bool = False,
         figsize: tuple[float, float] = (5, 5),
-        dpi: int = 300,
+        dpi: int | None = None,
         coloring: Literal["forest", "bars"] = "forest",
         vertex_size: float = 2,
         title: str | None = None,
@@ -832,7 +838,7 @@ class PersistenceForest:
         geometry: Literal["cells", "surface"] = "surface",
         cell_shrink: float = 1.0,
         opacity: float | None = None,
-        show: bool = True,
+        show: bool = False,
         renderer: str | None = None,
         width: int | None = None,
         height: int | None = None,
@@ -996,7 +1002,7 @@ class PersistenceForest:
         ax=None,
         signed: bool = False,
         show_cycles: bool = True,
-        show: bool = True,
+        show: bool = False,
         show_complex: bool = True,
         figsize: tuple[float, float] = (5, 5), 
         vertex_size: float = 7,
@@ -1005,7 +1011,7 @@ class PersistenceForest:
         min_bar_length: float = 0,
         point_zorder: float = 6,
         cycle_zorder: float = 5,
-        dpi: int = 100,
+        dpi: int | None = None,
         style_2d: Optional[dict[str, Any]] = None,
         style_3d: Optional[dict[str, Any]] = None,
         image_orientation: bool = False,
@@ -1077,8 +1083,8 @@ class PersistenceForest:
             ``complex_edge_width``, ``cycle_edge_width``,
             ``complex_edge_alpha``, ``cycle_edge_alpha``,
             ``antialiased``, ``zsort``, ``desaturate_complex``.
-        dpi : int
-            DPI used when a new Matplotlib figure is created.
+        dpi : int or None
+            Resolution of a newly created figure; None uses Matplotlib's ``figure.dpi``.
         image_orientation : bool
             Cubical forests only: draw array axis 0 downward and axis 1 to the
             right, as an image viewer would. By default axis 0 runs along x and
@@ -1156,7 +1162,7 @@ class PersistenceForest:
         filt_val: float,
         ax=None,
         fill_triangles: bool = True,
-        figsize: tuple[float, float] = (7, 7),
+        figsize: tuple[float, float] = (5, 5),
         vertex_size: float = 12,
         coloring: Literal['forest','bars'] = "forest",
         dual_vertex_size: float = 12,
@@ -1165,7 +1171,7 @@ class PersistenceForest:
         linewidth_cycle: float = 1.8,
         linewidth_dual_edge: float = 0.4,
         show_dual: bool = True,
-        show: bool = True,
+        show: bool = False,
     ):
         """
         Plot primal and dual edges of the alpha complex at a filtration value.
@@ -1228,8 +1234,8 @@ class PersistenceForest:
         min_bar_length: float = 0,
         relative_position: float = 0.1,
         ax=None,
-        show: bool = True,
-        figsize: tuple[float, float] = (7, 7), 
+        show: bool = False,
+        figsize: tuple[float, float] = (5, 5), 
         vertex_size: float = 3,
         point_zorder: float = 3,
         coloring: Literal['forest','bars'] = "forest",
@@ -1361,7 +1367,7 @@ class PersistenceForest:
         show_complex: bool = True,
         complex_opacity: float = 0.20,
         cycle_opacity: float = 0.55,
-        show: bool = True,
+        show: bool = False,
         renderer: Optional[str] = None,
         vertex_size: float = 3.0,
         width: Optional[int] = None,
@@ -1472,7 +1478,7 @@ class PersistenceForest:
         complex_opacity: float = 0.20,
         cycle_opacity: float = 0.55,
         resolution: int =100,
-        show: bool = True,
+        show: bool = False,
         renderer: Optional[str] = None,
         fill_triangles: bool = True,
         vertex_size: float = 3.0,
@@ -1641,6 +1647,8 @@ class PersistenceForest:
             If True, reverse the selected sort order.
         tight_layout : bool
             If True, call ``fig.tight_layout()`` after drawing.
+        show : bool
+            If True, call ``matplotlib.pyplot.show`` after drawing.
 
         Returns
         -------
@@ -1842,7 +1850,7 @@ class PersistenceForest:
         **kwargs,
     ):
         """
-        Plot a scalar measurement of cycles along each bar.
+        Plot a scalar measurement of the cycle representatives along one bar.
 
         Parameters
         ----------
@@ -1852,7 +1860,7 @@ class PersistenceForest:
             If True, evaluate ``cycle_func`` on the stored signed chain. If
             False, evaluate it after cancelling opposing simplices.
         bar : PFBar | None
-            If provided, restrict the plot to a single bar.
+            Bar to plot; defaults to the longest bar (``max_bar()``).
         ax : matplotlib.axes.Axes | None
             Axes to draw on; if None, a new figure is created.
         x_range, y_range : (float, float) | None
@@ -1860,7 +1868,8 @@ class PersistenceForest:
         title : str | None
             Custom plot title.
         label : str | None
-            Legend label for the curve.
+            Measurement name for the default title and the y-axis label;
+            defaults to ``cycle_func.measurement_name`` or the function name.
         show_baseline : bool
             If True, draw the baseline of the step function.
         show : bool

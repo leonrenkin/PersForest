@@ -97,6 +97,28 @@ class IncrementalEqualsDirectTests(unittest.TestCase):
             counts = [len(rep.unsigned().signed_simplices) for rep in forest.iter_bar_cycle_reps(bar)]
             np.testing.assert_array_equal(profiles[profile_bar.bar_id].vals, counts[::-1])
 
+    def test_huge_weights_of_facets_added_and_removed_in_one_step(self):
+        # One bar; the facets (3, 4) and (3, 6) between the three pixels never
+        # belong to its representative, but enter in both orientations and
+        # leave in the same step. Counting them before removal overflowed.
+        grid = np.zeros((3, 5))
+        grid[1, 1:4] = 1
+        forest = PersistenceForest.from_cubical_grid(grid)
+        huge = AdditiveMeasurement(
+            lambda cells, geometry: np.array([1e308 if cell in ((3, 4), (3, 6)) else 1.0 for cell in cells]),
+            "boundary")
+        from persforest._forest.representatives import _iter_bar_additive_values
+        from persforest.landscapes.profiles import _additive_weights
+        [bar] = forest.barcode
+        weights = _additive_weights(forest, huge)
+        for signed in (False, True):
+            with self.subTest(signed=signed):
+                self.assertEqual(list(_iter_bar_additive_values(forest, bar, weights, "boundary", signed)),
+                                 [(0.0, 1.0, 8.0)])
+                self.assertProfilesClose(
+                    forest.compute_measurement_profiles(huge, "m", signed=signed, cache=False),
+                    forest.compute_measurement_profiles(_direct(huge), "m", signed=signed, cache=False))
+
     def test_forest_like_input_without_diffs_uses_direct_evaluation(self):
         forest = PersistenceForest.from_points(np.random.default_rng(8).uniform(0, 1, (150, 2)))
         generic = SimpleNamespace(barcode=forest.barcode, geometry=forest.geometry,

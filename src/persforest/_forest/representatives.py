@@ -6,6 +6,7 @@ from its death toward its birth adds at most two slices per step; the replay
 converts only those entries to public cell keys.
 """
 
+from bisect import bisect_right
 from collections import defaultdict
 from typing import Iterator, List, Tuple
 
@@ -87,12 +88,15 @@ def cycle_for_bar_at(self, bar: PFBar, filt_val: float) -> SignedChain:
         Representative active at ``filt_val``, with its interior.
     """
     index = self._require_own_bar(bar)
-    if filt_val < bar.birth or filt_val >= bar.death:
-        raise ValueError(f"Filtration value {filt_val} is not in the bar's lifespan")
+    # The negated test also rejects NaN, for which every comparison is false.
+    if not bar.birth <= filt_val < bar.death:
+        raise ValueError(f"Filtration value {filt_val} is not in the bar's lifespan "
+                         f"[{bar.birth}, {bar.death})")
     arrays, cells = self._forest, self._cells
     nodes = arrays.progression(index)
     # Node j is active on [value(node j - 1), value(node j)); its predecessor's value is the birth.
-    node = int(nodes[np.searchsorted(arrays.node_value[nodes], filt_val, side="right")])
+    # Bisecting through the node values reads O(log n) of them instead of copying the progression.
+    node = int(nodes[bisect_right(nodes, filt_val, key=arrays.node_value.item)])
     facets, facet_signs, tops, orientations = chain_ids(cells, *arrays.subtree_entries(node))
     active_start, active_end = arrays.active_interval(node)
     return SignedChain(signed_simplices=_keyed(cells, facets, facet_signs), active_start=active_start,
@@ -166,7 +170,12 @@ def _iter_bar_additive_values(self, bar: PFBar, weights: dict, support: str, sig
     masks: dict = {}
     for node, entries, signs in _replay_steps(self, index):
         is_top = entries < n_top
-        changes = []
+        # Net change of each facet over the step, {facet: [mask before, mask after]}.
+        # A facet shared by two cells added in the same step gains both
+        # orientations and is then removed; netting keeps its weight out of the
+        # running sum, which could otherwise overflow (counting a weight of
+        # 1e308 twice) even though the representative never contains the facet.
+        changes: dict = {}
         tops = entries[is_top]
         # Adding the boundary of an interior cell; adding a present oriented
         # cell is a no-op, as for the reconstructed sets.
@@ -177,15 +186,15 @@ def _iter_bar_additive_values(self, bar: PFBar, weights: dict, support: str, sig
                 if old & bit:
                     continue
                 masks[facet] = old | bit
-                changes.append((facet, old, old | bit))
+                changes.setdefault(facet, [old, 0])[1] = old | bit
         # Removing a facet in both orientations, which must be present.
         for facet in entries[~is_top].tolist():
             old = masks.get(facet, 0)
             if old != 3:
                 raise KeyError(facet)
             masks[facet] = 0
-            changes.append((facet, old, 0))
-        for facet, old, new in changes:
+            changes.setdefault(facet, [old, 0])[1] = 0
+        for facet, (old, new) in changes.items():
             delta_units = multiplicity[new] - multiplicity[old]
             if delta_units == 0:
                 continue
