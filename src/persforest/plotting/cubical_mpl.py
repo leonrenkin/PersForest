@@ -34,6 +34,7 @@ from persforest.plotting._style import representatives_title
 from persforest.plotting._style import resolve_style
 from persforest.plotting._style import style_scene_axes
 from persforest.plotting._geometry import _camera_from_eye
+from persforest.plotting._geometry import shaded_face_colors
 from persforest.plotting._scene import _activity_rows_for_plotting
 from persforest.plotting.interior_mpl import _activity_conflict
 from persforest.plotting.interior_mpl import _activity_mask_field
@@ -53,20 +54,22 @@ _FILTRATION_STYLE_2D = {
     "arrow_scale": 4.0,
 }
 
+# As for point clouds: a faint shell of the present voxels, opaque shaded cycles.
 _FILTRATION_STYLE_3D = {
     "camera_eye": None,
-    "remove_axes": False,
-    "complex_color": "#add8e6",
-    "complex_face_alpha": 0.2,
+    "remove_axes": True,
+    "complex_color": "#8c99a8",
+    "complex_face_alpha": 0.07,
     "complex_edge_color": "0.35",
-    "complex_edge_width": 0.3,
+    "complex_edge_width": 0.0,
     "complex_edge_alpha": 0.15,
-    "cycle_face_alpha": 0.55,
+    "cycle_face_alpha": 1.0,
     "cycle_edge_color": None,
-    "cycle_edge_width": 0.6,
+    "cycle_edge_width": 0.25,
     "cycle_edge_alpha": None,
     "antialiased": True,
     "zsort": "average",
+    "shade": True,
 }
 
 _INTERIOR_STYLE_2D = {
@@ -81,14 +84,16 @@ _INTERIOR_STYLE_2D = {
 
 _INTERIOR_STYLE_3D = {
     "activity_edge_color": "white",
-    "activity_edge_width": 0.25,
+    "activity_edge_width": 0.0,
     "activity_edge_alpha": 0.8,
     "complex_edge_color": "0.25",
     "complex_edge_width": 0.35,
     "complex_edge_alpha": 0.25,
     "background_color": "white",
     "remove_axes": True,
-    "activity_alpha_range": (0.15, 0.95),
+    "activity_alpha_range": (0.04, 1.0),
+    "opacity_by": "bar",
+    "faint_below": 0.25,
     "cell_shrink": 1.0,
     "shade": True,
     "lightsource": None,
@@ -386,28 +391,42 @@ def plot_cubical_at_filtration(
         if show_complex:
             quads = scene.present_voxel_quads(forest, geometry, filt_val)
             if len(quads):
+                edge_width = float(style["complex_edge_width"])
                 ax.add_collection3d(Poly3DCollection(
                     quads,
                     facecolors=mcolors.to_rgba(style["complex_color"], float(style["complex_face_alpha"])),
-                    edgecolors=mcolors.to_rgba(style["complex_edge_color"], float(style["complex_edge_alpha"])),
-                    linewidths=float(style["complex_edge_width"]),
+                    edgecolors=(mcolors.to_rgba(style["complex_edge_color"], float(style["complex_edge_alpha"]))
+                                if edge_width > 0 else "none"),
+                    linewidths=edge_width,
                     antialiased=bool(style["antialiased"]),
                     zsort=style["zsort"],
                 ))
         cycle_face_alpha = float(style["cycle_face_alpha"])
-        cycle_edge_alpha = style["cycle_edge_alpha"]
-        if cycle_edge_alpha is None:
-            cycle_edge_alpha = min(1.0, cycle_face_alpha + 0.25)
+        edge_alpha = 1.0 if style["cycle_edge_alpha"] is None else float(style["cycle_edge_alpha"])
+        # One collection, so faces of different cycles are depth-sorted together.
+        all_quads, faces, edges = [], [], []
         for bar, cycle in sorted(active, key=lambda item: item[0].lifespan(), reverse=True):
             quads = scene.chain_face_quads(cycle if signed else cycle.unsigned(), geometry)
             if not len(quads):
                 continue
-            color = color_map[bar]
-            edge_color = color if style["cycle_edge_color"] is None else style["cycle_edge_color"]
+            if bool(style["shade"]):
+                rgba = shaded_face_colors(quads, color_map[bar], alpha=cycle_face_alpha)
+            else:
+                rgba = np.tile(mcolors.to_rgba(color_map[bar], cycle_face_alpha), (len(quads), 1))
+            if style["cycle_edge_color"] is None:
+                edge_rgba = rgba.copy()
+                edge_rgba[:, :3] *= 0.75
+                edge_rgba[:, 3] = edge_alpha
+            else:
+                edge_rgba = np.tile(mcolors.to_rgba(style["cycle_edge_color"], edge_alpha), (len(quads), 1))
+            all_quads.append(quads)
+            faces.append(rgba)
+            edges.append(edge_rgba)
+        if all_quads:
             ax.add_collection3d(Poly3DCollection(
-                quads,
-                facecolors=mcolors.to_rgba(color, cycle_face_alpha),
-                edgecolors=mcolors.to_rgba(edge_color, float(cycle_edge_alpha)),
+                np.concatenate(all_quads),
+                facecolors=np.concatenate(faces),
+                edgecolors=np.concatenate(edges),
                 linewidths=float(style["cycle_edge_width"]),
                 antialiased=bool(style["antialiased"]),
                 zsort=style["zsort"],
@@ -506,7 +525,7 @@ def plot_cubical_interior_activity(
     overlap: Literal["longest", "layer"] = "longest",
     min_activity_length: float = 0.0,
     style: dict[str, Any] | None = None,
-    geometry: Literal["cells", "surface"] = "cells",
+    geometry: Literal["cells", "surface"] = "surface",
     image_orientation: bool = False,
 ):
     """
@@ -598,10 +617,25 @@ def _plot_interior_activity_3d(forest, grid, rows, color_map, max_activity_lengt
     ax.set_facecolor(plot_style["background_color"])
     ax.figure.patch.set_facecolor(plot_style["background_color"])
 
+    own_shading = bool(plot_style["shade"]) and plot_style["lightsource"] is None
+    if plot_style["opacity_by"] not in ("bar", "activity"):
+        raise ValueError("style['opacity_by'] must be 'bar' or 'activity'.")
+    regions = list(scene.activity_voxel_quads(rows, grid, geometry == "surface", cell_shrink))
+    longest_bar = max((bar.lifespan() for bar, *_ in regions), default=0.0) or 1.0
     polygons, face_colors = [], []
-    for bar, quads, lengths, _ in scene.activity_voxel_quads(rows, grid, geometry == "surface", cell_shrink):
-        rgba = np.tile(mcolors.to_rgba(color_map[bar]), (len(quads), 1))
-        rgba[:, 3] = _activity_alpha(lengths, max_activity_length, plot_style["activity_alpha_range"])
+    for bar, quads, lengths, _ in regions:
+        if own_shading:
+            rgba = shaded_face_colors(quads, color_map[bar])
+        else:
+            rgba = np.tile(mcolors.to_rgba(color_map[bar]), (len(quads), 1))
+        # Bars shorter than faint_below x the longest drawn bar are a faint
+        # tint, longer ones opaque; or opacity follows each voxel's activity.
+        if plot_style["opacity_by"] == "bar":
+            alpha_min, alpha_max = plot_style["activity_alpha_range"]
+            major = bar.lifespan() >= float(plot_style["faint_below"]) * longest_bar
+            rgba[:, 3] = alpha_max if major else alpha_min
+        else:
+            rgba[:, 3] = _activity_alpha(lengths, max_activity_length, plot_style["activity_alpha_range"])
         polygons.append(quads)
         face_colors.append(rgba)
     if polygons:
@@ -613,7 +647,7 @@ def _plot_interior_activity_3d(forest, grid, rows, color_map, max_activity_lengt
             linewidths=float(plot_style["activity_edge_width"]),
             antialiased=bool(plot_style["antialiased"]),
             zsort=plot_style["zsort"],
-            shade=bool(plot_style["shade"]),
+            shade=bool(plot_style["shade"]) and not own_shading,
             lightsource=plot_style["lightsource"],
         ))
     if show_complex:

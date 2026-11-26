@@ -116,3 +116,46 @@ class PlotDefaultTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ThreeDDefaultTests(unittest.TestCase):
+    """3D plots: shell of the complex, opaque shaded cycles, solid long-bar interiors."""
+
+    @classmethod
+    def setUpClass(cls):
+        rng = np.random.default_rng(5)
+        def sphere(centre, radius, n):
+            v = rng.normal(size=(n, 3))
+            return np.asarray(centre) + radius * v / np.linalg.norm(v, axis=1)[:, None]
+        cls.forest = PersistenceForest(np.vstack([sphere((0, 0, 0), 1.0, 160), sphere((3, 0, 0), 0.6, 80),
+                                                  rng.uniform(-1.5, 4, (12, 3))]))
+        top = sorted(cls.forest.barcode, key=lambda b: b.lifespan(), reverse=True)[:2]
+        cls.radius = max(b.birth for b in top) + 0.2 * (min(b.death for b in top) - max(b.birth for b in top))
+        cls.top = top
+
+    def tearDown(self):
+        plt.close('all')
+
+    def test_filtration_draws_shaded_opaque_cycles_in_one_collection(self):
+        from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+        ax = self.forest.plot_at_filtration(self.radius)
+        shell, cycles = [c for c in ax.collections if isinstance(c, Poly3DCollection)]
+        active = self.forest._active_bars_with_cycles_at(self.radius)
+        self.assertGreaterEqual(len(active), 2)
+        faces = cycles.get_facecolors()
+        self.assertEqual(len(faces), sum(len(c.simplices(signed=False)) for _, c in active))
+        np.testing.assert_allclose(faces[:, 3], 1.0)
+        self.assertGreater(len({tuple(np.round(f[:3], 4)) for f in faces}), len(active))  # shading varies
+        self.assertTrue(np.all(shell.get_facecolors()[:, 3] < 0.1))
+        self.assertEqual(ax.get_xlabel(), "")
+        self.assertTrue(ax.get_title().startswith("r = "))
+
+    def test_interior_regions_of_long_bars_are_opaque(self):
+        from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+        ax = self.forest.plot_interior_simplex_activity()
+        [collection] = [c for c in ax.collections if isinstance(c, Poly3DCollection)]
+        alphas = set(np.round(collection.get_facecolors()[:, 3], 6))
+        self.assertLessEqual(alphas, {0.04, 1.0})
+        self.assertIn(1.0, alphas)
+        with self.assertRaisesRegex(ValueError, "opacity_by"):
+            self.forest.plot_interior_simplex_activity(style={"opacity_by": "lifespan"})

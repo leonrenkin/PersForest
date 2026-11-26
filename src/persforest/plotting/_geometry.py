@@ -189,3 +189,52 @@ def _camera_angles(camera_eye: Any) -> tuple[float, float]:
         "camera_eye must be None, a dict with keys {'elev','azim'}, "
         "or a tuple/list (elev, azim)."
     )
+
+
+# Light from the upper left front of the default camera; faces turned away
+# keep ``ambient`` of their color, faces turned toward it the full color.
+_LIGHT_DIRECTION = np.array([-0.4, -0.5, 0.75]) / np.linalg.norm([-0.4, -0.5, 0.75])
+
+
+def shaded_face_colors(polygons, color: Any, alpha: float = 1.0, ambient: float = 0.55) -> np.ndarray:
+    """Lambert-shade planar polygons of one color.
+
+    Orientation is ignored (``|n · l|``), since cycle faces of unsigned or
+    signed chains need not be oriented consistently.
+
+    Parameters
+    ----------
+    polygons : sequence of (k, 3) arrays
+        Triangles or planar quadrilaterals.
+    color : color
+        Base color.
+    alpha : float
+        Opacity of every face.
+    ambient : float
+        Brightness of faces perpendicular to the light, in ``[0, 1]``.
+
+    Returns
+    -------
+    numpy.ndarray
+        RGBA colors of shape ``(len(polygons), 4)``.
+    """
+    from matplotlib import colors as mcolors
+
+    if len(polygons) == 0:
+        return np.zeros((0, 4))
+    normals = np.array([np.cross(p[2] - p[0], p[-1] - p[1]) for p in map(np.asarray, polygons)], dtype=float)
+    normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), np.finfo(float).tiny)
+    brightness = ambient + (1.0 - ambient) * np.abs(normals @ _LIGHT_DIRECTION)
+    rgb = np.asarray(mcolors.to_rgb(color))[None, :] * brightness[:, None]
+    return np.column_stack([rgb, np.full(len(rgb), float(alpha))])
+
+
+def boundary_triangles(triangles, tetrahedra) -> list:
+    """Triangles that are faces of fewer than two of ``tetrahedra``: the visible surface."""
+    count: dict = {}
+    for tetrahedron in tetrahedra:
+        tetrahedron = tuple(sorted(tetrahedron))
+        for skip in range(4):
+            face = tetrahedron[:skip] + tetrahedron[skip + 1:]
+            count[face] = count.get(face, 0) + 1
+    return [t for t in triangles if count.get(tuple(sorted(t)), 0) < 2]

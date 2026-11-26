@@ -49,16 +49,21 @@ class CycleQueryTests(unittest.TestCase):
             delayed.active_cycles_at(3.)
 
     def test_static_cycle_plots_draw_the_active_representatives(self):
-        for fixture, time, collection_type, expected in (
-            (split(), 3., LineCollection, [3, 3]),
-            (tetrahedra(), 3., Poly3DCollection, [1, 1]),
-        ):
-            forest = build(fixture)
-            ax = forest.plot_at_filtration(time, show=False, show_complex=False)
-            counts = sorted(len(drawn_edges(collection)) if isinstance(collection, LineCollection) else 1
-                            for collection in ax.collections if isinstance(collection, collection_type))
-            self.assertEqual(counts, expected)
-            plt.close(ax.figure)
+        forest = build(split())
+        ax = forest.plot_at_filtration(3., show=False, show_complex=False)
+        counts = sorted(len(drawn_edges(c)) for c in ax.collections if isinstance(c, LineCollection))
+        self.assertEqual(counts, [3, 3])
+        plt.close(ax.figure)
+
+        # In 3D all active cycles share one depth-sorted collection.
+        forest = build(tetrahedra())
+        active = forest._active_bars_with_cycles_at(3.)
+        self.assertEqual(len(active), 2)
+        ax = forest.plot_at_filtration(3., show=False, show_complex=False)
+        [surface] = [c for c in ax.collections if isinstance(c, Poly3DCollection)]
+        self.assertEqual(len(surface.get_facecolors()),
+                         sum(len(cycle.simplices(signed=False)) for _, cycle in active))
+        plt.close(ax.figure)
 
         ax = build(split()).plot_barcode_cycle_reps(show=False)
         self.assertTrue(any(isinstance(c, LineCollection) for c in ax.collections))

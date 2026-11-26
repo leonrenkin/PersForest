@@ -193,6 +193,9 @@ class Cubical3DPlotTests(unittest.TestCase):
         np.testing.assert_allclose(quads.reshape(-1, 3).max(axis=0), [2, 4, 6])
         # Consistently oriented faces enclose the voxel volume 1 * 2 * 3.
         self.assertAlmostEqual(abs(signed_volume(quads)), 6.0)
+        # Axes are hidden by default and labelled on request.
+        self.assertEqual((ax.get_xlabel(), ax.get_zlabel()), ("", ""))
+        ax = forest.plot_at_filtration(2, show=False, style_3d={"remove_axes": False})
         self.assertEqual((ax.get_xlabel(), ax.get_zlabel()), ("axis 0", "axis 2"))
 
     def test_interior_activity_cells_and_surface(self):

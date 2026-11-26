@@ -72,6 +72,14 @@ supported platforms.
   `linewidth_cycle=1.5`. Titles are short (`r = 0.19` for radius
   filtrations, `t = 0.19` otherwise, `representatives at 10% of each bar`),
   and the colorbar label reads downward.
+- 3D plots (point clouds and grids) draw the complex as a faint shell of its
+  boundary, cycles as opaque shaded surfaces in one depth-sorted collection,
+  faint points (`vertex_size=None`: 1.5 in 3D, 5 in 2D) and no axes
+  (`style_3d={"remove_axes": False}` restores them). The 3D interior plot
+  defaults to `geometry="surface"`: regions of bars at least 25% of the
+  longest drawn bar are opaque and shaded, shorter ones a faint tint
+  (`style` keys `faint_below`, `opacity_by="activity"` for the former
+  per-face opacity).
 - New figures use Matplotlib's `figure.dpi` unless `dpi` is passed, and plots
   of one kind share a figure size (5×5 scenes, 6×4 charts, 10×6 forests).
 - Charts (landscapes, landscape comparisons, profiles, measurements) have an

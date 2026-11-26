@@ -85,6 +85,6 @@ def _point_cloud_frame_drawer(
                 ax.add_collection(collection, autolim=False)
         ax.view_init(*(fixed_view if camera_eye is None else camera_eye))
         if plot_kwargs.get("title") is None:
-            ax.set_title(_filtration_title_3d(filt_val))
+            ax.set_title(_filtration_title_3d(forest, filt_val))
 
     return draw

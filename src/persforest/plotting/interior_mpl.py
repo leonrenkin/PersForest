@@ -13,6 +13,7 @@ from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from persforest.plotting._geometry import _activity_face_records
 from persforest.plotting._geometry import _camera_angles
+from persforest.plotting._geometry import shaded_face_colors
 from persforest.plotting._geometry import _validated_activity_tetrahedra
 from persforest.plotting._scene import _activity_rows_for_plotting
 from persforest.plotting._scene import _complex_edge_segments_3d
@@ -35,7 +36,7 @@ def plot_interior_simplex_activity(
     vertex_size: float = 2,
     min_activity_length: float = 0.0,
     style: dict[str, Any] | None = None,
-    geometry: Literal["cells", "surface"] = "cells",
+    geometry: Literal["cells", "surface"] = "surface",
 ):
     """
     Plot full-dimensional simplices colored by interior activity.
@@ -268,7 +269,7 @@ def _plot_interior_simplex_activity_3d(
     vertex_size: float = 2,
     min_activity_length: float = 0.0,
     style: dict[str, Any] | None = None,
-    geometry: Literal["cells", "surface"] = "cells",
+    geometry: Literal["cells", "surface"] = "surface",
 ):
     """Plot 3D tetrahedra or region surfaces colored by interior activity."""
     if forest.dim != 3:
@@ -278,19 +279,25 @@ def _plot_interior_simplex_activity_3d(
     if geometry not in ("cells", "surface"):
         raise ValueError("geometry must be 'cells' or 'surface'.")
 
+    # Bars of at least ``faint_below`` times the longest drawn bar are opaque
+    # and shaded; shorter (often noisy) bars are a faint tint. With
+    # ``opacity_by="activity"`` opacity grows linearly with each face's
+    # activity duration instead.
     plot_style = {
-        "point_color": "black",
-        "point_alpha": 0.9,
+        "point_color": "0.35",
+        "point_alpha": 0.35,
         "depthshade_points": False,
         "activity_edge_color": "white",
-        "activity_edge_width": 0.25,
+        "activity_edge_width": 0.0,
         "activity_edge_alpha": 0.8,
         "complex_edge_color": "0.25",
         "complex_edge_width": 0.35,
         "complex_edge_alpha": 0.25,
         "background_color": "white",
         "remove_axes": True,
-        "activity_alpha_range": (0.15, 0.95),
+        "activity_alpha_range": (0.04, 1.0),
+        "opacity_by": "bar",
+        "faint_below": 0.25,
         "cell_shrink": 1.0,
         "shade": True,
         "lightsource": None,
@@ -337,13 +344,25 @@ def _plot_interior_simplex_activity_3d(
         max_activity_length = max(record[2] for record in face_records)
         max_activity_length = max(max_activity_length, np.finfo(float).eps)
         alpha_min, alpha_max = plot_style["activity_alpha_range"]
+        if plot_style["opacity_by"] not in ("bar", "activity"):
+            raise ValueError("style['opacity_by'] must be 'bar' or 'activity'.")
+        by_bar = plot_style["opacity_by"] == "bar"
+        longest_bar = max(record[1].lifespan() for record in face_records) or 1.0
+        # Shade here unless a Matplotlib light source is requested.
+        own_shading = bool(plot_style["shade"]) and plot_style["lightsource"] is None
         face_colors = []
         face_polygons = []
         for face_points, bar, activity_length, _simplex_key in face_records:
-            alpha_scale = float(np.clip(activity_length / max_activity_length, 0.0, 1.0))
+            if by_bar:
+                alpha_scale = float(bar.lifespan() >= float(plot_style["faint_below"]) * longest_bar)
+            else:
+                alpha_scale = float(np.clip(activity_length / max_activity_length, 0.0, 1.0))
             alpha = float(alpha_min + (alpha_max - alpha_min) * alpha_scale)
             face_polygons.append(face_points)
-            face_colors.append(mcolors.to_rgba(color_map[bar], alpha=alpha))
+            if own_shading:
+                face_colors.append(shaded_face_colors([face_points], color_map[bar], alpha=alpha)[0])
+            else:
+                face_colors.append(mcolors.to_rgba(color_map[bar], alpha=alpha))
 
         activity_collection = Poly3DCollection(
             face_polygons,
@@ -355,7 +374,7 @@ def _plot_interior_simplex_activity_3d(
             linewidths=float(plot_style["activity_edge_width"]),
             antialiased=bool(plot_style["antialiased"]),
             zsort=plot_style["zsort"],
-            shade=bool(plot_style["shade"]),
+            shade=bool(plot_style["shade"]) and not own_shading,
             lightsource=plot_style["lightsource"],
         )
         ax.add_collection3d(activity_collection)

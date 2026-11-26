@@ -661,7 +661,7 @@ class PersistenceForest:
         vertex_size: float = 2,
         min_activity_length: float = 0.0,
         style: dict[str, Any] | None = None,
-        geometry: Literal["cells", "surface"] = "cells",
+        geometry: Literal["cells", "surface"] = "surface",
         image_orientation: bool = False,
     ):
         """Plot 2D or 3D interior-simplex activity using Matplotlib.
@@ -697,9 +697,14 @@ class PersistenceForest:
         min_activity_length : float
             Ignore activity intervals shorter than this value.
         style : dict or None
-            Renderer-specific style overrides.
-        geometry : {"cells", "surface"}
-            For 3D only, draw tetrahedral cells or per-bar region boundaries.
+            Renderer-specific style overrides. In 3D, regions of bars at
+            least ``faint_below`` (default 0.25) times the longest drawn bar
+            are opaque and shaded, shorter ones a faint tint
+            (``activity_alpha_range``); ``opacity_by="activity"`` scales each
+            face by its activity duration instead.
+        geometry : {"surface", "cells"}
+            For 3D only: the shaded boundary of each bar's region (default) or
+            every active tetrahedron (voxel for grids).
         image_orientation : bool
             Cubical forests only: draw array axis 0 downward and axis 1 to the
             right, as an image viewer would. By default axis 0 runs along x and
@@ -997,7 +1002,7 @@ class PersistenceForest:
         show: bool = False,
         show_complex: bool = True,
         figsize: tuple[float, float] = (5, 5), 
-        vertex_size: float = 5,
+        vertex_size: Optional[float] = None,
         coloring: Literal['forest','bars'] = "forest",
         title: Optional[str] = None,
         min_bar_length: float = 0,
@@ -1044,8 +1049,8 @@ class PersistenceForest:
             Whether to render complex geometry (edges/surfaces).
         figsize : tuple[float, float]
             Figure size used when ``ax`` is None.
-        vertex_size : float
-            Marker size for point cloud.
+        vertex_size : float or None
+            Marker size for the point cloud; None uses 5 in 2D and 1.5 in 3D.
         point_zorder : float
             Matplotlib z-order for point markers in 2D plots. The defaults
             draw cycles above points; ``point_zorder=6`` puts points on top.
@@ -1074,7 +1079,10 @@ class PersistenceForest:
             ``complex_edge_color``, ``cycle_edge_color``,
             ``complex_edge_width``, ``cycle_edge_width``,
             ``complex_edge_alpha``, ``cycle_edge_alpha``,
-            ``antialiased``, ``zsort``, ``desaturate_complex``.
+            ``antialiased``, ``zsort``, ``desaturate_complex``, ``shade``.
+            By default the complex is a faint shell of its boundary, cycles
+            are opaque and shaded (``shade``), and the axes are hidden
+            (``remove_axes``).
         dpi : int or None
             Resolution of a newly created figure; None uses Matplotlib's ``figure.dpi``.
         image_orientation : bool
