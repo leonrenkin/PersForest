@@ -50,6 +50,12 @@ supported platforms.
   repeat once the palette is used up. The color-generation helpers
   (`build_color_scheme`, `distinct_base_colors`, `color_map_for_bars`, …) were
   removed; `set_longest_bar_colors` still overrides colors.
+- **New barcode layout.** `plot_barcode` draws at most the 100 longest bars by
+  default (`max_bars=0` shows all) in a fixed 6×4 figure, with round-capped
+  bars whose width follows the number of rows (`bar_width=None`), only the
+  filtration axis, the title on the left (`ax.get_title(loc="left")`) and the
+  number of bars shown on the right. `sort="tree"` groups the bars of each
+  tree, trees in order of their longest bar.
 - **Unknown `style`, `style_2d` and `style_3d` keys raise `ValueError`**
   for point clouds as they already did for grids, listing the supported keys.
 

@@ -65,6 +65,32 @@ class BarcodeOrientationTests(unittest.TestCase):
         self.assertGreater(ax.get_ylim()[1], 4)
         self.assertTrue(all(np.isfinite(line.get_segments()[0]).all() for line in ax.collections))
 
+    def test_default_shows_at_most_100_longest_bars_and_says_so(self):
+        bars = [PFBar(0, 1 + i, ()) for i in range(130)]
+        forest = SimpleNamespace(dim=2, barcode=bars, color_map_bars={b: 'red' for b in bars})
+        ax = plot(forest, coloring='bars', tight_layout=False)
+        [collection] = ax.collections
+        self.assertEqual(len(collection.get_segments()), 100)
+        self.assertEqual(min(s[1][0] for s in collection.get_segments()), 31)  # the 100 longest
+        self.assertEqual(ax.get_title(loc='right'), '100 longest of 130 bars')
+        self.assertEqual(ax.get_title(loc='left'), '$H_{1}$ barcode')
+        all_bars = plot(forest, coloring='bars', max_bars=0, tight_layout=False)
+        self.assertEqual(len(all_bars.collections[0].get_segments()), 130)
+        self.assertEqual(all_bars.get_title(loc='right'), '130 bars')
+        # Bars get thinner with more rows, within 0.6 to 6 points.
+        widths = [ax.collections[0].get_linewidths()[0], all_bars.collections[0].get_linewidths()[0]]
+        self.assertGreater(widths[0], widths[1])
+        self.assertTrue(all(0.6 <= w <= 6 for w in widths))
+
+    def test_tree_sort_groups_trees_with_gaps(self):
+        # Tree 1 holds the longest bar; tree 0 comes second; a gap row separates them.
+        bars = [PFBar(0, 2, (), tree_id=0), PFBar(1, 9, (), tree_id=1), PFBar(0.5, 1, (), tree_id=0),
+                PFBar(3, 4, (), tree_id=1)]
+        forest = SimpleNamespace(dim=2, barcode=bars, color_map_forest={b: 'red' for b in bars})
+        ax = plot(forest, sort='tree', tight_layout=False)
+        rows = {(s[0][0], s[1][0]): s[0][1] for s in ax.collections[0].get_segments()}
+        self.assertEqual(rows, {(1, 9): 0, (3, 4): 1, (0, 2): 3, (0.5, 1): 4})
+
     def test_invalid_orientation(self):
         with self.assertRaisesRegex(ValueError, 'orientation'):
             plot(forest_with([PFBar(0, 1, (), [])]), orientation='diagonal')

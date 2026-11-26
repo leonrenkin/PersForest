@@ -65,7 +65,7 @@ class CubicalPlottingTests(unittest.TestCase):
 
     def test_barcode_forest_and_measurement_plots_work(self):
         forest = PersistenceForest.from_cubical_grid(np.random.default_rng(3).random((8, 8)))
-        self.assertIn("H_{1}", forest.plot_barcode().get_title())
+        self.assertIn("H_{1}", forest.plot_barcode().get_title(loc="left"))
         forest.plot_persistence_forest(show=False)
         forest.compute_measurement_landscapes(cubical_chain_volume, "length", x_grid=np.linspace(0, 1, 11))
         forest.plot_measurement_landscapes(label="length")

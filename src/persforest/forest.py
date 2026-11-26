@@ -1598,22 +1598,27 @@ class PersistenceForest:
 
     def plot_barcode(self, *args, **kwargs):
         """
-        Plot a 1D barcode from self.barcode (a set[Bar]).
+        Plot the barcode.
 
-        Intervals run from birth to death, horizontally by default. Use
-        orientation="vertical" to share a filtration axis with a forest plot.
-        Infinite intervals end in an arrow.
+        Intervals run from birth to death, horizontally by default, the first
+        bar at the top. Use orientation="vertical" to share a filtration axis
+        with a forest plot. Infinite intervals end in an arrow. The title names
+        the homology degree on the left and the number of bars shown on the
+        right.
 
         Parameters
         ----------
         ax : matplotlib.axes.Axes | None
-            If given, draw on this axes. Otherwise a new figure/axes is created.
-        sort : {"length","birth","death",None}
-            Sort bars before plotting (None preserves current order).
-            Default is "birth".
+            If given, draw on this axes. Otherwise a new 6×4 figure is created
+            (4×6 when vertical).
+        sort : {"birth", "death", "length", "tree", None}
+            Display order (None preserves the barcode's order). Default
+            "birth". "tree" groups the bars of each tree, trees in order of
+            their longest bar and each tree's bars by birth, with a gap between
+            trees.
         title : str | None
-            Plot title. Defaults to "$H_d$ Barcode", where d is the ambient
-            dimension of the point cloud minus one.
+            Left-hand title. Defaults to "$H_d$ barcode", where d is the
+            ambient dimension minus one.
         orientation : {"horizontal", "vertical"}
             Direction of barcode intervals (default: horizontal).
         xlabel : str
@@ -1622,19 +1627,20 @@ class PersistenceForest:
             Override the filtration-axis label for vertical barcodes.
         coloring : {"forest","bars","none","grey"}
             Which color scheme to use:
-            - "forest": use self.color_map_forest (tree-structured colors).
-            - "bars":   use self.color_map_bars (ignores tree structure).
+            - "forest": use self.color_map_forest (one color per tree).
+            - "bars":   use self.color_map_bars (by lifespan rank).
             - "none":   use Matplotlib defaults.
             - "grey":   draw all bars in black.
             If the chosen color map does not exist yet, it is built as in
             `plot_at_filtration`.
         max_bars : int
-            If > 0, display at most this many bars, keeping the longest ones
-            (by lifespan). 0 means show all bars.
+            Display at most this many bars, keeping the longest ones (by
+            lifespan); default 100. 0 shows all bars.
         min_bar_length : float
             Filter out bars with lifespan < min_bar_length before plotting.
-        bar_width : float
-            Line width used to draw each barcode interval.
+        bar_width : float or None
+            Line width of each bar in points. None (default) scales it with
+            the number of rows, from 0.6 to 6 points.
         descending : bool
             If True, reverse the selected sort order.
         tight_layout : bool
