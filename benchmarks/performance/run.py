@@ -16,7 +16,10 @@ import math
 import os
 from pathlib import Path
 import platform
-import resource
+try:
+    import resource
+except ImportError:  # Windows: main() rejects --run there before measuring RSS.
+    resource = None
 import subprocess
 import sys
 import time

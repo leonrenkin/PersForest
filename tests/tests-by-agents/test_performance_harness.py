@@ -136,6 +136,7 @@ class PerformanceHarnessTests(unittest.TestCase):
         np.testing.assert_array_equal(before[1], after[1])
         self.assertEqual(before[2:], after[2:])
 
+    @unittest.skipIf(runner.resource is None, "the resource module is Unix-only")
     def test_peak_units_and_truncated_result(self):
         with patch.object(runner.resource, "getrusage", return_value=SimpleNamespace(ru_maxrss=123)):
             with patch.object(runner.sys, "platform", "darwin"):
