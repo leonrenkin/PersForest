@@ -19,7 +19,6 @@ from typing import Literal
 from typing import Optional
 
 from matplotlib import colors as mcolors
-from matplotlib.collections import LineCollection
 from matplotlib.patches import Rectangle
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
@@ -29,7 +28,11 @@ from numpy.typing import NDArray
 
 from persforest.geometry.cubical import CubicalGeometry
 from persforest.plotting import _cubical_scene as scene
+from persforest.plotting._lines import add_cycle_lines
+from persforest.plotting._style import filtration_title
+from persforest.plotting._style import representatives_title
 from persforest.plotting._style import resolve_style
+from persforest.plotting._style import style_scene_axes
 from persforest.plotting._geometry import _camera_from_eye
 from persforest.plotting._scene import _activity_rows_for_plotting
 from persforest.plotting.interior_mpl import _activity_conflict
@@ -42,6 +45,9 @@ _FILTRATION_STYLE_2D = {
     "domain_edge_color": "0.3",
     "domain_edge_width": 0.6,
     "cycle_edge_width": 1.8,
+    "cycle_halo": False,
+    "cycle_halo_width": 2.2,
+    "cycle_halo_color": "white",
     "show_orientation_arrows": False,
     "arrow_linewidth": 0.8,
     "arrow_scale": 4.0,
@@ -134,7 +140,8 @@ def _attach_colorbar(ax, mappable, label: str):
         cax = make_axes_locatable(ax).append_axes("right", size="4%", pad=0.08)
         colorbar = ax.figure.colorbar(mappable, cax=cax)
         ax._persforest_colorbar = colorbar
-    colorbar.set_label(label)
+    # Read top to bottom, like a label on the right-hand side of a page.
+    colorbar.set_label(label, rotation=270, va="bottom")
     return colorbar
 
 
@@ -212,6 +219,7 @@ def _finish_axes_2d(ax, geometry: CubicalGeometry, image_orientation: bool, styl
     ax.set_aspect("equal", adjustable="box")
     ax.set_xlabel("axis 1" if image_orientation else "axis 0")
     ax.set_ylabel("axis 0" if image_orientation else "axis 1")
+    style_scene_axes(ax)
 
 
 def _hide_axes_2d(ax) -> None:
@@ -223,12 +231,12 @@ def _hide_axes_2d(ax) -> None:
         spine.set_visible(False)
 
 
-def _draw_cycle_2d(ax, cycle, color, geometry, image_orientation, linewidth, capstyle,
+def _draw_cycle_2d(ax, cycle, color, geometry, image_orientation, linewidth,
                    arrows: bool, style: dict[str, Any], zorder: float) -> None:
     segments = scene.display(scene.edge_segments(cycle, geometry), image_orientation)
-    ax.add_collection(LineCollection(
-        segments, linewidths=linewidth, colors=[color],
-        capstyle=capstyle, joinstyle="round", zorder=zorder, clip_on=False))
+    add_cycle_lines(ax, segments, color, linewidth, zorder, square=True, clip_on=False,
+                    halo=bool(style["cycle_halo"]), halo_width=float(style["cycle_halo_width"]),
+                    halo_color=style["cycle_halo_color"])
     if arrows:
         _draw_orientation_arrows(ax, segments, color, style, zorder=zorder + 1)
 
@@ -369,7 +377,7 @@ def plot_cubical_at_filtration(
                              image_orientation, show_image)
         for bar, cycle in active:
             _draw_cycle_2d(ax, cycle if signed else cycle.unsigned(), color_map[bar], geometry,
-                           image_orientation, float(style["cycle_edge_width"]), "butt",
+                           image_orientation, float(style["cycle_edge_width"]),
                            bool(style["show_orientation_arrows"]), style, cycle_zorder)
         _finish_axes_2d(ax, geometry, image_orientation, style, show_image)
     else:
@@ -406,7 +414,7 @@ def plot_cubical_at_filtration(
             ))
         _finish_axes_3d(ax, geometry, style["camera_eye"], bool(style["remove_axes"]))
 
-    ax.set_title(fr"Filtration at value {filt_val:.4g}" if title is None else title)
+    ax.set_title(filtration_title(forest, filt_val) if title is None else title)
     if show:
         plt.show()
     return ax
@@ -423,7 +431,7 @@ def plot_cubical_barcode_cycle_reps(
     title: Optional[str] = None,
     show_orientation_arrows: bool = False,
     remove_double_edges: bool = False,
-    linewidth_cycle: float = 0.8,
+    linewidth_cycle: float = 1.5,
     style_2d: Optional[dict[str, Any]] = None,
     image_orientation: bool = False,
     show_image: Optional[bool] = None,
@@ -447,7 +455,8 @@ def plot_cubical_barcode_cycle_reps(
         raise ValueError("relative_position must be in [0,1]")
     geometry = scene.require_grid_dimension(forest, "plot_barcode_cycle_reps", supported=(2,))
     show_image = scene.resolve_flat_options(geometry, image_orientation, show_image)
-    style = resolve_style(style_2d, _FILTRATION_STYLE_2D, "style_2d")
+    # Many cycles cross the gray image here, so each gets a white halo.
+    style = resolve_style(style_2d, {**_FILTRATION_STYLE_2D, "cycle_halo": True}, "style_2d")
     cycle_linewidth = (
         float(style["cycle_edge_width"])
         if style_2d is not None and "cycle_edge_width" in style_2d
@@ -467,13 +476,11 @@ def plot_cubical_barcode_cycle_reps(
         cycle = forest.cycle_for_bar_at(bar, bar.birth + bar.lifespan() * relative_position)
         # Longer bars on top, above the value image (z-order 0.5) and the outline.
         _draw_cycle_2d(ax, cycle.unsigned() if remove_double_edges else cycle, color_map[bar],
-                       geometry, image_orientation, cycle_linewidth, "round",
+                       geometry, image_orientation, cycle_linewidth,
                        draw_orientation_arrows, style, zorder=2 + bar.lifespan())
 
     _finish_axes_2d(ax, geometry, image_orientation, style, show_image)
-    if title is None:
-        title = fr"Barcode cycle representatives at relative position {relative_position:.2f}"
-    ax.set_title(title)
+    ax.set_title(representatives_title(relative_position) if title is None else title)
     if show:
         plt.show()
     return ax

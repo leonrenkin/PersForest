@@ -11,6 +11,7 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import numpy as np
 
 from fixtures_small_filtrations import build, split, tetrahedra
+from line_helpers import drawn_edges
 from persforest.plotting.animation.filtration import animate_filtration_pair
 
 
@@ -54,7 +55,7 @@ class CycleQueryTests(unittest.TestCase):
         ):
             forest = build(fixture)
             ax = forest.plot_at_filtration(time, show=False, show_complex=False)
-            counts = sorted(len(collection.get_segments()) if isinstance(collection, LineCollection) else 1
+            counts = sorted(len(drawn_edges(collection)) if isinstance(collection, LineCollection) else 1
                             for collection in ax.collections if isinstance(collection, collection_type))
             self.assertEqual(counts, expected)
             plt.close(ax.figure)

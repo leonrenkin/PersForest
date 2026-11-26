@@ -15,6 +15,7 @@ from persforest.plotting.animation._timing import _compute_frame_times
 from persforest.plotting.colors import BARS_PALETTE, FOREST_PALETTE, bar_color_map, forest_color_map
 from persforest.barcode import PFBar
 from fixtures_small_filtrations import triangle, split, fan, build, reps
+from line_helpers import cycle_collections, drawn_edges
 
 
 class PlottingContractTests(unittest.TestCase):
@@ -49,10 +50,10 @@ class PlottingContractTests(unittest.TestCase):
         for time, counts in [(0, []), (1, [4]), (3, [3, 3]), (5, [3]), (7, [])]:
             ax = forest.plot_at_filtration(time, show=False, show_complex=False,
                                            style_2d={'show_orientation_arrows': False})
-            cycles = [c for c in ax.collections if isinstance(c, LineCollection)]
-            self.assertEqual(sorted(len(c.get_segments()) for c in cycles), counts)
+            cycles = cycle_collections(ax)
+            self.assertEqual(sorted(len(drawn_edges(c)) for c in cycles), counts)
             for collection in cycles:
-                self.assertTrue(np.isfinite(collection.get_segments()).all())
+                self.assertTrue(all(np.isfinite(line).all() for line in collection.get_segments()))
             plt.close(ax.figure)
         self.assertEqual(before, [reps(forest, b) for b in bars])
 
@@ -61,8 +62,8 @@ class PlottingContractTests(unittest.TestCase):
         for signed, expected in [(False, 3), (True, 5)]:
             ax = forest.plot_at_filtration(2, signed=signed, show=False, show_complex=False,
                                            style_2d={'show_orientation_arrows': False})
-            [collection] = [c for c in ax.collections if isinstance(c, LineCollection)]
-            self.assertEqual(len(collection.get_segments()), expected)
+            [collection] = cycle_collections(ax)
+            self.assertEqual(len(drawn_edges(collection)), expected)
 
     def test_dual_edge_disappears_when_shared_primal_edge_arrives(self):
         forest = build(split())
@@ -78,11 +79,11 @@ class PlottingContractTests(unittest.TestCase):
         forest = build(split())
         for position, expected in [(0, [3, 4]), (.5, [3, 3])]:
             ax = forest.plot_barcode_cycle_reps(relative_position=position, show=False)
-            collections = [c for c in ax.collections if isinstance(c, LineCollection)]
-            self.assertEqual(sorted(len(c.get_segments()) for c in collections), expected)
+            collections = cycle_collections(ax)
+            self.assertEqual(sorted(len(drawn_edges(c)) for c in collections), expected)
         ax = forest.plot_barcode_cycle_reps(relative_position=0, min_bar_length=6, show=False)
-        collections = [c for c in ax.collections if isinstance(c, LineCollection)]
-        self.assertEqual([len(c.get_segments()) for c in collections], [4])
+        collections = cycle_collections(ax)
+        self.assertEqual([len(drawn_edges(c)) for c in collections], [4])
 
     def test_profile_and_landscape_artist_values_and_cache_nonmutation(self):
         forest = build(split())
@@ -139,10 +140,10 @@ class PlottingContractTests(unittest.TestCase):
         fig.canvas.draw()
         for frame, expected in [(0, 0), (1, 1), (2, 1), (3, 0), (1, 1)]:
             anim._func(frame)
-            cycles = [c for c in fig.axes[0].collections if isinstance(c, LineCollection)]
+            cycles = cycle_collections(fig.axes[0])
             self.assertEqual(len(cycles), expected)
             if cycles:
-                self.assertEqual(len(cycles[0].get_segments()), 3)
+                self.assertEqual(len(drawn_edges(cycles[0])), 3)
 
     def test_forest_colors_one_color_per_tree_ranked_by_longest_bar(self):
         # Tree 7 holds the longest bar, tree 3 the second longest; tree 5 is a single short bar.

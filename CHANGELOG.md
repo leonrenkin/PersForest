@@ -58,6 +58,14 @@ supported platforms.
 - `forest.barcode` iterates in `bar.index` order. Ties between bars with equal
   endpoints are broken by `bar.index`, so lifespan rankings, profile IDs and
   `max_bar`/`longest_bars` are the same in every run.
+- 2D cycles are drawn as joined lines, without notches at their corners. 2D
+  filtration plots show a light grey complex, smaller dark points and 2.2 pt
+  cycles above the points (`vertex_size=5`, `point_zorder=4`);
+  `style_2d={"cycle_halo": True}` adds a white halo beneath each cycle, on by
+  default for representatives on grayscale images. Representatives default to
+  `linewidth_cycle=1.5`. Titles are short (`r = 0.19` for radius
+  filtrations, `t = 0.19` otherwise, `representatives at 10% of each bar`),
+  and the colorbar label reads downward.
 - New figures use Matplotlib's `figure.dpi` unless `dpi` is passed, and plots
   of one kind share a figure size (5×5 scenes, 6×4 charts, 10×6 forests).
 - Charts (landscapes, landscape comparisons, profiles, measurements) have an

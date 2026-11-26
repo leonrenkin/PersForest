@@ -9,6 +9,7 @@ from matplotlib.collections import LineCollection
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import numpy as np
 
+from line_helpers import cycle_collections, drawn_edges
 from persforest import PersistenceForest
 from persforest.measurements.cubical import cubical_chain_volume
 from persforest.plotting._cubical_scene import chain_face_quads
@@ -25,7 +26,7 @@ def centered(shape):
 
 
 def line_collections(ax):
-    return [c for c in ax.collections if isinstance(c, LineCollection)]
+    return cycle_collections(ax)
 
 
 def poly_collections(ax):
@@ -57,7 +58,7 @@ class CubicalFiltrationPlotTests(unittest.TestCase):
         # Pixel (1, 1) spans [12, 14] along axis 0 and [23, 26] along axis 1.
         np.testing.assert_allclose(points.min(axis=0), [12, 23])
         np.testing.assert_allclose(points.max(axis=0), [14, 26])
-        self.assertEqual(len(collection.get_segments()), 4)
+        self.assertEqual(len(drawn_edges(collection)), 4)
 
     def test_signed_orientation_is_the_boundary_of_the_interior(self):
         forest = PersistenceForest.from_cubical_grid(centered((3, 3)), spacing=(2.0, 3.0))
@@ -67,7 +68,7 @@ class CubicalFiltrationPlotTests(unittest.TestCase):
             with self.subTest(image_orientation=image_orientation):
                 ax = forest.plot_at_filtration(2, show=False, signed=True, image_orientation=image_orientation)
                 [collection] = line_collections(ax)
-                self.assertAlmostEqual(signed_area(collection.get_segments()), reflection * interior_sign * 6.0)
+                self.assertAlmostEqual(signed_area(drawn_edges(collection)), reflection * interior_sign * 6.0)
 
     def test_image_orientation_draws_rows_downward(self):
         forest = PersistenceForest.from_cubical_grid(centered((3, 5)))
@@ -387,7 +388,7 @@ class CubicalPlotGatingTests(unittest.TestCase):
         forest = PersistenceForest.from_cubical_grid(centered((3, 3)))
         for name, call in self.calls(forest).items():
             with self.subTest(method=name), self.assertRaisesRegex(ValueError, "vertex_size"):
-                call(vertex_size=5)
+                call(vertex_size=9)
         with self.assertRaisesRegex(ValueError, "point_color"):
             forest.plot_at_filtration(2, show=False, style_2d={"point_color": "red"})
         with self.assertRaisesRegex(ValueError, "activity_edge_color"):

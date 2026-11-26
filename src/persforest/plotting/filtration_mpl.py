@@ -14,7 +14,11 @@ from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from persforest.chains import SignedChain
 from persforest.plotting._geometry import _camera_from_eye
+from persforest.plotting._lines import add_cycle_lines
+from persforest.plotting._style import filtration_title
+from persforest.plotting._style import representatives_title
 from persforest.plotting._style import resolve_style
+from persforest.plotting._style import style_scene_axes
 from typing import Any
 from typing import Literal
 from typing import Optional
@@ -47,17 +51,22 @@ def _resolve_style_2d(style_2d: Optional[dict[str, Any]]) -> dict[str, Any]:
     Supported keys are ``point_color``, ``point_alpha``,
     ``complex_face_color``, ``complex_face_alpha``, ``complex_edge_color``,
     ``complex_edge_width``, ``complex_edge_alpha``, ``cycle_edge_width``,
+    ``cycle_halo``, ``cycle_halo_width``, ``cycle_halo_color``,
     ``show_orientation_arrows``, ``arrow_linewidth`` and ``arrow_scale``.
     """
+    # A neutral complex keeps every palette color readable on top of it.
     style = {
-        "point_color": "k",
-        "point_alpha": 0.8,
-        "complex_face_color": "C0",
-        "complex_face_alpha": 0.2,
-        "complex_edge_color": "0.3",
-        "complex_edge_width": 0.6,
+        "point_color": "0.2",
+        "point_alpha": 1.0,
+        "complex_face_color": "#e2e5e9",
+        "complex_face_alpha": 1.0,
+        "complex_edge_color": "0.62",
+        "complex_edge_width": 0.45,
         "complex_edge_alpha": None,
-        "cycle_edge_width": 1.8,
+        "cycle_edge_width": 2.2,
+        "cycle_halo": False,
+        "cycle_halo_width": 2.4,
+        "cycle_halo_color": "white",
         "show_orientation_arrows": False,
         "arrow_linewidth": 0.8,
         "arrow_scale": 4.0,
@@ -109,7 +118,7 @@ def _plot_at_filtration_generic(
     show_cycles: bool = True,
     signed: bool = False,
     min_bar_length: float = 0,
-    point_zorder: float = 6,
+    point_zorder: float = 4,
     cycle_zorder: float = 5,
     dpi: int | None = None,
     style_2d: Optional[dict[str, Any]] = None,
@@ -215,7 +224,7 @@ def _plot_at_filtration_2d(
     show_cycles: bool = True,
     signed: bool = False,
     min_bar_length: float = 0,
-    point_zorder: float = 6,
+    point_zorder: float = 4,
     cycle_zorder: float = 5,
     dpi: int | None = None,
     style_2d: Optional[dict[str, Any]] = None,
@@ -298,15 +307,9 @@ def _plot_at_filtration_2d(
                     else cycle.unsigned().segments(point_cloud=forest.point_cloud)
                 )
 
-                loop_coll = LineCollection(
-                    segments,
-                    linewidths=float(style["cycle_edge_width"]),
-                    colors=[color_map[bar]],
-                    capstyle="butt",
-                    joinstyle="round",
-                    zorder=cycle_zorder,
-                )
-                ax.add_collection(loop_coll)
+                add_cycle_lines(ax, segments, color_map[bar], float(style["cycle_edge_width"]), cycle_zorder,
+                                halo=bool(style["cycle_halo"]), halo_width=float(style["cycle_halo_width"]),
+                                halo_color=style["cycle_halo_color"])
 
                 if bool(style["show_orientation_arrows"]):
                     for seg in segments:
@@ -343,10 +346,8 @@ def _plot_at_filtration_2d(
                         )
 
     ax.set_aspect("equal", adjustable="box")
-    if title is None:
-        ax.set_title(fr"Filtration at radius r= {filt_val:.4g} ")
-    else:
-        ax.set_title(title)
+    ax.set_title(filtration_title(forest, filt_val) if title is None else title)
+    style_scene_axes(ax)
 
     ax.autoscale()
     if show:
@@ -557,19 +558,11 @@ def _plot_at_filtration_with_dual_2d(
                     np.array(pts[list(signed_simplex[0])])
                     for signed_simplex in cycle.signed_simplices
                 ]
-                ax.add_collection(
-                    LineCollection(
-                        segments,
-                        linewidths=linewidth_cycle,
-                        colors=[color_map[bar]],
-                        capstyle="round",
-                        joinstyle="round",
-                        zorder=5,
-                    )
-                )
+                add_cycle_lines(ax, segments, color_map[bar], linewidth_cycle, 5)
 
     ax.set_aspect("equal", adjustable="box")
-    ax.set_title(fr"$\alpha$ = {filt_val:.4g}")
+    ax.set_title(filtration_title(forest, filt_val))
+    style_scene_axes(ax)
 
     if show:
         plt.show()
@@ -750,7 +743,7 @@ def plot_barcode_cycle_reps(
     title: Optional[str] = None,
     show_orientation_arrows: bool = False,
     remove_double_edges: bool = False,
-    linewidth_cycle: float = 0.8,
+    linewidth_cycle: float = 1.5,
     style_2d: Optional[dict[str, Any]] = None,
 ):
     """
@@ -835,10 +828,12 @@ def plot_barcode_cycle_reps(
         edgecolors="none",
     )
 
+    longest = max((bar.lifespan() for bar in forest.barcode), default=0.0) or 1.0
     for bar in forest.barcode:
         if bar.lifespan() < min_bar_length:
             continue
-        cycle_zorder = bar.lifespan()
+        # Above the points, longer bars on top.
+        cycle_zorder = point_zorder + 1 + bar.lifespan() / longest
 
         cycle = forest.cycle_for_bar_at(
             bar, bar.birth + bar.lifespan() * relative_position
@@ -852,16 +847,9 @@ def plot_barcode_cycle_reps(
             if not remove_double_edges
             else cycle.unsigned().segments(point_cloud=forest.point_cloud)
         )
-        ax.add_collection(
-            LineCollection(
-                segments,
-                linewidths=cycle_linewidth,
-                colors=[color_map[bar]],
-                capstyle="round",
-                joinstyle="round",
-                zorder=cycle_zorder,
-            )
-        )
+        add_cycle_lines(ax, segments, color_map[bar], cycle_linewidth, cycle_zorder,
+                        halo=bool(style["cycle_halo"]), halo_width=float(style["cycle_halo_width"]),
+                        halo_color=style["cycle_halo_color"])
 
         if draw_orientation_arrows:
             for seg in segments:
@@ -900,12 +888,8 @@ def plot_barcode_cycle_reps(
                     arrow.arrow_patch.set_zorder(cycle_zorder)
 
     ax.set_aspect("equal", adjustable="box")
-    if title is None:
-        ax.set_title(
-            fr"Barcode cycle representatives at relative position {relative_position:.2f}"
-        )
-    else:
-        ax.set_title(title)
+    ax.set_title(representatives_title(relative_position) if title is None else title)
+    style_scene_axes(ax)
     ax.autoscale()
     if show:
         plt.show()

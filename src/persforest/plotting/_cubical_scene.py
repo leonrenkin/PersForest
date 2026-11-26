@@ -31,8 +31,8 @@ IMAGE_STYLE = {
 # arrows are added by ``cubical_mpl``.
 FLAT_FILTRATION_STYLE = {
     **IMAGE_STYLE,
-    "complex_face_color": "C0",
-    "complex_face_alpha": 0.2,
+    "complex_face_color": "#e2e5e9",
+    "complex_face_alpha": 1.0,
     "absent_veil_alpha": 0.65,
 }
 

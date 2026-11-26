@@ -997,11 +997,11 @@ class PersistenceForest:
         show: bool = False,
         show_complex: bool = True,
         figsize: tuple[float, float] = (5, 5), 
-        vertex_size: float = 7,
+        vertex_size: float = 5,
         coloring: Literal['forest','bars'] = "forest",
         title: Optional[str] = None,
         min_bar_length: float = 0,
-        point_zorder: float = 6,
+        point_zorder: float = 4,
         cycle_zorder: float = 5,
         dpi: int | None = None,
         style_2d: Optional[dict[str, Any]] = None,
@@ -1047,9 +1047,8 @@ class PersistenceForest:
         vertex_size : float
             Marker size for point cloud.
         point_zorder : float
-            Matplotlib z-order for point markers in 2D plots.
-            For example, use ``point_zorder=4, cycle_zorder=6`` to draw
-            cycles above points.
+            Matplotlib z-order for point markers in 2D plots. The defaults
+            draw cycles above points; ``point_zorder=6`` puts points on top.
         cycle_zorder : float
             Matplotlib z-order for cycle edges in 2D plots.
         coloring : {"forest","bars"}
@@ -1064,8 +1063,9 @@ class PersistenceForest:
             ``point_color``, ``point_alpha``, ``complex_face_color``,
             ``complex_face_alpha``, ``complex_edge_color``,
             ``complex_edge_width``, ``complex_edge_alpha``,
-            ``cycle_edge_width``,
-            ``arrow_linewidth``, ``arrow_scale``.
+            ``cycle_edge_width``, ``cycle_halo`` (draw a white halo beneath
+            each cycle; off by default), ``cycle_halo_width``,
+            ``cycle_halo_color``, ``arrow_linewidth``, ``arrow_scale``.
         style_3d : dict | None
             Optional 3D style overrides. Supported keys include:
             ``camera_eye``, ``remove_axes``,
@@ -1234,7 +1234,7 @@ class PersistenceForest:
         title: Optional[str] = None,
         show_orientation_arrows: bool = False,
         remove_double_edges: bool = False,
-        linewidth_cycle: float = 0.8,
+        linewidth_cycle: float = 1.5,
         style_2d: Optional[dict[str, Any]] = None,
         image_orientation: bool = False,
         show_image: Optional[bool] = None,

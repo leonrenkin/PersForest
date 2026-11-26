@@ -39,6 +39,25 @@ def style_chart_axes(ax) -> None:
         legend.set_frame_on(False)
 
 
+def style_scene_axes(ax) -> None:
+    """Give a 2D scene a quiet box: thin dark-grey spines and small tick labels."""
+    for spine in ax.spines.values():
+        spine.set_color(AXIS_COLOR)
+        spine.set_linewidth(0.8)
+    ax.tick_params(colors=AXIS_COLOR, width=0.8, labelsize=8)
+
+
+def filtration_title(forest, value: float) -> str:
+    """Title of a snapshot: ``r = …`` for radius filtrations, ``t = …`` otherwise."""
+    radius = getattr(forest, "filtration_type", None) in ("alpha", "delaunay_cech")
+    return f"{'r' if radius else 't'} = {value:.4g}"
+
+
+def representatives_title(relative_position: float) -> str:
+    """Title of a representatives plot."""
+    return f"representatives at {relative_position:.0%} of each bar"
+
+
 def landscape_colors(n: int) -> list:
     """Return ``n`` colors from dark to light for landscape levels ``k = 1 .. n``."""
     from matplotlib import colormaps
