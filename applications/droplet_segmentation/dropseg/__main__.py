@@ -4,7 +4,10 @@ Segments every image and writes the files of ``results.save_results`` for
 each. Every field of ``Parameters`` is an option (``--min-bar-length 0.15``);
 ``--parameters FILE`` reads them from a JSON file, either a plain
 ``{"upsample": 4, ...}`` dict or the ``_parameters.json`` a previous run
-wrote, and options given on the command line override it. Intensity
+wrote, and options given on the command line override it. Replaying an
+earlier run's file also restores its other options that change the labels
+(``LABEL_OPTIONS``: channel, preprocessing, tiling) unless given on the
+command line, so the run repeats exactly. Intensity
 parameters given neither way are inferred from each image
 (``infer_parameters``); the values used are printed and saved, with the
 advice to tune them with ``dropseg.Tuner`` and pass them explicitly.
@@ -41,6 +44,13 @@ _HELP = {
     "birth_offset": "step 3: outlines lie at least this fraction of min_bar_length above the bar's birth",
     "lobe_waist": "step 4: split if the waist is at most this fraction of the lobe's width",
 }
+
+
+# The options besides ``Parameters`` that change the labels, with their defaults. Left
+# unset on the command line, they take the values saved in a --parameters file of an
+# earlier run, or these defaults if it has none (a plain dict, or an older file).
+LABEL_OPTIONS = {"channel": None, "normalize": "full-scale", "percentiles": (1.0, 99.9), "blur": 0.0,
+                 "tile_size": 64, "tile_margin": 12}
 
 
 def _optional_float(text: str) -> float | None:
@@ -80,36 +90,64 @@ def parser() -> argparse.ArgumentParser:
                            metavar=field.type.__name__.upper() if isinstance(field.type, type) else "VALUE",
                            help=f"{_HELP[field.name]} (default "
                                 f"{'inferred from each image' if field.name in INTENSITY_PARAMETERS else field.default})")
-    images = parser.add_argument_group("images")
+    images = parser.add_argument_group(
+        "images", "unless given, these and --tile-size, --tile-margin take the values of the run that wrote "
+                  "--parameters, else their defaults")
     images.add_argument("--channel", type=int, help="channel of a color image")
-    images.add_argument("--normalize", choices=("full-scale", "percentile"), default="full-scale",
-                        help="divide by the largest value of the image type, or stretch two percentiles to 0 and 1")
-    images.add_argument("--percentiles", type=float, nargs=2, default=(1.0, 99.9), metavar=("LOW", "HIGH"),
-                        help="percentiles mapped to 0 and 1 with --normalize percentile")
-    images.add_argument("--blur", type=float, default=0.0, help="Gaussian blur against noise, pixels")
+    images.add_argument("--normalize", choices=("full-scale", "percentile"),
+                        help="divide by the largest value of the image type, or stretch two percentiles to 0 and 1 "
+                             "(default full-scale)")
+    images.add_argument("--percentiles", type=float, nargs=2, metavar=("LOW", "HIGH"),
+                        help="percentiles mapped to 0 and 1 with --normalize percentile (default 1 99.9)")
+    images.add_argument("--blur", type=float, help="Gaussian blur against noise, pixels (default 0)")
     run = parser.add_argument_group("run")
     run.add_argument("--workers", type=int, default=1,
                      help="processes segmenting tiles in parallel, e.g. 4; the results do not depend on it")
-    run.add_argument("--tile-size", type=int, default=64, help="tile size for upsampled images, original pixels")
-    run.add_argument("--tile-margin", type=int, default=12,
-                     help="tile margin, original pixels; must exceed the largest droplet")
+    run.add_argument("--tile-size", type=int, help="tile size for upsampled images, original pixels (default 64)")
+    run.add_argument("--tile-margin", type=int,
+                     help="tile margin, original pixels; must exceed the largest droplet (default 12)")
     run.add_argument("--overlay-scale", type=int, default=8,
                      help="output pixels per original pixel in the boundary overlay")
     run.add_argument("--vmax", type=float, help="brightness shown as white in the overlay")
     return parser
 
 
-def read_parameters(arguments) -> Parameters:
-    """``Parameters`` from the JSON file, overridden by the options given."""
-    values = {}
-    if arguments.parameters is not None:
-        record = json.loads(arguments.parameters.read_text())
-        values = record.get("parameters", record)
+def read_record(arguments) -> dict:
+    """The JSON file given with ``--parameters``, or an empty dict."""
+    return {} if arguments.parameters is None else json.loads(arguments.parameters.read_text())
+
+
+def read_parameters(arguments, record: dict) -> Parameters:
+    """``Parameters`` from the JSON ``record``, overridden by the options given."""
+    values = dict(record.get("parameters", record))
     for field in fields(Parameters):
         given = getattr(arguments, field.name)
         if given is not None:
             values[field.name] = given
     return Parameters.from_record(values)
+
+
+def read_options(arguments, record: dict) -> Preprocessing:
+    """Fill in the ``LABEL_OPTIONS`` left unset and return the preprocessing.
+
+    Unset options take the values saved in ``record`` when it is the
+    ``_parameters.json`` of an earlier run, else their defaults; a crop saved
+    there (by ``save_results``) is kept as well.
+    """
+    run = record if "parameters" in record else {}
+    saved = run.get("preprocessing") or {}
+    stored = {"channel": run.get("channel"), "tile_size": run.get("tile_size"), "tile_margin": run.get("tile_margin"),
+              "normalize": saved["normalize"].replace(" ", "-") if "normalize" in saved else None,
+              "percentiles": (saved["low_percentile"], saved["high_percentile"])
+              if "low_percentile" in saved and "high_percentile" in saved else None,
+              "blur": saved.get("blur")}
+    for name, default in LABEL_OPTIONS.items():
+        if getattr(arguments, name) is None:
+            setattr(arguments, name, default if stored[name] is None else stored[name])
+    crop = saved.get("crop")
+    return Preprocessing("full scale" if arguments.normalize == "full-scale" else "percentile",
+                         *arguments.percentiles, blur=arguments.blur,
+                         crop=None if crop is None else tuple(slice(*bounds) for bounds in crop))
 
 
 def image_paths(paths: list[Path]) -> list[Path]:
@@ -127,11 +165,11 @@ def image_paths(paths: list[Path]) -> list[Path]:
 def main(argv=None) -> int:
     arguments = parser().parse_args(argv)
     try:
-        parameters = read_parameters(arguments)
-    except (ValueError, TypeError) as error:
+        record = read_record(arguments)
+        parameters = read_parameters(arguments, record)
+        preprocessing = read_options(arguments, record)
+    except (ValueError, TypeError, KeyError) as error:
         raise SystemExit(f"error: {error}")
-    preprocessing = Preprocessing("full scale" if arguments.normalize == "full-scale" else "percentile",
-                                  *arguments.percentiles, blur=arguments.blur)
     print(f"parameters: {parameters}")
     inferred = parameters.unset
     for path in image_paths(arguments.images):
@@ -147,8 +185,8 @@ def main(argv=None) -> int:
             raise SystemExit(f"error: {path.name}: {error}")
         written = save_results(arguments.out, path.stem, image, segmentation, parameters, preprocessing,
                                arguments.overlay_scale, arguments.vmax,
-                               extra={"file": str(path), "tile_size": arguments.tile_size,
-                                      "tile_margin": arguments.tile_margin})
+                               extra={"file": str(path), "channel": arguments.channel,
+                                      "tile_size": arguments.tile_size, "tile_margin": arguments.tile_margin})
         print(f"{path.name}: {segmentation.n_segments} segments in {time.perf_counter() - clock:.1f} s -> "
               f"{', '.join(p.name for p in written)}")
         if inferred:

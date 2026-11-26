@@ -46,7 +46,10 @@ python -m dropseg my_images/ --parameters results/simulated_puncta_parameters.js
 
 Every parameter below is an option (`--min-bar-length 0.15`), and
 `--parameters` reads a JSON file of parameters, such as the
-`_parameters.json` of an earlier run. Intensity levels given neither way are
+`_parameters.json` of an earlier run; from such a file it also restores the
+channel, preprocessing (`--normalize`, `--percentiles`, `--blur`) and tiling
+(`--tile-size`, `--tile-margin`) of that run, unless given on the command
+line, so the run repeats exactly. Intensity levels given neither way are
 inferred from each image; the command prints the values it used and
 recommends tuning them with `dropseg.Tuner`. `--workers 4` segments the tiles of
 upsampled or large images on 4 processes (default 1); the results don't

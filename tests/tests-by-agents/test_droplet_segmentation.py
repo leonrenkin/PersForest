@@ -353,6 +353,63 @@ class FilesAndCommandLineTests(unittest.TestCase):
             labels = [np.asarray(Image.open(folder / run / "scene_labels.tif")) for run in ("first", "second")]
             np.testing.assert_array_equal(*labels)
 
+    def _run_with_nondefault_options(self, folder):
+        """Segment a noisy color scene with nondefault channel, preprocessing and tiling; returns the labels."""
+        droplets = [Droplet(14, 14, 6, 0.8), Droplet(34, 50, 5, 0.6), Droplet(30, 18, 6, 0.7), Droplet(30, 30, 6, 0.7)]
+        gray = np.clip(droplet_image(droplets, (48, 64), blur=1.0, background=0.05, noise=0.04, seed=1), 0, 1)
+        rgb = np.zeros((48, 64, 3), np.uint8)
+        rgb[..., 1] = np.round(gray * 200)
+        rgb[..., 0] = 255 - rgb[..., 1]  # a different channel, so the channel must be restored too
+        Image.fromarray(rgb).save(folder / "scene.png")
+        labels, _ = self._cli(folder, "first", "--channel", "1", "--normalize", "percentile", "--percentiles", "0.5",
+                              "99.5", "--blur", "1", "--upsample", "2", "--tile-size", "24", "--tile-margin", "10",
+                              "--min-area", "3")
+        return labels
+
+    def _cli(self, folder, out, *options):
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            cli([str(folder / "scene.png"), "--out", str(folder / out), *options])
+        return (np.asarray(Image.open(folder / out / "scene_labels.tif")),
+                json.loads((folder / out / "scene_parameters.json").read_text()))
+
+    def test_replaying_parameters_restores_channel_preprocessing_and_tiling(self):
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            first = self._run_with_nondefault_options(folder)
+            saved = json.loads((folder / "first" / "scene_parameters.json").read_text())
+            self.assertEqual(saved["preprocessing"], {"normalize": "percentile", "low_percentile": 0.5,
+                                                      "high_percentile": 99.5, "crop": None, "blur": 1.0})
+            self.assertEqual((saved["channel"], saved["tile_size"], saved["tile_margin"]), (1, 24, 10))
+            replay, record = self._cli(folder, "replay", "--parameters", str(folder / "first" / "scene_parameters.json"))
+            np.testing.assert_array_equal(first, replay)
+            for key in ("parameters", "preprocessing", "channel", "tile_size", "tile_margin"):
+                self.assertEqual(record[key], saved[key], key)
+
+    def test_options_given_override_the_replayed_ones(self):
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            first = self._run_with_nondefault_options(folder)
+            labels, record = self._cli(folder, "override", "--parameters",
+                                       str(folder / "first" / "scene_parameters.json"), "--blur", "0")
+            self.assertEqual(record["preprocessing"]["blur"], 0.0)
+            self.assertEqual(record["preprocessing"]["high_percentile"], 99.5)  # the others are still restored
+            self.assertEqual((record["channel"], record["tile_size"], record["tile_margin"]), (1, 24, 10))
+            self.assertFalse(np.array_equal(first, labels))  # the blur changes this segmentation
+
+    def test_replaying_an_older_file_without_the_options_uses_the_defaults(self):
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            self._run_with_nondefault_options(folder)
+            older = json.loads((folder / "first" / "scene_parameters.json").read_text())
+            for key in ("preprocessing", "channel", "tile_size", "tile_margin"):
+                del older[key]
+            (folder / "older.json").write_text(json.dumps(older))
+            _, record = self._cli(folder, "older", "--parameters", str(folder / "older.json"), "--channel", "1")
+            self.assertEqual(record["preprocessing"], {"normalize": "full scale", "low_percentile": 1.0,
+                                                       "high_percentile": 99.9, "crop": None, "blur": 0.0})
+            self.assertEqual((record["tile_size"], record["tile_margin"]), (64, 12))
+            self.assertEqual(record["parameters"], older["parameters"])
+
 
 @unittest.skipIf(MISSING, f"needs {MISSING}")
 class MergeSmallLobesTests(unittest.TestCase):
