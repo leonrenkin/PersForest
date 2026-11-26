@@ -83,7 +83,7 @@ class AnimationPackageTests(unittest.TestCase):
         command = run.call_args.args[0]
         self.assertEqual(command[0], '/fake/ffmpeg')
         self.assertEqual(command[command.index('-r') + 1], '3')
-        self.assertEqual(command[-1], '/movie.mp4')
+        self.assertEqual(command[-1], str(Path('/movie.mp4')))
 
     def test_paired_frames_keep_both_barcode_markers_synchronized(self):
         from persforest.plotting.animation.filtration import animate_filtration_pair

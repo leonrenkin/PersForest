@@ -96,7 +96,7 @@ assert not f.barcode
             path = Path(directory) / 'tetrahedra.html'
             figure = forest.animate_filtration(filename=str(path), frames=3, t_max=7)
             self.assertTrue(figure.frames)
-            self.assertIn('Plotly.addFrames', path.read_text())
+            self.assertIn('Plotly.addFrames', path.read_text(encoding='utf-8'))
 
     def test_measurement_animation_tracks_same_time_as_profile(self):
         forest = build(split())

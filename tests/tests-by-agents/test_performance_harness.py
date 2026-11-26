@@ -43,6 +43,9 @@ def _config(schedule="pilot", **overrides):
     return config
 
 
+# The runner measures RSS with Unix-only APIs and supports only macOS and Linux.
+@unittest.skipUnless(sys.platform == "darwin" or sys.platform.startswith("linux"),
+                     "the benchmark runner supports macOS and Linux only")
 class PerformanceHarnessTests(unittest.TestCase):
     def test_metadata_hashes_current_src_including_nested_modules(self):
         with patch.dict(sys.modules, {"sampling": sampling}):
@@ -136,7 +139,6 @@ class PerformanceHarnessTests(unittest.TestCase):
         np.testing.assert_array_equal(before[1], after[1])
         self.assertEqual(before[2:], after[2:])
 
-    @unittest.skipIf(runner.resource is None, "the resource module is Unix-only")
     def test_peak_units_and_truncated_result(self):
         with patch.object(runner.resource, "getrusage", return_value=SimpleNamespace(ru_maxrss=123)):
             with patch.object(runner.sys, "platform", "darwin"):
