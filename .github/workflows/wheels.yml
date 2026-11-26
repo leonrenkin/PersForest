@@ -1,0 +1,101 @@
+name: Wheels and release
+
+# Builds and tests binary wheels for every supported platform and the sdist.
+# Publishing uses PyPI trusted publishing (no stored token):
+# - a manual run with `target: testpypi` uploads to TestPyPI (dry run);
+# - publishing a GitHub release uploads to PyPI.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Where to upload the built distributions"
+        type: choice
+        options: [none, testpypi]
+        default: none
+  pull_request:
+    paths: ["cpp/**", "CMakeLists.txt", "pyproject.toml", ".github/workflows/wheels.yml",
+            "tests/tests-by-agents/wheel_smoke.py"]
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  wheels:
+    name: Wheels / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # x86_64 and aarch64 Linux run natively; macOS builds x86_64 and arm64
+        # (x86_64 is tested under Rosetta); Windows builds AMD64.
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.13.6"
+      - uses: pypa/cibuildwheel@f9b966cfadf4109556cadc5bb39ddb72d0ce664e # v4.3.5
+        with:
+          output-dir: wheelhouse
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.13.6"
+          python-version: "3.13"
+      - name: Build the sdist and a wheel from it
+        run: |
+          uv build --no-sources --out-dir dist
+          uv run --no-project python tests/tests-by-agents/verify_restructured_distribution.py dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish-testpypi:
+    name: Upload to TestPyPI
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/persforest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  publish-pypi:
+    name: Upload to PyPI
+    if: github.event_name == 'release' && github.event.action == 'published'
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/persforest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3

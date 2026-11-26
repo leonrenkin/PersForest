@@ -9,9 +9,11 @@ authors:
     given-names: Leon
   - family-names: Lenzen
     given-names: Fabian
-version: 0.2.0
+version: 0.3.0
 date-released: 2026-10-30
-license: MIT
+license:
+  - MIT
+  - BSD-3-Clause
 repository-code: "https://github.com/leonrenkin/persforest"
 keywords:
   - persistent homology

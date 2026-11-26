@@ -1,6 +1,6 @@
 [project]
 name = "persforest"
-version = "0.2.0"
+version = "0.3.0"
 description = "Persistence forests, cycle progression barcodes and measurement landscapes for codimension-one persistent homology."
 authors = [
     {name = "Leon Renkin",email = "leon.renkin@gmail.com"},
@@ -74,6 +74,22 @@ wheel.packages = ["src/persforest"]
 sdist.exclude = ["*"]
 sdist.include = ["/src/persforest/**/*.py", "/cpp/*.cpp", "/cpp/*.hpp", "/cpp/third_party/**",
                  "/CMakeLists.txt", "/LICENSE", "/README.md", "/pyproject.toml"]
+
+[tool.cibuildwheel]
+# CPython 3.11-3.14 (cp314-* excludes the free-threaded cp314t, which the
+# engine is not built for). No 32-bit or musllinux wheels: NumPy has none for
+# most supported versions there, and those platforms can build from the sdist.
+build = ["cp311-*", "cp312-*", "cp313-*", "cp314-*"]
+skip = ["*_i686", "*-win32", "*-musllinux_*"]
+build-frontend = "build[uv]"
+# GUDHI is the reference for most engine tests; it has no Linux aarch64 wheels,
+# where the smoke test runs only the modules that do not need it.
+test-requires = ["gudhi>=3.11; platform_machine != 'aarch64'"]
+test-command = "python {project}/tests/tests-by-agents/wheel_smoke.py"
+
+[tool.cibuildwheel.macos]
+archs = ["x86_64", "arm64"]
+environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }
 
 [tool.uv]
 # Rebuild the editable install when the compiled engine or its build changes.

@@ -1,0 +1,79 @@
+name: Package tests
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  supported-python:
+    name: Python ${{ matrix.python }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.11", "3.12", "3.13", "3.14"]
+        include:
+          - os: macos-latest
+            python: "3.14"
+          - os: windows-latest
+            python: "3.14"
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      MPLBACKEND: Agg
+      MPLCONFIGDIR: ${{ runner.temp }}/persforest-mpl
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.13.6"
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+      - name: Check core-only installation
+        run: |
+          uv sync --locked --no-editable
+          uv run --no-sync python -c "import importlib.util; assert all(importlib.util.find_spec(p) is None for p in ('matplotlib', 'seaborn', 'plotly', 'pandas', 'gudhi'))"
+          cd "$RUNNER_TEMP"
+          uv run --project "$GITHUB_WORKSPACE" --no-sync python "$GITHUB_WORKSPACE/tests/tests-by-agents/test_installation.py"
+      - name: Check plotting without dataframe dependencies
+        run: |
+          uv sync --locked --extra plot --no-editable
+          uv run --no-sync python -c "import importlib.util; assert all(importlib.util.find_spec(p) is None for p in ('seaborn', 'pandas'))"
+          cd "$RUNNER_TEMP"
+          uv run --project "$GITHUB_WORKSPACE" --no-sync python "$GITHUB_WORKSPACE/tests/tests-by-agents/test_installation.py"
+      - name: Build and inspect distributions
+        run: |
+          uv build --no-sources --out-dir "$RUNNER_TEMP/dist"
+          uv run --no-sync python tests/tests-by-agents/verify_restructured_distribution.py "$RUNNER_TEMP/dist"
+      - name: Test the wheel outside the checkout with all extras
+        run: |
+          uv sync --locked --all-extras --no-install-project
+          uv pip install --no-deps "$RUNNER_TEMP"/dist/*.whl
+          expected=$(uv run --no-sync python -c "from pathlib import Path; import persforest; print(Path(persforest.__file__).resolve().parent)")
+          cd "$RUNNER_TEMP"
+          uv run --project "$GITHUB_WORKSPACE" --no-sync python "$GITHUB_WORKSPACE/tests/tests-by-agents/run_restructured_suite.py" --implementation installed --expected-package "$expected"
+
+  minimum-dependencies:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      MPLBACKEND: Agg
+      MPLCONFIGDIR: ${{ runner.temp }}/persforest-mpl
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.13.6"
+          python-version: "3.11"
+      - name: Resolve minimum direct dependencies and test installed package
+        shell: bash
+        run: |
+          uv venv
+          uv pip install --resolution lowest-direct ".[gudhi,plot,plotly,notebook,examples]"
+          expected=$(uv run --no-sync python -c "from pathlib import Path; import persforest; print(Path(persforest.__file__).resolve().parent)")
+          cd "$RUNNER_TEMP"
+          uv run --project "$GITHUB_WORKSPACE" --no-sync python "$GITHUB_WORKSPACE/tests/tests-by-agents/run_restructured_suite.py" --implementation installed --expected-package "$expected"

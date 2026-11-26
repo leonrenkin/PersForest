@@ -36,17 +36,19 @@ in `examples/tendril_regression/`. Citation metadata is in
 
 ## Installation
 
-Requires Python 3.11–3.14. The base installation needs only NumPy;
-GUDHI and plotting dependencies are optional extras. Installing from source compiles a
-small C++ extension, so a C++17 compiler is required (Xcode Command Line Tools
-on macOS, GCC or Clang on Linux, Visual Studio Build Tools on Windows); CMake
-and the other build tools are fetched automatically.
+Requires Python 3.11–3.14. The base installation needs only NumPy; GUDHI and
+plotting dependencies are optional extras.
 
 ```bash
-git clone https://github.com/leonrenkin/persforest.git
-cd persforest
-python -m pip install ".[plot]"
+python -m pip install "persforest[plot]"
 ```
+
+Binary wheels are available for Linux (x86_64, aarch64), macOS (Intel and Apple
+silicon, macOS 11 or later) and Windows (x86_64). On other platforms, and when
+installing from a Git checkout, pip compiles a small C++ extension, which needs
+a C++17 compiler (Xcode Command Line Tools on macOS, GCC or Clang on Linux,
+Visual Studio Build Tools on Windows); CMake and the other build tools are
+fetched automatically.
 
 | Extra | Adds |
 | --- | --- |
@@ -57,7 +59,8 @@ python -m pip install ".[plot]"
 | `examples` | pandas and scikit-learn for the research scripts |
 | `droplets` | the droplet segmentation application |
 
-MP4 export additionally needs `ffmpeg` on `PATH`.
+MP4 export additionally needs `ffmpeg` on `PATH`. Changes between releases,
+including how to upgrade from 0.2.0, are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
 For development, use [uv](https://docs.astral.sh/uv/), which installs the
 package editably together with all extras:
@@ -213,8 +216,12 @@ Start with [`examples/tutorials/README.md`](examples/tutorials/README.md):
 
 - `src/persforest/` – the library (`forest.py` is the public facade;
   `filtrations/`, `measurements/`, `landscapes/`, `plotting/` hold the parts).
+- `cpp/` – the compiled engine and the 2D/3D Delaunay filtration builders,
+  with geogram's Delaunay module vendored in `cpp/third_party/geogram/`.
 - `examples/` – tutorials, a quickstart script, and point-cloud samplers.
 - `applications/droplet_segmentation/` – droplet segmentation (`dropseg`).
+- `applications/nuclei-boundary-segmentation/` – nuclei from envelope
+  stainings (`nucseg`), a separately installed package.
 - `research/` – manuscript figures and the tendril regression experiment.
 - `benchmarks/` – runtime and memory benchmarks.
 - `tests/` – hand-written tests and [agent-written tests](tests/tests-by-agents/README.md).
@@ -226,4 +233,5 @@ uv sync --all-extras --locked
 MPLBACKEND=Agg uv run --locked python -m unittest discover -s tests -t .
 ```
 
-CI runs the suite on Python 3.11–3.14.
+CI runs the suite on Python 3.11–3.14 (Linux) and on macOS and Windows, and
+builds and tests the wheels.

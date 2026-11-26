@@ -23,7 +23,8 @@ MPLBACKEND=Agg uv run --locked python tests/tests-by-agents/run_restructured_sui
 
 Plotly checks are skipped when the extra is missing, and the MP4 test is skipped
 when ffmpeg is missing. `test_installation.py` checks a core-only install with all
-optional dependencies blocked.
+optional dependencies blocked. `wheel_smoke.py` runs the engine-focused modules
+against an installed wheel; cibuildwheel runs it for every built wheel.
 
 ## What is covered
 
@@ -53,6 +54,10 @@ optional dependencies blocked.
   flat cells, Delaunay–Čech values against minimal enclosing balls in rational
   arithmetic, duplicates, empty inputs, scaling, determinism across runs,
   threads and point order (`test_delaunay_builder.py`).
+- Bar order: `forest.barcode` iterates in `bar.index` order, ties are broken by
+  index, and profiles are identical across fresh processes; representative
+  queries reject NaN and values outside `[birth, death)`
+  (`test_bar_order_and_queries.py`).
 - Measurements, measurement profiles and landscapes, checked against
   independent analytic computations.
 - Plot data, animations, MP4/HTML export, droplet segmentation, and the
