@@ -117,9 +117,10 @@ from their modules, e.g. `persforest.measurements.shape` or
 ## Performance
 
 Building the forest of a large input takes seconds. The times below run from
-a NumPy array to the complete forest and its barcode (filtration, forest and
-bar objects); every bar's cycle representatives can then be read from the
-forest. Peak memory is that of the whole Python process, input included.
+a NumPy array to the complete persistence forest, which holds the barcode and
+the cycle representatives of every bar at every filtration value; single
+representatives are then read from it on demand. Peak memory is that of the
+whole Python process, input included.
 Measured on an Apple M4 Pro (macOS, Python 3.13) in November 2026.
 
 **Point clouds** (alpha filtration, uniform random points; median of 3 runs;
