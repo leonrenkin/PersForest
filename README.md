@@ -127,7 +127,7 @@ Delaunay–Čech takes about the same time):
 | 100,000 | 0.14 s | 0.14 GiB | 0.36 s | 0.33 GiB |
 | 1,000,000 | 1.7 s | 0.96 GiB | 4.8 s | 3.0 GiB |
 | 3,000,000 | 6.1 s | 2.7 GiB | 17 s | 8.9 GiB |
-| 10,000,000 | 24 s | 9.3 GiB | 80 s¹ | 15 GiB¹ |
+| 10,000,000 | 24 s | 9.3 GiB | 63 s¹ | 26 GiB¹ |
 
 ¹ One run.
 
