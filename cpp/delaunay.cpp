@@ -624,12 +624,13 @@ double exact_radius(const double* points, const BallSupport& support, CachedRadi
 // the fast path, e.g. an alpha facet that enters with its top coface.
 template <int D, typename GetSupport>
 void refine_radii(std::vector<Event>& events, const double* points, GetSupport get_support) {
-    const auto near = [](double left, double right) { return right - left <= kRadiusOverlap * right; };
+    // Not `near`: <windows.h>, included by geogram, defines it as an empty macro.
+    const auto overlapping = [](double left, double right) { return right - left <= kRadiusOverlap * right; };
     const auto less = [](const Event& x, const Event& y) { return x.value < y.value; };
     std::array<CachedRadius<D>, kRadiusCacheSize> cache;
     for (auto begin = events.begin(); begin != events.end();) {
         auto end = begin + 1;
-        while (end != events.end() && near((end - 1)->value, end->value)) ++end;
+        while (end != events.end() && overlapping((end - 1)->value, end->value)) ++end;
         if (end - begin > 1) {
             const BallSupport first = get_support(*begin);
             const auto distinct = std::find_if(begin + 1, end, [&](const Event& event) {

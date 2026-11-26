@@ -25,6 +25,10 @@ nanobind_add_module(_engine NB_STATIC NOMINSIZE cpp/bindings.cpp cpp/engine.cpp 
 # GEO_STATIC_LIBS keeps geogram's API macros empty (no dllimport on Windows).
 # The header is a system include so its warnings stay out of our files.
 target_compile_definitions(_engine PRIVATE GEO_STATIC_LIBS)
+# geogram includes <windows.h>; keep its min/max macros and rarely used parts out.
+if(WIN32)
+  target_compile_definitions(_engine PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
 target_include_directories(_engine SYSTEM PRIVATE ${GEOGRAM_DIR})
 target_link_libraries(_engine PRIVATE Threads::Threads)
 

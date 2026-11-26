@@ -158,10 +158,11 @@ class CubicalInputTests(unittest.TestCase):
                 PersistenceForest.from_cubical_grid(**kwargs)
 
     def test_doubled_grid_size_limit(self):
-        # 3^19 doubled-grid positions fit 32-bit IDs, 3^20 and 3^40 do not; the
-        # last overflowed 64-bit size arithmetic before the guard.
+        # 3^19 doubled-grid positions fit 32-bit IDs, 3^20 and 3^32 do not
+        # (NumPy before 2.0 allows at most 32 axes). In the engine, 3^40
+        # overflowed 64-bit size arithmetic before the guard.
         self.assertEqual(len(PersistenceForest.from_cubical_grid(np.zeros((1,) * 19)).barcode), 0)
-        for shape in [(1,) * 20, (1,) * 40]:
+        for shape in [(1,) * 20, (1,) * 32]:
             with self.subTest(shape=len(shape)), self.assertRaisesRegex(ValueError, "doubled-grid positions"):
                 PersistenceForest.from_cubical_grid(np.broadcast_to(0.0, shape))
         from persforest import _engine
