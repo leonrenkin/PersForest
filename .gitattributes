@@ -1,0 +1,2 @@
+# Notebooks are committed without outputs; see tools/strip_notebook_outputs.py.
+*.ipynb filter=strip-notebook-outputs

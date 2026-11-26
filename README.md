@@ -73,6 +73,13 @@ uv run python examples/pers_forest_example.py
 `uv sync` rebuilds the C++ extension when files in `cpp/` or the build
 configuration change.
 
+Notebooks are committed without outputs. Enable the Git filter that strips
+them (your working copy keeps its outputs) once per clone:
+
+```bash
+git config filter.strip-notebook-outputs.clean "python3 tools/strip_notebook_outputs.py"
+```
+
 ## Quickstart
 
 ```python
