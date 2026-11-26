@@ -1,0 +1,9 @@
+# Microscopy data and outputs stay out of version control (see README, "Data").
+data/
+results/
+example_data/
+archive/
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store
