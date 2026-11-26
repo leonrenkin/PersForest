@@ -3,10 +3,8 @@
 **/paper_figures/
 **/.DS_Store
 .venv/
-manuscript/
 AGENTS.md
 benchmarks/performance/results
-docs/
 .pytest_cache
 dist/
 
@@ -18,5 +16,10 @@ applications/nuclei-boundary-segmentation/results
 applications/nuclei-boundary-segmentation/archive
 applications/nuclei-boundary-segmentation/.venv
 
-# Build trees of the compiled engine
+# Build trees of the compiled engine and other build and tool leftovers
 build/
+wheelhouse/
+*.egg-info/
+.ipynb_checkpoints/
+.mypy_cache/
+.ruff_cache/
