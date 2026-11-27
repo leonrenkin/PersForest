@@ -496,6 +496,14 @@ class PersistenceForest:
         Each yielded chain is independent and carries its interior and its
         half-open activity interval ``[active_start, active_end)``.
 
+        Because every step builds a full copy of the representative, iterating
+        a bar costs the sum of its representatives' sizes. This is fast for
+        typical bars but grows quadratically for a bar whose cycle grows over
+        many steps, such as the dominant cycle of a noisy circle (about a
+        minute for that one bar at 300k points). For representatives at a few
+        filtration values, use :meth:`cycle_for_bar_at`, whose cost is
+        proportional to the representative it returns.
+
         Raises
         ------
         ValueError
