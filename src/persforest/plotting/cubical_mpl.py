@@ -26,6 +26,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
 
+from persforest.barcode import _value_at_relative_position
 from persforest.geometry.cubical import CubicalGeometry
 from persforest.plotting import _cubical_scene as scene
 from persforest.plotting._lines import add_cycle_lines
@@ -459,7 +460,9 @@ def plot_cubical_barcode_cycle_reps(
     Plot one representative of each sufficiently long bar of a 2D cubical forest.
 
     The representative of each bar is sampled at
-    ``birth + lifespan * relative_position``; longer bars are drawn on top.
+    ``birth + lifespan * relative_position``, ``relative_position`` in
+    ``[0, 1)``; longer bars are drawn on top and bars with ``birth == death``
+    are skipped.
     Target of ``PersistenceForest.plot_barcode_cycle_reps`` for cubical
     forests. Parameters match ``plot_cubical_at_filtration`` where shared;
     ``style_2d["cycle_edge_width"]`` takes precedence over ``linewidth_cycle``.
@@ -470,8 +473,8 @@ def plot_cubical_barcode_cycle_reps(
     -------
     matplotlib.axes.Axes
     """
-    if relative_position < 0 or relative_position > 1:
-        raise ValueError("relative_position must be in [0,1]")
+    if relative_position < 0 or relative_position >= 1:
+        raise ValueError("relative_position must be in [0,1)")
     geometry = scene.require_grid_dimension(forest, "plot_barcode_cycle_reps", supported=(2,))
     show_image = scene.resolve_flat_options(geometry, image_orientation, show_image)
     # Many cycles cross the gray image here, so each gets a white halo.
@@ -490,9 +493,10 @@ def plot_cubical_barcode_cycle_reps(
         _draw_complex_2d(ax, forest, geometry, None, style, image_orientation, show_image=True)
 
     for bar in forest.barcode:
-        if bar.lifespan() < min_bar_length:
+        value = _value_at_relative_position(bar, relative_position)
+        if bar.lifespan() < min_bar_length or value is None:
             continue
-        cycle = forest.cycle_for_bar_at(bar, bar.birth + bar.lifespan() * relative_position)
+        cycle = forest.cycle_for_bar_at(bar, value)
         # Longer bars on top, above the value image (z-order 0.5) and the outline.
         _draw_cycle_2d(ax, cycle.unsigned() if remove_double_edges else cycle, color_map[bar],
                        geometry, image_orientation, cycle_linewidth,

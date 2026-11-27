@@ -12,6 +12,7 @@ from matplotlib.collections import LineCollection
 from matplotlib.collections import PolyCollection
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from persforest.barcode import _value_at_relative_position
 from persforest.chains import SignedChain
 from persforest.plotting._geometry import _camera_from_eye
 from persforest.plotting._geometry import boundary_triangles
@@ -792,7 +793,8 @@ def plot_barcode_cycle_reps(
     min_bar_length : float
         Minimum lifespan of bars to consider.
     relative_position : float
-        Relative position in each bar, between 0 and 1.
+        Relative position in each bar's lifespan, in ``[0, 1)``; bars with
+        ``birth == death`` are skipped.
     ax : matplotlib.axes.Axes or None
         Axes to draw on; if None, a new figure+axes are created.
     show : bool
@@ -825,8 +827,8 @@ def plot_barcode_cycle_reps(
     -------
     matplotlib.axes.Axes
     """
-    if relative_position < 0 or relative_position > 1:
-        raise ValueError("relative_position must be in [0,1]")
+    if relative_position < 0 or relative_position >= 1:
+        raise ValueError("relative_position must be in [0,1)")
 
     if forest.dim != 2:
         raise ValueError("plot_barcode_cycle_reps only implemented for dimension 2")
@@ -861,14 +863,13 @@ def plot_barcode_cycle_reps(
 
     longest = max((bar.lifespan() for bar in forest.barcode), default=0.0) or 1.0
     for bar in forest.barcode:
-        if bar.lifespan() < min_bar_length:
+        value = _value_at_relative_position(bar, relative_position)
+        if bar.lifespan() < min_bar_length or value is None:
             continue
         # Above the points, longer bars on top.
         cycle_zorder = point_zorder + 1 + bar.lifespan() / longest
 
-        cycle = forest.cycle_for_bar_at(
-            bar, bar.birth + bar.lifespan() * relative_position
-        )
+        cycle = forest.cycle_for_bar_at(bar, value)
         if cycle.dim() != 1:
             raise ValueError(
                 f"plot_barcode_cycle_reps expected a 1-chain, got dim={cycle.dim()}"

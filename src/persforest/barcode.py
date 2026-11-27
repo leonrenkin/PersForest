@@ -1,7 +1,24 @@
 """barcode: the bars of a persistence forest."""
 
+import math
 from collections.abc import Sequence
 from typing import Any
+
+
+def _value_at_relative_position(bar, relative_position: float) -> float | None:
+    """Return ``birth + lifespan * relative_position``, kept in the bar's lifespan.
+
+    A representative is active on the half-open lifespan ``[birth, death)``,
+    so for ``relative_position`` in ``[0, 1)`` the value must stay below the
+    death. If rounding carries it to the death (bars a few ulps long), the
+    largest float below the death is returned. A bar with ``birth == death``
+    (possible with ``reduce=False``) has an empty lifespan and no active
+    representative; it gives None.
+    """
+    if not bar.birth < bar.death:
+        return None
+    value = bar.birth + bar.lifespan() * relative_position
+    return value if value < bar.death else math.nextafter(bar.death, -math.inf)
 
 
 class PFBar:

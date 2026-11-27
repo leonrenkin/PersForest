@@ -13,7 +13,7 @@ from typing import Iterator, List, Tuple
 import numpy as np
 
 from persforest._forest.arrays import chain_ids
-from persforest.barcode import PFBar
+from persforest.barcode import PFBar, _value_at_relative_position
 from persforest.chains import SignedChain
 
 
@@ -258,18 +258,18 @@ def barcode_cycle_reps(self, relative_position=0.1, min_bar_length: float = 0) -
         Returns
         -------
         list[SignedChain]
-            Cycle representatives for all bars in the barcode.
+            Cycle representatives for all bars in the barcode. Bars with
+            ``birth == death`` have no active representative and are skipped.
         """
     if relative_position < 0 or relative_position >= 1:
         raise ValueError("relative_position must be in [0,1)")
 
     # Get all bars in the barcode
     all_bars = sorted(list(self.barcode), key=lambda bar: bar.lifespan(), reverse=True)
-    
+
     # Select bars based on relative position and minimum bar length
     selected_bars = [bar for bar in all_bars if bar.lifespan() >= min_bar_length]
-    
-    # Compute cycle representatives for each selected bar
-    cycles = [self.cycle_for_bar_at(bar, bar.birth + (bar.lifespan() * relative_position)) for bar in selected_bars]
-    
-    return cycles
+
+    # Compute cycle representatives for each selected bar with a nonempty lifespan
+    values = [(bar, _value_at_relative_position(bar, relative_position)) for bar in selected_bars]
+    return [self.cycle_for_bar_at(bar, value) for bar, value in values if value is not None]

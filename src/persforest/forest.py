@@ -600,14 +600,17 @@ class PersistenceForest:
         Parameters
         ----------
         relative_position : float
-            Relative position in the barcode (between 0 and 1).
+            Relative position in each bar's lifespan, in ``[0, 1)``: the
+            representative is taken at ``birth + lifespan * relative_position``.
         min_bar_length : float
             Minimum lifespan of bars to consider.
 
         Returns
         -------
         list[SignedChain]
-            Cycle representatives for all bars in the barcode.
+            Cycle representatives for all bars in the barcode. Bars with
+            ``birth == death`` (possible with ``reduce=False``) have no active
+            representative and are skipped.
         """
         from persforest._forest.representatives import barcode_cycle_reps
         return barcode_cycle_reps(self, relative_position, min_bar_length)
@@ -1251,15 +1254,16 @@ class PersistenceForest:
         Plot one representative cycle for each sufficiently long barcode bar.
 
         The representative for each selected bar is sampled at
-        ``birth + lifespan * relative_position``. This method is implemented
-        only for 2D point clouds and 2D cubical grids.
+        ``birth + lifespan * relative_position``; bars with ``birth == death``
+        have no active representative and are skipped. This method is
+        implemented only for 2D point clouds and 2D cubical grids.
 
         Parameters
         ----------
         min_bar_length : float
             Minimum lifespan of bars to consider.
         relative_position : float
-            Relative position in each bar, between 0 and 1.
+            Relative position in each bar's lifespan, in ``[0, 1)``.
         ax : matplotlib.axes.Axes or None
             Axes to draw on; if None, a new figure+axes are created.
         show : bool

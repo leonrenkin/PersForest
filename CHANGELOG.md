@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `barcode_cycle_reps` and `plot_barcode_cycle_reps` skip bars with
+  `birth == death`, which `reduce=False` produces; they raised `ValueError`
+  unless `min_bar_length` was positive. A bar only a few ulps long, whose
+  sampled value rounded up to its death, is sampled just below the death.
+  `plot_barcode_cycle_reps` rejects `relative_position=1` with a clear message,
+  as `barcode_cycle_reps` does, instead of failing on the first bar.
+
 ## 0.3.0 (2026-11-26)
 
 The forest is now built by a compiled C++ engine, and 2D/3D point-cloud
